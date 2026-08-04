@@ -1,0 +1,823 @@
+<style>
+  :root {
+    --cream: #fff9f1;
+    --paper: #fffdf9;
+    --ink: #172038;
+    --muted: #6b7385;
+    --line: #ece5da;
+    --navy: #111d36;
+    --coral: #ff6a4d;
+    --coral-deep: #f04f31;
+    --teal: #1d7f8e;
+    --teal-soft: #cdeef2;
+    --blue: #4e83e8;
+    --blue-soft: #cfe4ff;
+    --mint: #2eaa81;
+    --mint-soft: #c9efdb;
+    --lavender: #8b5cf6;
+    --lavender-soft: #e5d7ff;
+    --gold-soft: #ffe3a3;
+    --pink-soft: #ffd3e5;
+    --shadow: 0 30px 70px rgba(23, 32, 56, 0.13);
+    --shadow-soft: 0 12px 30px rgba(23, 32, 56, 0.08);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--cream);
+    color: var(--ink);
+    font-family: var(--font-inter-tight), "Inter Tight", Arial, sans-serif;
+    margin: 0;
+  }
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; }
+  img { max-width: 100%; }
+  .site-shell { min-width: 320px; overflow: hidden; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    align-items: center;
+    display: flex;
+    gap: 28px;
+    justify-content: space-between;
+    margin: 0 auto;
+    max-width: 1240px;
+    padding: 22px 28px;
+    position: relative;
+    z-index: 20;
+  }
+  .brand { align-items: center; display: inline-flex; font-size: 21px; font-weight: 800; gap: 9px; letter-spacing: -0.04em; white-space: nowrap; }
+  .brand-mark {
+    align-items: center;
+    background: var(--coral);
+    border-radius: 9px 9px 9px 3px;
+    color: #fff;
+    display: inline-flex;
+    font-size: 17px;
+    font-weight: 900;
+    height: 30px;
+    justify-content: center;
+    transform: rotate(-6deg);
+    width: 30px;
+  }
+  .brand-mark-small { border-radius: 6px 6px 6px 2px; font-size: 12px; height: 22px; width: 22px; }
+  .desktop-nav { align-items: center; display: flex; gap: 30px; margin: 0 auto; }
+  .desktop-nav a, .text-link { color: #47526b; font-size: 14.5px; font-weight: 600; transition: color .18s ease; }
+  .desktop-nav a:hover, .text-link:hover { color: var(--coral); }
+  .topbar-actions { align-items: center; display: flex; gap: 18px; }
+
+  .button {
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: 99px;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 15px;
+    font-weight: 700;
+    gap: 9px;
+    padding: 13px 24px;
+    transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+  }
+  .button:hover { transform: translateY(-2px); }
+  .button-coral { background: var(--coral); box-shadow: 0 12px 26px rgba(240, 79, 49, .32); color: #fff; }
+  .button-coral:hover { background: var(--coral-deep); }
+  .button-dark { background: var(--navy); color: #fff; }
+  .button-outline { background: #fff; border-color: var(--line); color: var(--ink); }
+  .button-small { font-size: 13.5px; padding: 10px 18px; }
+
+  .pill {
+    align-items: center;
+    background: var(--navy);
+    border-radius: 99px;
+    color: #fff;
+    display: inline-flex;
+    font-size: 13px;
+    font-weight: 700;
+    gap: 8px;
+    letter-spacing: .01em;
+    padding: 8px 16px 8px 10px;
+  }
+  .pill-icon { background: var(--coral); border-radius: 99px; display: inline-block; flex: none; height: 8px; margin-left: 5px; width: 8px; }
+  .pill-hero { padding-right: 90px; position: relative; }
+  .pill-roo { bottom: 1px; position: absolute; right: 9px; width: 70px; }
+  .pill-tag {
+    background: var(--pink-soft);
+    border-radius: 5px;
+    color: #b03e72;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .06em;
+    margin-left: 4px;
+    padding: 3px 6px;
+    text-transform: uppercase;
+  }
+
+  .highlight { border-radius: 6px; padding: 0 10px 3px; white-space: nowrap; }
+  .highlight-pink { background: var(--pink-soft); }
+  .highlight-gold { background: var(--gold-soft); }
+  .highlight-mint { background: var(--mint-soft); }
+  .highlight-lavender { background: var(--lavender-soft); }
+  .highlight-blue { background: var(--blue-soft); }
+
+  /* ---------- hero ---------- */
+  .hero { margin: 0 auto; max-width: 1240px; padding: 72px 28px 24px; position: relative; text-align: center; }
+  .hero h1 {
+    font-size: clamp(2.9rem, 6.2vw, 5.1rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.16;
+    margin: 26px auto 0;
+    max-width: 900px;
+  }
+  .hero-lede { color: var(--muted); font-size: 18px; line-height: 1.65; margin: 30px auto 0; max-width: 620px; }
+
+  /* rotating niche ticker — 10 words x 2.5s = 25s cycle */
+  .ticker { display: inline-grid; margin-top: 12px; perspective: 600px; }
+  .ticker-word {
+    animation: tickerFlip 25s cubic-bezier(.35, 0, .25, 1) infinite;
+    background: var(--pink-soft);
+    border-radius: 10px;
+    grid-area: 1 / 1;
+    justify-self: center;
+    opacity: 0;
+    padding: 0 18px 6px;
+    white-space: nowrap;
+  }
+  .ticker-word:nth-child(1) { animation-delay: 0s; }
+  .ticker-word:nth-child(2) { animation-delay: 2.5s; }
+  .ticker-word:nth-child(3) { animation-delay: 5s; }
+  .ticker-word:nth-child(4) { animation-delay: 7.5s; }
+  .ticker-word:nth-child(5) { animation-delay: 10s; }
+  .ticker-word:nth-child(6) { animation-delay: 12.5s; }
+  .ticker-word:nth-child(7) { animation-delay: 15s; }
+  .ticker-word:nth-child(8) { animation-delay: 17.5s; }
+  .ticker-word:nth-child(9) { animation-delay: 20s; }
+  .ticker-word:nth-child(10) { animation-delay: 22.5s; }
+  @keyframes tickerFlip {
+    0% { opacity: 0; transform: rotateX(-92deg); }
+    1.8% { opacity: 1; transform: rotateX(0deg); }
+    10% { opacity: 1; transform: rotateX(0deg); }
+    11.8% { opacity: 0; transform: rotateX(92deg); }
+    100% { opacity: 0; transform: rotateX(92deg); }
+  }
+
+  .hero-proof { color: #4a5570; display: flex; flex-wrap: wrap; font-size: 14.5px; font-weight: 600; gap: 12px 28px; justify-content: center; list-style: none; margin: 32px auto 0; padding: 0; }
+  .hero-proof span { color: var(--mint); font-weight: 900; margin-right: 6px; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 38px; }
+
+  .floaty { pointer-events: none; position: absolute; z-index: 1; }
+  .floaty-tool { filter: drop-shadow(0 14px 22px rgba(23, 32, 56, .18)); width: 88px; }
+  .floaty-a .floaty-tool { width: 92px; }
+  .floaty-b .floaty-tool { width: 96px; }
+  .floaty-c .floaty-tool { width: 98px; }
+  .floaty-d .floaty-tool { width: 90px; }
+  .floaty-e .floaty-tool { width: 72px; }
+  .floaty-f .floaty-tool { width: 84px; }
+  .lead-chip svg, .status-chip svg { height: 12px; width: 12px; }
+  .app-filter svg { height: 14px; width: 14px; }
+  .floaty-a { left: 4%; top: 325px; transform: rotate(-14deg); }
+  .floaty-b { left: 6%; top: 575px; transform: rotate(10deg); }
+  .floaty-c { right: 4%; top: 325px; transform: rotate(12deg); }
+  .floaty-d { right: 6%; top: 590px; transform: rotate(-9deg); }
+  .floaty-e { left: 11%; top: 455px; transform: rotate(6deg); }
+  .floaty-f { right: 11%; top: 455px; transform: rotate(-8deg); }
+  .floaty-spin { animation: floatDrift 7s ease-in-out infinite alternate; }
+  @keyframes floatDrift { from { translate: 0 0; } to { translate: 0 -14px; } }
+
+  /* hero app card */
+  .hero-app {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: var(--shadow);
+    margin: 76px auto 0;
+    max-width: 980px;
+    overflow: hidden;
+    position: relative;
+    text-align: left;
+    z-index: 2;
+  }
+  .app-toolbar { align-items: center; border-bottom: 1px solid #f1ebe2; display: flex; gap: 14px; padding: 16px 22px; }
+  .app-filter { align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 9px; color: #55607a; display: inline-flex; font-size: 13px; font-weight: 600; gap: 8px; padding: 8px 14px; }
+  .app-live { align-items: center; color: var(--mint); display: inline-flex; font-size: 12.5px; font-weight: 700; gap: 7px; margin-left: auto; }
+  .app-live i { animation: livePulse 1.6s ease-in-out infinite; background: var(--mint); border-radius: 99px; display: inline-block; height: 8px; width: 8px; }
+  @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .app-table { border-collapse: collapse; font-size: 14px; width: 100%; }
+  .app-table th { border-bottom: 1px solid #f1ebe2; color: #8b93a7; font-size: 12px; font-weight: 600; letter-spacing: .04em; padding: 12px 22px; text-align: left; text-transform: uppercase; }
+  .app-table td { border-bottom: 1px solid #f6f1e9; padding: 15px 22px; vertical-align: middle; }
+  .app-table tr:last-child td { border-bottom: 0; }
+  .cell-post { color: var(--ink); font-weight: 600; max-width: 380px; }
+  .cell-group { color: #6b7385; font-weight: 500; white-space: nowrap; }
+  .cell-time { color: #98a0b3; font-size: 13px; white-space: nowrap; }
+  .status-chip { align-items: center; border-radius: 99px; display: inline-flex; font-size: 12.5px; font-weight: 700; gap: 7px; padding: 6px 12px; white-space: nowrap; }
+  .status-lead { background: #ffece6; color: var(--coral-deep); }
+  .status-sent { background: #e2f6ec; color: #1d8a63; }
+  .status-checking { background: #e9f1ff; color: #3a6fd8; }
+  .status-skipped { background: #f1f2f5; color: #8b93a7; }
+
+  /* ---------- shared section bits ---------- */
+  .section { margin: 0 auto; max-width: 1240px; padding: 160px 28px 0; text-align: center; }
+  .section h2 { font-size: clamp(2.2rem, 4.4vw, 3.4rem); font-weight: 800; letter-spacing: -0.015em; line-height: 1.22; margin: 30px auto 0; max-width: 760px; }
+  .section-lede { color: var(--muted); font-size: 17px; line-height: 1.65; margin: 26px auto 0; max-width: 560px; }
+
+  /* ---------- post wall ---------- */
+  .wall { columns: 4 250px; column-gap: 18px; margin: 66px auto 0; max-width: 1180px; text-align: left; }
+  .wall-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: var(--shadow-soft);
+    break-inside: avoid;
+    display: inline-block;
+    margin: 0 0 18px;
+    padding: 0 0 4px;
+    width: 100%;
+  }
+    .avatar { align-items: center; border-radius: 99px; color: #fff; display: inline-flex; flex: none; font-size: 13px; font-weight: 800; height: 36px; justify-content: center; width: 36px; }
+  .avatar-coral { background: var(--coral); } .avatar-teal { background: var(--teal); } .avatar-blue { background: var(--blue); } .avatar-mint { background: var(--mint); } .avatar-lavender { background: var(--lavender); } .avatar-navy { background: var(--navy); }
+  .fb-head { align-items: flex-start; display: flex; gap: 10px; padding: 16px 18px 0; }
+  .fb-names { font-size: 13.5px; font-weight: 700; letter-spacing: -.01em; line-height: 1.3; }
+  .fb-names .fb-sep { color: #98a0b3; font-weight: 400; padding: 0 3px; }
+  .fb-time { align-items: center; color: #98a0b3; display: flex; font-size: 12px; gap: 5px; margin-top: 3px; }
+  .fb-time svg { height: 12px; width: 12px; }
+  .fb-body { color: #1f2940; font-size: 14.5px; line-height: 1.5; margin: 0; padding: 12px 18px 0; }
+  .fb-stats { align-items: center; color: #8b93a7; display: flex; font-size: 12.5px; justify-content: space-between; padding: 13px 18px 9px; }
+  .fb-reacts { align-items: center; display: flex; gap: 7px; }
+  .react-stack { display: flex; }
+  .react { align-items: center; border: 2px solid #fff; border-radius: 99px; color: #fff; display: inline-flex; height: 19px; justify-content: center; width: 19px; }
+  .react svg { height: 10px; width: 10px; }
+  .react-like { background: #1877f2; position: relative; z-index: 1; }
+  .react-love { background: #f33e58; margin-left: -5px; }
+  .fb-actions { border-top: 1px solid #f0ece5; display: flex; margin: 0 12px; padding: 4px 0 6px; }
+  .fb-action { align-items: center; border-radius: 8px; color: #65676b; display: flex; flex: 1; font-size: 13px; font-weight: 600; gap: 7px; justify-content: center; padding: 8px 0; }
+  .fb-action:hover { background: #f6f2ea; }
+  button.fb-action { background: none; border: 0; cursor: pointer; }
+  .fb-action.fb-liked, .fb-action.fb-liked:hover { background: #e7f0fd; color: #1877f2; }
+  .fb-liked svg { animation: likePop .3s ease; }
+  @keyframes likePop { 50% { transform: scale(1.3) rotate(-8deg); } }
+  .fb-action svg { height: 15px; width: 15px; }
+
+  /* ---------- one-click ---------- */
+  .oneclick { align-items: center; display: grid; gap: 84px; grid-template-columns: 1fr .9fr; margin: 0 auto; max-width: 1080px; padding: 180px 28px 0; text-align: left; }
+  .oneclick h2 { font-size: clamp(2rem, 3.8vw, 3rem); font-weight: 800; letter-spacing: -.015em; line-height: 1.22; margin: 0; }
+  .oneclick h2 span { color: var(--coral); }
+  .oneclick .section-lede { margin: 24px 0 0; }
+  .oneclick .button { margin-top: 36px; }
+  .setup-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 24px; position: relative; transform: rotate(1.5deg); }
+  .setup-label { color: #8b93a7; display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; margin-bottom: 9px; text-transform: uppercase; }
+  .setup-input { align-items: center; background: #faf7f2; border: 1px solid var(--line); border-radius: 10px; color: #98a0b3; display: flex; font-size: 13.5px; gap: 4px; padding: 12px 14px; }
+  .setup-input strong { color: var(--ink); font-weight: 700; }
+  .setup-input em { animation: caretBlink 1.1s steps(1) infinite; background: var(--coral); border-radius: 1px; display: inline-block; height: 15px; width: 2px; }
+  @keyframes caretBlink { 50% { opacity: 0; } }
+  .setup-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .setup-chip { align-items: center; background: var(--teal-soft); border-radius: 99px; color: #14606c; display: inline-flex; font-size: 12.5px; font-weight: 700; gap: 6px; padding: 6px 12px; }
+  .setup-brief { background: #faf7f2; border: 1px solid var(--line); border-radius: 10px; color: #3c465e; font-size: 14px; line-height: 1.55; margin-top: 20px; padding: 14px; }
+  .setup-brief b { color: var(--ink); }
+  .setup-go { align-items: center; display: flex; justify-content: space-between; margin-top: 18px; }
+  .setup-ready { align-items: center; color: var(--mint); display: inline-flex; font-size: 13px; font-weight: 800; gap: 7px; }
+  .setup-sticker { background: var(--gold-soft); border-radius: 8px; color: #8a5a00; font-size: 12px; font-weight: 800; padding: 7px 12px; position: absolute; right: -18px; top: -16px; transform: rotate(6deg); }
+
+  /* ---------- five steps ---------- */
+  .steps-list { display: grid; gap: 100px; margin: 80px auto 0; max-width: 1000px; text-align: left; }
+  .step-row { align-items: center; display: grid; gap: 76px; grid-template-columns: 1fr 1fr; position: relative; }
+  .step-row:nth-child(even) .step-copy { order: 2; }
+  .step-row:nth-child(even) .step-visual { order: 1; }
+  .step-num {
+    align-items: center;
+    background: var(--coral);
+    border-radius: 99px;
+    box-shadow: 0 10px 22px rgba(240, 79, 49, .3);
+    color: #fff;
+    display: inline-flex;
+    font-size: 15px;
+    font-weight: 800;
+    height: 36px;
+    justify-content: center;
+    width: 36px;
+  }
+  .step-row:not(:last-child)::after { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 130' fill='none'%3E%3Cpath d='M330 6 C330 80 70 50 70 124' stroke='%23b8b1a6' stroke-width='3' stroke-linecap='round' stroke-dasharray='0.1 11'/%3E%3C/svg%3E") no-repeat center / contain; content: ""; height: 130px; left: 50%; pointer-events: none; position: absolute; top: calc(100% - 15px); transform: translateX(-50%); width: min(440px, 62%); }
+  .step-row:nth-child(even):not(:last-child)::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 130' fill='none'%3E%3Cpath d='M70 6 C70 80 330 50 330 124' stroke='%23b8b1a6' stroke-width='3' stroke-linecap='round' stroke-dasharray='0.1 11'/%3E%3C/svg%3E"); }
+  .step-copy h3 { font-size: clamp(1.4rem, 2.4vw, 1.9rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; margin: 20px 0 0; }
+  .step-copy p { color: var(--muted); font-size: 16px; line-height: 1.7; margin: 16px 0 0; max-width: 440px; }
+  .step-visual-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 24px; position: relative; }
+  .step-row:nth-child(odd) .step-visual-card { transform: rotate(1.2deg); }
+  .step-row:nth-child(even) .step-visual-card { transform: rotate(-1.2deg); }
+  .channel-row { align-items: center; border: 1px solid var(--line); border-radius: 10px; display: flex; font-size: 13.5px; font-weight: 700; justify-content: space-between; margin-top: 9px; padding: 12px 15px; }
+  .channel-on { background: #e2f6ec; border-color: #bfe8d2; }
+  .channel-tag { background: #f1f2f5; border-radius: 99px; color: #8b93a7; font-size: 10.5px; font-weight: 800; letter-spacing: .04em; padding: 4px 10px; text-transform: uppercase; }
+  .channel-on .channel-tag { background: #fff; color: #1d8a63; }
+  .watch-head { align-items: center; display: flex; font-size: 16px; font-weight: 800; gap: 10px; }
+  .watch-head i { animation: livePulse 1.6s ease-in-out infinite; background: var(--mint); border-radius: 99px; display: inline-block; height: 10px; width: 10px; }
+  .watch-sub { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+  .watch-note { background: #faf7f2; border: 1px solid var(--line); border-radius: 10px; color: #55607a; font-size: 13.5px; font-weight: 600; margin-top: 18px; max-width: 250px; padding: 12px 14px; }
+  .watch-mascot { bottom: -20px; position: absolute; right: -16px; width: 104px; }
+  .step-alert h4 { font-size: 17px; letter-spacing: -.02em; margin: 10px 0 0; }
+  .step-alert blockquote { border-left: 3px solid var(--line); color: #4a5570; font-size: 14px; line-height: 1.55; margin: 13px 0 0; padding-left: 12px; }
+  .step-alert .why { color: #6b7385; font-size: 13.5px; line-height: 1.5; margin: 13px 0 0; }
+  .step-alert .why b { color: var(--teal); font-weight: 900; margin-right: 5px; }
+  .step-alert .open { color: var(--coral); display: inline-block; font-size: 13.5px; font-weight: 800; margin-top: 15px; }
+
+  /* ---------- noise vs opportunity ---------- */
+  .intent { align-items: center; display: grid; gap: 84px; grid-template-columns: 1fr 1fr; margin: 0 auto; max-width: 1140px; padding: 230px 28px 0; text-align: left; }
+  .intent .intent-card { order: -1; }
+  .intent h2 { font-size: clamp(2rem, 3.8vw, 2.9rem); font-weight: 800; letter-spacing: -.015em; line-height: 1.22; margin: 0; }
+  .intent h2 .dim { color: #98a0b3; }
+  .intent h2 .pop { color: var(--coral); }
+  .intent .section-lede { margin: 24px 0 0; max-width: 480px; }
+  .intent-points { display: grid; gap: 28px; margin-top: 40px; }
+  .intent-point { display: flex; gap: 16px; }
+  .intent-ico { align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-soft); color: #8b93a7; display: inline-flex; flex: none; height: 44px; justify-content: center; width: 44px; }
+  .intent-ico svg { height: 20px; width: 20px; }
+  .intent-point h3 { font-size: 16.5px; letter-spacing: -.01em; margin: 2px 0 0; }
+  .intent-point p { color: var(--muted); font-size: 14.5px; line-height: 1.6; margin: 7px 0 0; max-width: 420px; }
+  .intent-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 22px; }
+  .intent-card-label { align-items: center; color: var(--teal); display: flex; font-size: 12px; font-weight: 800; gap: 8px; letter-spacing: .07em; text-transform: uppercase; }
+  .intent-card-label svg { height: 16px; width: 16px; }
+  .icheck-row { border: 1px solid var(--line); border-radius: 12px; margin-top: 12px; padding: 14px 16px; }
+  .icheck-hot { border-color: var(--coral); box-shadow: 0 8px 22px rgba(240, 79, 49, .12); }
+  .icheck-skip { opacity: .72; }
+  .icheck-head { align-items: center; display: flex; gap: 9px; }
+  .avatar-sm { font-size: 11px; height: 30px; width: 30px; }
+  .icheck-name { font-size: 13.5px; font-weight: 800; }
+  .icheck-time { color: #98a0b3; font-size: 12px; }
+  .icheck-chip { border-radius: 99px; font-size: 11.5px; font-weight: 800; margin-left: auto; padding: 5px 11px; white-space: nowrap; }
+  .icheck-chip-sent { background: #e2f6ec; color: #1d8a63; }
+  .icheck-chip-skip { background: #f1f2f5; color: #8b93a7; }
+  .icheck-row p { color: #3c465e; font-size: 13.5px; line-height: 1.5; margin: 9px 0 0; }
+  .icheck-why { display: block; font-size: 12.5px; font-weight: 800; margin-top: 9px; }
+  .icheck-why-hot { color: var(--teal); }
+  .icheck-why-skip { color: #98a0b3; }
+  .icheck-foot { color: #98a0b3; font-size: 12.5px; margin: 16px 0 2px; text-align: center; }
+  /* ---------- pricing ---------- */
+  .plans { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; margin: 56px auto 0; max-width: 920px; text-align: left; }
+  .plan { background: #fff; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; padding: 30px 32px 34px; }
+  .plan-best { border-color: #f4c9a8; box-shadow: var(--shadow); }
+  .plan-head { align-items: center; display: flex; justify-content: space-between; }
+  .plan-title { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
+  .best-badge { background: var(--gold-soft); border-radius: 99px; color: #8a5a00; font-size: 11px; font-weight: 800; letter-spacing: .05em; padding: 5px 11px; text-transform: uppercase; }
+  .plan-amount { align-items: baseline; display: flex; gap: 8px; margin-top: 24px; }
+  .plan-amount strong { font-size: 48px; font-weight: 800; letter-spacing: -.03em; }
+  .plan-amount span { color: #98a0b3; font-size: 15px; }
+  .plan-sub { color: var(--muted); font-size: 14.5px; line-height: 1.5; margin: 10px 0 0; }
+  .plan-sub b { color: var(--coral); }
+  .plan .button { justify-content: center; margin-top: 24px; width: 100%; }
+  .plan-features { display: grid; gap: 12px; list-style: none; margin: 26px 0 0; padding: 0; }
+  .plan-features li { align-items: center; color: #55607a; display: flex; font-size: 14.5px; gap: 10px; }
+  .plans-guarantee { align-items: center; color: #55607a; display: flex; font-size: 14.5px; font-weight: 700; gap: 9px; justify-content: center; margin: 28px auto 0; }
+  .pf-check { align-items: center; background: var(--mint); border-radius: 99px; color: #fff; display: inline-flex; flex: none; font-size: 11px; font-weight: 900; height: 19px; justify-content: center; width: 19px; }
+  /* ---------- faq ---------- */
+  .faq-list { display: grid; gap: 12px; margin: 56px auto 0; max-width: 720px; text-align: left; }
+  .faq-item { background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-soft); }
+  .faq-item summary { align-items: center; cursor: pointer; display: flex; font-size: 16px; font-weight: 700; gap: 16px; justify-content: space-between; list-style: none; padding: 20px 22px; }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-x { color: var(--coral); flex: none; font-size: 24px; font-weight: 400; line-height: 1; transition: transform .2s ease; }
+  .faq-item[open] .faq-x { transform: rotate(45deg); }
+  .faq-item p { color: var(--muted); font-size: 15px; line-height: 1.65; margin: 0; padding: 0 40px 20px 22px; }
+  /* ---------- final ---------- */
+  .final { margin: 180px auto 0; max-width: none; overflow: hidden; padding: 0 28px; position: relative; text-align: center; }
+  .final h2 { font-size: clamp(2.4rem, 5vw, 4rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.18; margin: 24px auto 0; max-width: 720px; }
+  .final .button { margin-top: 40px; }
+  .final-orbit { font-size: 54px; opacity: .9; position: absolute; z-index: 1; }
+  .final-orbit-left { color: var(--coral); left: 13%; top: 8%; transform: rotate(-14deg); }
+  .final-orbit-right { color: var(--blue); right: 13%; top: 4%; transform: rotate(11deg); }
+  .final-mascot { display: block; margin: 56px auto -40px; max-width: 408px; position: relative; width: 55vw; z-index: 2; }
+
+  /* ---------- footer ---------- */
+  .footer-wrap { background: var(--navy); color: #fff; }
+  .footer { display: grid; gap: 52px; grid-template-columns: 1.2fr repeat(3, auto); margin: 0 auto; max-width: 1240px; padding: 84px 28px 34px; }
+  .footer-brand p { color: #97a5bc; font-size: 13.5px; line-height: 1.6; margin: 16px 0 0; max-width: 260px; }
+  .footer-brand p b { color: var(--coral); font-weight: 800; }
+  .footer-col { display: grid; gap: 12px; }
+  .footer-col strong { color: #8fa1c0; font-size: 11.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+  .footer-col a { color: #c3cddd; font-size: 13.5px; font-weight: 500; }
+  .footer-col a:hover { color: #fff; }
+  .footer-bottom { border-top: 1px solid #263651; color: #728098; display: flex; font-size: 12px; gap: 12px; grid-column: 1 / -1; justify-content: space-between; padding-top: 22px; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1020px) {
+    .desktop-nav { gap: 18px; }
+    .floaty { opacity: .7; transform: scale(.82); }
+    .floaty-e, .floaty-f { display: none; }
+  }
+  @media (max-width: 820px) {
+    .topbar { padding: 18px 20px; }
+    .desktop-nav, .text-link { display: none; }
+    .topbar-actions { margin-left: auto; }
+    .hero { padding: 52px 18px 10px; }
+    .floaty { display: none; }
+    .hero-app { margin-top: 56px; }
+    .app-table th:nth-child(2), .app-table td:nth-child(2) { display: none; }
+    .section { padding: 120px 18px 0; }
+    .oneclick { gap: 48px; grid-template-columns: 1fr; padding: 130px 18px 0; }
+    .setup-card { transform: none; }
+    .steps-list { gap: 64px; margin-top: 56px; }
+    .step-row { gap: 26px; grid-template-columns: 1fr; }
+    .step-row:not(:last-child)::after { display: none; }
+    .step-row:nth-child(even) .step-copy { order: 1; }
+    .step-row:nth-child(even) .step-visual { order: 2; }
+    .step-visual-card, .step-row:nth-child(odd) .step-visual-card, .step-row:nth-child(even) .step-visual-card { transform: none; }
+    .watch-mascot { width: 84px; }
+    .intent { gap: 44px; grid-template-columns: 1fr; padding: 150px 18px 0; }
+    .plans { grid-template-columns: 1fr; }
+    .intent .intent-card { order: 1; }
+    .final { margin-top: 130px; }
+    .final-orbit { display: none; }
+    .final-mascot { max-width: 300px; width: 74vw; }
+    .footer { gap: 30px; grid-template-columns: 1fr 1fr; }
+    .footer-bottom { align-items: flex-start; flex-direction: column; gap: 8px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .ticker-word { animation: none !important; display: none; }
+    .ticker-word:first-child { display: inline-block; opacity: 1; transform: none; }
+  }
+</style>
+
+<main class="site-shell">
+  <header class="topbar" id="top">
+    <a class="brand" href="#top" aria-label="RooWatch home"><span class="brand-mark">R</span><span>RooWatch</span></a>
+    <nav class="desktop-nav" aria-label="Primary navigation">
+      <a href="#leads">The leads</a><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a>
+    </nav>
+    <div class="topbar-actions">
+      <a class="button button-dark button-small" href="#get-started">Get local leads</a>
+    </div>
+  </header>
+
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="floaty floaty-a floaty-spin" aria-hidden="true"><img class="floaty-tool" src="/tools/wrench.png" alt=""></div>
+    <div class="floaty floaty-b" aria-hidden="true"><img class="floaty-tool" src="/tools/scissors.png" alt=""></div>
+    <div class="floaty floaty-c floaty-spin" aria-hidden="true"><img class="floaty-tool" src="/tools/solar.png" alt=""></div>
+    <div class="floaty floaty-d" aria-hidden="true"><img class="floaty-tool" src="/tools/painter.png" alt=""></div>
+    <div class="floaty floaty-e" aria-hidden="true"><img class="floaty-tool" src="/tools/screwdriver.png" alt=""></div>
+    <div class="floaty floaty-f" aria-hidden="true"><img class="floaty-tool" src="/tools/trolley.png" alt=""></div>
+  </header>
+
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="floaty floaty-a floaty-spin" aria-hidden="true"><span class="floaty-chip chip-coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span></div>
+    <div class="floaty floaty-b" aria-hidden="true"><span class="floaty-chip chip-gold"><svg viewBox="0 0 24 24" fill="none" stroke="#8a5a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span></div>
+    <div class="floaty floaty-c floaty-spin" aria-hidden="true"><span class="floaty-chip chip-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span></div>
+    <div class="floaty floaty-d" aria-hidden="true"><span class="floaty-chip chip-lavender"><svg viewBox="0 0 24 24" fill="#5b3aa8" stroke="none"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span></div>
+    <div class="floaty floaty-e" aria-hidden="true"><span class="floaty-chip chip-blue"><svg viewBox="0 0 24 24" fill="none" stroke="#274f9e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span></div>
+    <div class="floaty floaty-f" aria-hidden="true"><span class="floaty-chip chip-mint"><svg viewBox="0 0 24 24" fill="none" stroke="#14724f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span></div>
+
+    <div class="pill pill-hero"><span class="pill-icon"></span> We watch, you earn <img class="pill-roo" src="/roowatch-mascot-3d.png" alt="RooWatch mascot waving"></div>
+    <h1 id="hero-title">Facebook group leads for<br>
+      <span class="ticker" aria-label="home service businesses">
+        <span class="ticker-word">solar installers</span>
+        <span class="ticker-word">electricians</span>
+        <span class="ticker-word">plumbers</span>
+        <span class="ticker-word">gutter cleaners</span>
+        <span class="ticker-word">landscapers</span>
+        <span class="ticker-word">removalists</span>
+        <span class="ticker-word">painters</span>
+        <span class="ticker-word">pest control</span>
+        <span class="ticker-word">carpet cleaners</span>
+        <span class="ticker-word">air con installers</span>
+      </span>
+    </h1>
+    <p class="hero-lede">Ready-to-pay leads are asking for your services in Facebook groups right now. RooWatch alerts you within 5 minutes, so you get to them first.</p>
+    <ul class="hero-proof" aria-label="RooWatch highlights">
+      <li><span>✓</span> Alerts in under 5 minutes</li>
+      <li><span>✓</span> No Facebook login needed</li>
+    </ul>
+    <div class="hero-actions">
+      <a class="button button-coral" href="#get-started">Get local leads</a>
+      
+    </div>
+
+    <div class="hero-app" aria-label="RooWatch alert feed preview">
+      <div class="app-toolbar">
+        <span class="app-filter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg> Filters</span>
+        <span class="app-filter">Watchlist: Home services ⌄</span>
+        <span class="app-live">Live watch</span>
+      </div>
+      <table class="app-table">
+        <thead><tr><th>Post</th><th>Group</th><th>Status</th><th>Seen</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="cell-post">“Who do you recommend for solar panels before summer?”</td>
+            <td class="cell-group">Home Advice Sydney</td>
+            <td><span class="status-chip status-sent">✓ Emailed to you</span></td>
+            <td class="cell-time">41s ago</td>
+          </tr>
+          <tr>
+            <td class="cell-post">“Does anyone know a reliable gutter cleaner around Brighton?”</td>
+            <td class="cell-group">Melbourne Bayside Community</td>
+            <td><span class="status-chip status-lead"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg> Lead found</span></td>
+            <td class="cell-time">2m ago</td>
+          </tr>
+          <tr>
+            <td class="cell-post">“Need a marketing agency that gets trades businesses.”</td>
+            <td class="cell-group">Brisbane Small Business</td>
+            <td><span class="status-chip status-checking">◌ Checking post</span></td>
+            <td class="cell-time">now</td>
+          </tr>
+          <tr>
+            <td class="cell-post">“Selling my old couch, pick up only.”</td>
+            <td class="cell-group">Adelaide Buy &amp; Sell</td>
+            <td><span class="status-chip status-skipped">Skipped, not a lead</span></td>
+            <td class="cell-time">4m ago</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" id="leads" aria-labelledby="leads-title">
+    <div class="pill"><span class="pill-icon"></span> New leads on autopilot</div>
+    <h2 id="leads-title">Your leads already need <span class="highlight highlight-gold">your service</span></h2>
+    <p class="section-lede">People ask for help in Facebook groups all day. RooWatch finds the posts that sound like your customer. Then it tells you fast.</p>
+    <div class="wall" aria-label="Example group posts RooWatch would catch">
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-coral">SK</span>
+          <div><div class="fb-names">Sarah K.<span class="fb-sep">&#9656;</span>Home Advice Sydney</div>
+            <div class="fb-time">7 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">Can anyone recommend someone to install solar panels before summer? Northern beaches preferred.</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="12">12</span></span><span>4 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-teal">MB</span>
+          <div><div class="fb-names">Mia B.<span class="fb-sep">&#9656;</span>Melbourne Bayside Community</div>
+            <div class="fb-time">12 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">Our gutters are overflowing again, who does gutter cleaning around Brighton?</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="6">6</span></span><span>3 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-blue">JT</span>
+          <div><div class="fb-names">Jack T.<span class="fb-sep">&#9656;</span>Brisbane Tradies &amp; Home Reno</div>
+            <div class="fb-time">18 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">Looking for a reliable electrician for a switchboard upgrade. Happy to pay for quality work, just want it done right.</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="9">9</span></span><span>5 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-mint">AL</span>
+          <div><div class="fb-names">Amy L.<span class="fb-sep">&#9656;</span>Fremantle Locals</div>
+            <div class="fb-time">25 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">Any recommendations for a family photographer in Freo? Bub turns one next month!</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="21">21</span></span><span>8 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-lavender">RC</span>
+          <div><div class="fb-names">Ryan C.<span class="fb-sep">&#9656;</span>Adelaide Small Business</div>
+            <div class="fb-time">31 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">We need a marketing agency that actually understands trades businesses. Who have you used and would use again?</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="7">7</span></span><span>6 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-navy">DP</span>
+          <div><div class="fb-names">Dana P.<span class="fb-sep">&#9656;</span>Gold Coast Community Board</div>
+            <div class="fb-time">39 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">Moving house next month. Best removalists around Burleigh? Two-bedroom apartment, some heavy stuff.</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="11">11</span></span><span>3 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-coral">NH</span>
+          <div><div class="fb-names">Nick H.<span class="fb-sep">&#9656;</span>Perth Gardening &amp; Lawns</div>
+            <div class="fb-time">46 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">Who's the go-to for reticulation repairs around here? Two stations dead and summer's coming.</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="5">5</span></span><span>2 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+      <article class="wall-card">
+        <div class="fb-head"><span class="avatar avatar-teal">KW</span>
+          <div><div class="fb-names">Kate W.<span class="fb-sep">&#9656;</span>Hobart Home Advice</div>
+            <div class="fb-time">58 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
+        <p class="fb-body">Bathroom reno quotes are coming in wildly different. Can anyone recommend a tiler they trust?</p>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="8">8</span></span><span>7 comments</span></div>
+        <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
+      </article>
+    </div></article>
+    </div>
+  </section>
+
+  <section class="oneclick" id="setup" aria-labelledby="oneclick-title">
+    <div>
+      <h2 id="oneclick-title"><span>Hot leads, up for grabs.</span> You just need to know the second they post.</h2>
+      <p class="section-lede">People near you ask for help in Facebook groups every day. Real jobs. Real money. The first business to reply usually wins. RooWatch makes sure that's you.</p>
+      <a class="button button-coral" href="#get-started">Get local leads</a>
+    </div>
+    <div class="setup-card" aria-label="Watchlist setup preview">
+      <span class="setup-sticker">Sounds like a lead</span>
+      <span class="setup-label">Groups to watch</span>
+      <div class="setup-input"><span>facebook.com/groups/</span><strong>home-advice-melbourne</strong><em aria-hidden="true"></em></div>
+      <div class="setup-chips">
+        <span class="setup-chip">Home Advice Melbourne · Public</span>
+        <span class="setup-chip">Sydney Inner West Community · Public</span>
+        <span class="setup-chip">Brisbane Small Business · Public</span>
+      </div>
+      <div class="setup-brief"><b>What should we alert you about?</b><br>“Someone in Melbourne asking for a solar installer, a quote, panel advice, or recommendations.”</div>
+      <div class="setup-go"><span class="setup-ready">● Ready to watch</span></div>
+    </div>
+  </section>
+
+  <section class="section" id="how-it-works" aria-labelledby="steps-title">
+    <div class="pill"><span class="pill-icon"></span> How it works</div>
+    <h2 id="steps-title">Five easy steps to <span class="highlight highlight-blue">your next lead</span></h2>
+    <p class="section-lede">Setup takes a few minutes. Then RooWatch does the work for you.</p>
+    <div class="steps-list">
+      <article class="step-row">
+        <div class="step-copy">
+          <span class="step-num">1</span>
+          <h3>Tell us about your business</h3>
+        </div>
+        <div class="step-visual">
+          <div class="step-visual-card">
+            <span class="setup-label">Your business</span>
+            <div class="setup-brief">“We are Brightside Solar. We install solar panels for homes.”</div>
+            <div class="setup-chips">
+              <span class="setup-chip">solar</span>
+              <span class="setup-chip">installs</span>
+              <span class="setup-chip">quotes</span>
+            </div>
+          </div>
+        </div>
+      </article>
+      <article class="step-row">
+        <div class="step-copy">
+          <span class="step-num">2</span>
+          <h3>Tell us what suburbs you serve</h3>
+        </div>
+        <div class="step-visual">
+          <div class="step-visual-card">
+            <span class="setup-label">Suburbs you serve</span>
+            <div class="setup-input"><strong>Northern Beaches</strong><em aria-hidden="true"></em></div>
+            <div class="setup-chips">
+              <span class="setup-chip">Manly</span>
+              <span class="setup-chip">Dee Why</span>
+              <span class="setup-chip">Frenchs Forest</span>
+            </div>
+          </div>
+        </div>
+      </article>
+      <article class="step-row">
+        <div class="step-copy">
+          <span class="step-num">3</span>
+          <h3>Pick where your alerts go</h3>
+        </div>
+        <div class="step-visual">
+          <div class="step-visual-card">
+            <span class="setup-label">Your alert channels</span>
+            <div class="channel-row channel-on"><span>Email</span><span class="channel-tag">On</span></div>
+            <div class="channel-row channel-on"><span>Text</span><span class="channel-tag">On</span></div>
+            <div class="channel-row"><span>Teams</span></div>
+            <div class="channel-row"><span>Custom</span></div>
+          </div>
+        </div>
+      </article>
+      <article class="step-row">
+        <div class="step-copy">
+          <span class="step-num">4</span>
+          <h3>We start watching your top 10 Facebook groups</h3>
+        </div>
+        <div class="step-visual">
+          <div class="step-visual-card">
+            <div class="watch-head"><i></i> Watching all 10 groups</div>
+            <div class="setup-chips">
+              <span class="setup-chip">Home Advice Sydney</span>
+              <span class="setup-chip">Northern Beaches Community</span>
+              <span class="setup-chip">Manly Locals</span>
+              <span class="setup-chip">+ 7 more</span>
+            </div>
+            <div class="watch-note">We never use your Facebook account.</div>
+            <img class="watch-mascot" src="/roowatch-mascot-3d-binos.png" alt="RooWatch mascot watching through binoculars">
+          </div>
+        </div>
+      </article>
+      <article class="step-row">
+        <div class="step-copy">
+          <span class="step-num">5</span>
+          <h3>Get the lead in under 5 minutes</h3>
+        </div>
+        <div class="step-visual">
+          <div class="step-visual-card step-alert">
+            <span class="setup-label">RooWatch alert · now</span>
+            <h4>New solar lead in Home Advice Sydney</h4>
+            <blockquote>“Who do you recommend for solar panels before summer?”</blockquote>
+            <p class="why"><b>✓</b>They want a solar installer near you.</p>
+            <span class="open">Open post ↗</span>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  
+  
+
+  <section class="intent" id="intent" aria-labelledby="intent-title">
+    <div>
+      <h2 id="intent-title">We know the difference between <span class="dim">noise</span> and <span class="pop">opportunity</span></h2>
+      <p class="section-lede">Facebook groups hold posts worth real money. They are buried under spam, jokes, and small talk. RooWatch reads every post and only tells you about the ones that matter. The rest stay quiet.</p>
+      <div class="intent-points">
+        <div class="intent-point"><span class="intent-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span><div><h3>Reads every post like you would</h3><p>We look at what the person really wants, not just the words they used.</p></div></div>
+        <div class="intent-point"><span class="intent-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg></span><div><h3>Keywords are not enough</h3><p>A post can say "solar" and still be useless. We catch the difference and skip the noise.</p></div></div>
+        <div class="intent-point"><span class="intent-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0 1 18 8"/><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/></svg></span><div><h3>Silence is a feature</h3><p>If nothing good was posted, you hear nothing. Every alert is one you want.</p></div></div>
+      </div>
+    </div>
+    <div class="intent-card" aria-label="How RooWatch sorts posts">
+      <div class="intent-card-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Intent check</div>
+      <div class="icheck-row icheck-hot">
+        <div class="icheck-head"><span class="avatar avatar-sm avatar-coral">MT</span><span class="icheck-name">Marcus T.</span><span class="icheck-time">2m</span><span class="icheck-chip icheck-chip-sent">Alert sent</span></div>
+        <p>Planning to put solar on the roof before summer. Can anyone recommend a good installer?</p>
+        <span class="icheck-why icheck-why-hot">Buying intent</span>
+      </div>
+      <div class="icheck-row icheck-skip">
+        <div class="icheck-head"><span class="avatar avatar-sm avatar-navy">TB</span><span class="icheck-name">Tony B.</span><span class="icheck-time">9m</span><span class="icheck-chip icheck-chip-skip">Skipped</span></div>
+        <p>DM me now to 10x your business FAST. Limited spots left, serious people only.</p>
+        <span class="icheck-why icheck-why-skip">Spam</span>
+      </div>
+      <div class="icheck-row icheck-skip">
+        <div class="icheck-head"><span class="avatar avatar-sm avatar-teal">DR</span><span class="icheck-name">Dana R.</span><span class="icheck-time">14m</span><span class="icheck-chip icheck-chip-skip">Skipped</span></div>
+        <p>My uncle installed solar panels for 30 years. He has the best stories from back then!</p>
+        <span class="icheck-why icheck-why-skip">Right words, wrong intent</span>
+      </div>
+      <div class="icheck-row icheck-skip">
+        <div class="icheck-head"><span class="avatar avatar-sm avatar-lavender">PK</span><span class="icheck-name">Priya K.</span><span class="icheck-time">21m</span><span class="icheck-chip icheck-chip-skip">Skipped</span></div>
+        <p>Happy Friday everyone! Drop a photo that sums up your week so far.</p>
+        <span class="icheck-why icheck-why-skip">Not relevant</span>
+      </div>
+      <p class="icheck-foot">4 new posts read. 1 worth your attention.</p>
+    </div>
+  </section>
+
+
+
+  <section class="section" id="pricing" aria-labelledby="pricing-title">
+    <div class="pill"><span class="pill-icon"></span> Pricing</div>
+    <h2 id="pricing-title">Simple <span class="highlight highlight-gold">pricing</span></h2>
+    <p class="section-lede">Two plans. No surprise fees. Cancel any time.</p>
+    <div class="plans">
+      <article class="plan">
+        <div class="plan-head"><span class="plan-title">Monthly</span></div>
+        <div class="plan-amount"><strong>$197</strong><span>/ month</span></div>
+        <p class="plan-sub"><b>10</b> groups watched for you. Leads sent to your phone.</p>
+        <a class="button button-coral" href="#get-started">Get local leads</a>
+        <ul class="plan-features">
+          <li><span class="pf-check">✓</span> 10 groups watched for you</li>
+          <li><span class="pf-check">✓</span> Alerts in under 5 minutes</li>
+          <li><span class="pf-check">✓</span> Email and text alerts</li>
+          <li><span class="pf-check">✓</span> Tell us what you want in plain English</li>
+          <li><span class="pf-check">✓</span> Cancel any time</li>
+        </ul>
+      </article>
+      <article class="plan plan-best">
+        <div class="plan-head"><span class="plan-title">Done for you</span><span class="best-badge">Best value</span></div>
+        <div class="plan-amount"><strong>$1,497</strong><span>/ month</span></div>
+        <p class="plan-sub"><b>100</b> groups watched for you. Alerts in <b>3 minutes</b>.</p>
+        <a class="button button-dark" href="mailto:hello@roowatch.com.au?subject=RooWatch%20Done%20for%20you">Talk to us</a>
+        <ul class="plan-features">
+          <li><span class="pf-check">✓</span> Everything in Monthly</li>
+          <li><span class="pf-check">✓</span> 100 groups watched for you</li>
+          <li><span class="pf-check">✓</span> Alerts in under 3 minutes</li>
+          <li><span class="pf-check">✓</span> We set it all up for you</li>
+          <li><span class="pf-check">✓</span> Priority support</li>
+        </ul>
+      </article>
+    </div>
+    <p class="plans-guarantee"><span class="pf-check">✓</span> 7 day money back guarantee. If it does not win you work, we refund you.</p>
+  </section>
+
+  <section class="section" id="faq" aria-labelledby="faq-title">
+    <div class="pill"><span class="pill-icon"></span> FAQ</div>
+    <h2 id="faq-title">Questions? <span class="highlight highlight-blue">We have answers</span></h2>
+    <div class="faq-list">
+      <details class="faq-item" open><summary>Do I need to give you my Facebook login?<span class="faq-x">+</span></summary><p>No. Never. We watch public groups from our side. Your account stays yours.</p></details>
+      <details class="faq-item"><summary>How fast are the alerts?<span class="faq-x">+</span></summary><p>Under 5 minutes. When a matching post goes up, we send it to you fast, while the thread is still empty.</p></details>
+      <details class="faq-item"><summary>Which groups can you watch?<span class="faq-x">+</span></summary><p>Public Facebook groups across Australia. You pick them. You can change them any time.</p></details>
+      <details class="faq-item"><summary>How do I tell you what leads I want?<span class="faq-x">+</span></summary><p>In plain English. Like this: “Tell me when someone in Sydney asks for a solar quote.” That is all we need.</p></details>
+      <details class="faq-item"><summary>Where do the alerts go?<span class="faq-x">+</span></summary><p>Email and text right now. Teams and custom channels are coming soon.</p></details>
+      <details class="faq-item"><summary>What does it cost?<span class="faq-x">+</span></summary><p>$197 a month for 10 groups watched. Done for you is $1,497 a month for 100 groups and 3 minute alerts. Cancel any time.</p></details>
+    </div>
+  </section>
+
+  <section class="final" id="get-started" aria-labelledby="final-title">
+    <div class="final-orbit final-orbit-left" aria-hidden="true">✦</div>
+    <div class="final-orbit final-orbit-right" aria-hidden="true">↻</div>
+    <div class="pill"><span class="pill-icon"></span> Built for local businesses</div>
+    <h2 id="final-title">More local jobs, sent to <span class="highlight highlight-gold">your phone</span></h2>
+    <p class="section-lede">Tell us your trade and your suburb. We send you leads.</p>
+    <a class="button button-coral" href="mailto:hello@roowatch.com.au?subject=RooWatch">Get local leads</a>
+    <img class="final-mascot" src="/roowatch-mascot-newlead-belly.png" alt="RooWatch kangaroo mascot holding a phone that says New lead">
+  </section>
+
+  <footer class="footer-wrap">
+    <div class="footer">
+      <div class="footer-brand">
+        <a class="brand" href="#top"><span class="brand-mark">R</span><span>RooWatch</span></a>
+        <p>We watch Facebook groups. You get the <b>leads first</b>.</p>
+      </div>
+      <div class="footer-col"><strong>Product</strong><a href="#how-it-works">How it works</a></div>
+      <div class="footer-col"><strong>Company</strong><a href="#pricing">Pricing</a><a href="#leads">Why groups</a><a href="mailto:hello@roowatch.com.au">Contact</a></div>
+      <div class="footer-col"><strong>Get started</strong><a href="#get-started">Get local leads</a><a href="mailto:hello@roowatch.com.au?subject=RooWatch%20question">Ask a question</a></div>
+      <div class="footer-bottom"><span>© 2026 RooWatch. Made for local businesses.</span><span>Public-group launch · Australia</span></div>
+    </div>
+  </footer>
+</main>

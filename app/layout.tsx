@@ -14,12 +14,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RooWatch — Facebook group leads for local businesses",
+  title: "RooWatch - Instant lead generation",
   description:
     "RooWatch watches the Facebook groups your customers already use and alerts you to the posts worth replying to.",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: [
+      { url: "/favicon.svg?v=2", type: "image/svg+xml" },
+      { url: "/favicon.png?v=2", type: "image/png" },
+    ],
+    shortcut: "/favicon.png?v=2",
   },
 };
 
