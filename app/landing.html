@@ -394,6 +394,33 @@
   .footer-col a:hover { color: #fff; }
   .footer-bottom { border-top: 1px solid #263651; color: #728098; display: flex; font-size: 12px; gap: 12px; grid-column: 1 / -1; justify-content: space-between; padding-top: 22px; }
 
+  /* ---------- motion ---------- */
+  @keyframes rise { from { opacity: 0; transform: translateY(26px); } }
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      .section .pill, .section h2, .section-lede, .oneclick > div, .wall-card, .step-copy, .step-visual,
+      .intent-point, .intent-card, .intent h2, .plan, .faq-item, .plans-guarantee {
+        animation: rise both;
+        animation-timeline: view();
+        animation-range: entry 0% entry 42%;
+      }
+    }
+    .wall-card, .intent-card, .plan, .faq-item { transition: box-shadow .25s ease, translate .25s ease; }
+    .wall-card:hover, .intent-card:hover, .plan:hover { box-shadow: var(--shadow); translate: 0 -4px; }
+    .faq-item:hover { translate: 0 -2px; }
+    .step-visual-card { transition: box-shadow .25s ease, transform .25s ease; }
+    .step-row:nth-child(odd) .step-visual-card:hover { box-shadow: var(--shadow); transform: rotate(1.2deg) translateY(-5px); }
+    .step-row:nth-child(even) .step-visual-card:hover { box-shadow: var(--shadow); transform: rotate(-1.2deg) translateY(-5px); }
+    .floaty-b { animation: floatDrift 8s ease-in-out .8s infinite alternate; }
+    .floaty-d { animation: floatDrift 9s ease-in-out .3s infinite alternate; }
+    .floaty-e { animation: floatDrift 7.5s ease-in-out 1.2s infinite alternate; }
+    .floaty-f { animation: floatDrift 8.5s ease-in-out .5s infinite alternate; }
+  }
+
+  /* smooth faq open and close */
+  html { interpolate-size: allow-keywords; }
+  .faq-item::details-content { block-size: 0; overflow: clip; transition: block-size .32s ease, content-visibility .32s allow-discrete; }
+  .faq-item[open]::details-content { block-size: auto; }
   /* ---------- responsive ---------- */
   @media (max-width: 1020px) {
     .desktop-nav { gap: 18px; }
