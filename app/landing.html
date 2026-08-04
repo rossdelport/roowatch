@@ -99,7 +99,10 @@
     padding: 8px 16px 8px 10px;
   }
   .pill-icon { background: var(--coral); border-radius: 99px; display: inline-block; flex: none; height: 8px; margin-left: 5px; width: 8px; }
-  .pill-hero { padding-right: 90px; position: relative; }
+  .pill-hero { padding-right: 90px; position: relative; transition: transform .45s ease; }
+  .pill-hero:hover { transform: scale(1.06); }
+  .pill-roo { transition: transform .45s ease; transform-origin: bottom center; }
+  .pill-hero:hover .pill-roo { transform: scale(1.16); }
   .pill-roo { bottom: 1px; position: absolute; right: 9px; width: 70px; }
   .pill-tag {
     background: var(--pink-soft);
@@ -296,8 +299,10 @@
     justify-content: center;
     width: 36px;
   }
-  .step-row:not(:last-child)::after { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 130' fill='none'%3E%3Cpath d='M330 6 C330 80 70 50 70 124' stroke='%23b8b1a6' stroke-width='3' stroke-linecap='round' stroke-dasharray='0.1 11'/%3E%3C/svg%3E") no-repeat center / contain; content: ""; height: 130px; left: 50%; pointer-events: none; position: absolute; top: calc(100% - 15px); transform: translateX(-50%); width: min(440px, 62%); }
-  .step-row:nth-child(even):not(:last-child)::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 130' fill='none'%3E%3Cpath d='M70 6 C70 80 330 50 330 124' stroke='%23b8b1a6' stroke-width='3' stroke-linecap='round' stroke-dasharray='0.1 11'/%3E%3C/svg%3E"); }
+  .step-link { height: 130px; left: 50%; pointer-events: none; position: absolute; top: calc(100% - 15px); transform: translateX(-50%); width: min(440px, 62%); }
+  .step-link .draw { animation: drawLine linear both; animation-timeline: view(); animation-range: entry 0% cover 55%; }
+  @keyframes drawLine { to { stroke-dashoffset: 0; } }
+  @supports not (animation-timeline: view()) { .step-link .draw { animation: none; stroke-dashoffset: 0; } }
   .step-copy h3 { font-size: clamp(1.4rem, 2.4vw, 1.9rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.15; margin: 20px 0 0; }
   .step-copy p { color: var(--muted); font-size: 16px; line-height: 1.7; margin: 16px 0 0; max-width: 440px; }
   .step-visual-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 24px; position: relative; }
@@ -310,7 +315,8 @@
   .watch-head { align-items: center; display: flex; font-size: 16px; font-weight: 800; gap: 10px; }
   .watch-head i { animation: livePulse 1.6s ease-in-out infinite; background: var(--mint); border-radius: 99px; display: inline-block; height: 10px; width: 10px; }
   .watch-sub { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
-  .watch-note { background: #faf7f2; border: 1px solid var(--line); border-radius: 10px; color: #55607a; font-size: 13.5px; font-weight: 600; margin-top: 18px; max-width: 250px; padding: 12px 14px; }
+  .watch-note { align-items: center; background: #fff3d8; border: 1px solid #f2ddaa; border-radius: 10px; color: #8a5a00; display: inline-flex; font-size: 13px; font-weight: 700; gap: 8px; margin-top: 18px; padding: 10px 14px; white-space: nowrap; }
+  .watch-note svg { flex: none; height: 14px; width: 14px; }
   .watch-mascot { bottom: -20px; position: absolute; right: -16px; width: 104px; }
   .step-alert h4 { font-size: 17px; letter-spacing: -.02em; margin: 10px 0 0; }
   .step-alert blockquote { border-left: 3px solid var(--line); color: #4a5570; font-size: 14px; line-height: 1.55; margin: 13px 0 0; padding-left: 12px; }
@@ -349,6 +355,48 @@
   .icheck-why-hot { color: var(--teal); }
   .icheck-why-skip { color: #98a0b3; }
   .icheck-foot { color: #98a0b3; font-size: 12.5px; margin: 16px 0 2px; text-align: center; }
+
+  /* intent check: starts on scroll into view, then loops (10s cycle) */
+  @media (prefers-reduced-motion: no-preference) {
+    .intent-card.scan-wait .icheck-chip, .intent-card.scan-wait .icheck-why-hot { opacity: 0; }
+    .intent-card.scan-wait .icheck-row { border-color: var(--line); opacity: 1; }
+    .intent-card.scan-wait .icheck-hot { border-color: var(--line); box-shadow: none; }
+    .intent-card.scan-go .icheck-row:nth-of-type(5) { animation: scanRow5 10s ease-in-out infinite; }
+    .intent-card.scan-go .icheck-row:nth-of-type(5) .icheck-chip { animation: chip5 10s ease-in-out infinite; }
+    .intent-card.scan-go .icheck-row:nth-of-type(4) { animation: scanRow4 10s ease-in-out infinite; }
+    .intent-card.scan-go .icheck-row:nth-of-type(4) .icheck-chip { animation: chip4 10s ease-in-out infinite; }
+    .intent-card.scan-go .icheck-row:nth-of-type(3) { animation: scanRow3 10s ease-in-out infinite; }
+    .intent-card.scan-go .icheck-row:nth-of-type(3) .icheck-chip { animation: chip3 10s ease-in-out infinite; }
+    .intent-card.scan-go .icheck-hot { animation: scanHot 10s ease-in-out infinite; }
+    .intent-card.scan-go .icheck-hot .icheck-chip-sent, .intent-card.scan-go .icheck-hot .icheck-why-hot { animation: chipHot 10s ease-in-out infinite; }
+  }
+  @keyframes scanRow5 {
+    0%, 2% { border-color: var(--line); opacity: 1; }
+    4%, 8% { border-color: var(--coral); opacity: 1; }
+    11%, 94% { border-color: var(--line); opacity: .72; }
+    98%, 100% { border-color: var(--line); opacity: 1; }
+  }
+  @keyframes chip5 { 0%, 9% { opacity: 0; } 12%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+  @keyframes scanRow4 {
+    0%, 12% { border-color: var(--line); opacity: 1; }
+    14%, 18% { border-color: var(--coral); opacity: 1; }
+    21%, 94% { border-color: var(--line); opacity: .72; }
+    98%, 100% { border-color: var(--line); opacity: 1; }
+  }
+  @keyframes chip4 { 0%, 19% { opacity: 0; } 22%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+  @keyframes scanRow3 {
+    0%, 22% { border-color: var(--line); opacity: 1; }
+    24%, 28% { border-color: var(--coral); opacity: 1; }
+    31%, 94% { border-color: var(--line); opacity: .72; }
+    98%, 100% { border-color: var(--line); opacity: 1; }
+  }
+  @keyframes chip3 { 0%, 29% { opacity: 0; } 32%, 94% { opacity: 1; } 98%, 100% { opacity: 0; } }
+  @keyframes scanHot {
+    0%, 32% { border-color: var(--line); box-shadow: 0 8px 22px rgba(240, 79, 49, 0); }
+    34%, 95% { border-color: var(--coral); box-shadow: 0 8px 22px rgba(240, 79, 49, .12); }
+    99%, 100% { border-color: var(--line); box-shadow: 0 8px 22px rgba(240, 79, 49, 0); }
+  }
+  @keyframes chipHot { 0%, 36% { opacity: 0; } 39%, 95% { opacity: 1; } 99%, 100% { opacity: 0; } }
   /* ---------- pricing ---------- */
   .plans { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; margin: 56px auto 0; max-width: 920px; text-align: left; }
   .plan { background: #fff; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; padding: 30px 32px 34px; }
@@ -364,7 +412,13 @@
   .plan .button { justify-content: center; margin-top: 24px; width: 100%; }
   .plan-features { display: grid; gap: 12px; list-style: none; margin: 26px 0 0; padding: 0; }
   .plan-features li { align-items: center; color: #55607a; display: flex; font-size: 14.5px; gap: 10px; }
-  .plans-guarantee { align-items: center; color: #55607a; display: flex; font-size: 14.5px; font-weight: 700; gap: 9px; justify-content: center; margin: 28px auto 0; }
+  .plans-guarantee { align-items: center; display: flex; gap: 20px; justify-content: center; margin: 40px auto 0; }
+  .seal { filter: drop-shadow(0 10px 22px rgba(46, 170, 129, .35)); flex: none; height: 96px; width: 96px; }
+  .seal-spin { animation: sealSpin 14s linear infinite; transform-origin: 60px 60px; }
+  @keyframes sealSpin { to { transform: rotate(360deg); } }
+  .guar-copy { text-align: left; }
+  .guar-copy strong { display: block; font-size: 16.5px; font-weight: 800; letter-spacing: -.01em; }
+  .guar-copy span { color: #55607a; font-size: 14.5px; line-height: 1.5; }
   .pf-check { align-items: center; background: var(--mint); border-radius: 99px; color: #fff; display: inline-flex; flex: none; font-size: 11px; font-weight: 900; height: 19px; justify-content: center; width: 19px; }
   /* ---------- faq ---------- */
   .faq-list { display: grid; gap: 12px; margin: 56px auto 0; max-width: 720px; text-align: left; }
@@ -381,7 +435,8 @@
   .final-orbit { font-size: 54px; opacity: .9; position: absolute; z-index: 1; }
   .final-orbit-left { color: var(--coral); left: 13%; top: 8%; transform: rotate(-14deg); }
   .final-orbit-right { color: var(--blue); right: 13%; top: 4%; transform: rotate(11deg); }
-  .final-mascot { display: block; margin: 56px auto -40px; max-width: 408px; position: relative; width: 55vw; z-index: 2; }
+  .final-mascot { display: block; margin: 56px auto -40px; max-width: 408px; position: relative; transform-origin: bottom center; transition: transform .3s ease; width: 55vw; z-index: 2; }
+  .final-mascot:hover { transform: scale(1.07); }
 
   /* ---------- footer ---------- */
   .footer-wrap { background: var(--navy); color: #fff; }
@@ -421,6 +476,17 @@
   html { interpolate-size: allow-keywords; }
   .faq-item::details-content { block-size: 0; overflow: clip; transition: block-size .32s ease, content-visibility .32s allow-discrete; }
   .faq-item[open]::details-content { block-size: auto; }
+
+  /* hero load-in: rise from bottom, staggered */
+  @media (prefers-reduced-motion: no-preference) {
+    .pill-hero { animation: rise .45s cubic-bezier(.22, 1, .36, 1) both; }
+    .hero h1 { animation: rise .5s .32s cubic-bezier(.22, 1, .36, 1) both; }
+    .hero-lede { animation: rise .45s .7s cubic-bezier(.22, 1, .36, 1) both; }
+    .hero-proof { animation: rise .42s 1.03s cubic-bezier(.22, 1, .36, 1) both; }
+    .hero-actions { animation: rise .42s 1.32s cubic-bezier(.22, 1, .36, 1) both; }
+    .hero-app { animation: rise .5s 1.62s cubic-bezier(.22, 1, .36, 1) both; }
+    .floaty-tool { animation: rise .6s 1.32s cubic-bezier(.22, 1, .36, 1) both; }
+  }
   /* ---------- responsive ---------- */
   @media (max-width: 1020px) {
     .desktop-nav { gap: 18px; }
@@ -440,11 +506,12 @@
     .setup-card { transform: none; }
     .steps-list { gap: 64px; margin-top: 56px; }
     .step-row { gap: 26px; grid-template-columns: 1fr; }
-    .step-row:not(:last-child)::after { display: none; }
+    .step-link { display: none; }
     .step-row:nth-child(even) .step-copy { order: 1; }
     .step-row:nth-child(even) .step-visual { order: 2; }
     .step-visual-card, .step-row:nth-child(odd) .step-visual-card, .step-row:nth-child(even) .step-visual-card { transform: none; }
     .watch-mascot { width: 84px; }
+    .watch-note { white-space: normal; }
     .intent { gap: 44px; grid-template-columns: 1fr; padding: 150px 18px 0; }
     .plans { grid-template-columns: 1fr; }
     .intent .intent-card { order: 1; }
@@ -456,6 +523,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .step-link .draw { animation: none !important; stroke-dashoffset: 0 !important; }
     .ticker-word { animation: none !important; display: none; }
     .ticker-word:first-child { display: inline-block; opacity: 1; transform: none; }
   }
@@ -468,7 +536,7 @@
       <a href="#leads">The leads</a><a href="#how-it-works">How it works</a><a href="#pricing">Pricing</a>
     </nav>
     <div class="topbar-actions">
-      <a class="button button-dark button-small" href="#get-started">Get local leads</a>
+      <a class="button button-dark button-small" href="/reserve">Get local leads</a>
     </div>
   </header>
 
@@ -510,7 +578,7 @@
       <li><span>✓</span> No Facebook login needed</li>
     </ul>
     <div class="hero-actions">
-      <a class="button button-coral" href="#get-started">Get local leads</a>
+      <a class="button button-coral" href="/reserve">Get local leads</a>
       
     </div>
 
@@ -629,7 +697,7 @@
     <div>
       <h2 id="oneclick-title"><span>Hot leads, up for grabs.</span> You just need to know the second they post.</h2>
       <p class="section-lede">People near you ask for help in Facebook groups every day. Real jobs. Real money. The first business to reply usually wins. RooWatch makes sure that's you.</p>
-      <a class="button button-coral" href="#get-started">Get local leads</a>
+      <a class="button button-coral" href="/reserve">Get local leads</a>
     </div>
     <div class="setup-card" aria-label="Watchlist setup preview">
       <span class="setup-sticker">Sounds like a lead</span>
@@ -666,6 +734,7 @@
             </div>
           </div>
         </div>
+        <svg class="step-link" viewBox="0 0 400 130" fill="none" aria-hidden="true"><defs><mask id="roo-draw-1"><path class="draw" d="M330 6 C330 80 70 50 70 124" pathLength="100" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="100" stroke-dashoffset="100"/></mask></defs><path d="M330 6 C330 80 70 50 70 124" fill="none" stroke="#b8b1a6" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" mask="url(#roo-draw-1)"/></svg>
       </article>
       <article class="step-row">
         <div class="step-copy">
@@ -683,6 +752,7 @@
             </div>
           </div>
         </div>
+        <svg class="step-link" viewBox="0 0 400 130" fill="none" aria-hidden="true"><defs><mask id="roo-draw-2"><path class="draw" d="M70 6 C70 80 330 50 330 124" pathLength="100" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="100" stroke-dashoffset="100"/></mask></defs><path d="M70 6 C70 80 330 50 330 124" fill="none" stroke="#b8b1a6" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" mask="url(#roo-draw-2)"/></svg>
       </article>
       <article class="step-row">
         <div class="step-copy">
@@ -698,6 +768,7 @@
             <div class="channel-row"><span>Custom</span></div>
           </div>
         </div>
+        <svg class="step-link" viewBox="0 0 400 130" fill="none" aria-hidden="true"><defs><mask id="roo-draw-3"><path class="draw" d="M330 6 C330 80 70 50 70 124" pathLength="100" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="100" stroke-dashoffset="100"/></mask></defs><path d="M330 6 C330 80 70 50 70 124" fill="none" stroke="#b8b1a6" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" mask="url(#roo-draw-3)"/></svg>
       </article>
       <article class="step-row">
         <div class="step-copy">
@@ -713,10 +784,11 @@
               <span class="setup-chip">Manly Locals</span>
               <span class="setup-chip">+ 7 more</span>
             </div>
-            <div class="watch-note">We never use your Facebook account.</div>
+            <div class="watch-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> We never use your Facebook account.</div>
             <img class="watch-mascot" src="/roowatch-mascot-3d-binos.png" alt="RooWatch mascot watching through binoculars">
           </div>
         </div>
+        <svg class="step-link" viewBox="0 0 400 130" fill="none" aria-hidden="true"><defs><mask id="roo-draw-4"><path class="draw" d="M70 6 C70 80 330 50 330 124" pathLength="100" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="100" stroke-dashoffset="100"/></mask></defs><path d="M70 6 C70 80 330 50 330 124" fill="none" stroke="#b8b1a6" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" mask="url(#roo-draw-4)"/></svg>
       </article>
       <article class="step-row">
         <div class="step-copy">
@@ -786,7 +858,7 @@
         <div class="plan-head"><span class="plan-title">Monthly</span></div>
         <div class="plan-amount"><strong>$197</strong><span>/ month</span></div>
         <p class="plan-sub"><b>10</b> groups watched for you. Leads sent to your phone.</p>
-        <a class="button button-coral" href="#get-started">Get local leads</a>
+        <a class="button button-coral" href="/reserve">Get local leads</a>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> 10 groups watched for you</li>
           <li><span class="pf-check">✓</span> Alerts in under 5 minutes</li>
@@ -799,7 +871,7 @@
         <div class="plan-head"><span class="plan-title">Done for you</span><span class="best-badge">Best value</span></div>
         <div class="plan-amount"><strong>$1,497</strong><span>/ month</span></div>
         <p class="plan-sub"><b>100</b> groups watched for you. Alerts in <b>3 minutes</b>.</p>
-        <a class="button button-dark" href="mailto:hello@roowatch.com.au?subject=RooWatch%20Done%20for%20you">Talk to us</a>
+        <a class="button button-dark" href="/reserve">Talk to us</a>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> Everything in Monthly</li>
           <li><span class="pf-check">✓</span> 100 groups watched for you</li>
@@ -809,7 +881,7 @@
         </ul>
       </article>
     </div>
-    <p class="plans-guarantee"><span class="pf-check">✓</span> 7 day money back guarantee. If it does not win you work within 30 days, we refund you.</p>
+    <div class="plans-guarantee"><svg class="seal" viewBox="0 0 120 120" aria-hidden="true"><g class="seal-spin"><circle cx="60" cy="60" r="58" fill="#2eaa81"/><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"/><circle cx="60" cy="60" r="24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"/><defs><path id="sealcirc" d="M60,60 m-38,0 a38,38 0 1,1 76,0 a38,38 0 1,1 -76,0"/></defs><text font-size="11" letter-spacing="1.6" fill="#fff" font-weight="800" font-family="inherit"><textPath href="#sealcirc">30 DAY GUARANTEE &#183; 1 JOB OR REFUND &#183; </textPath></text></g><path d="M46 61 l10 10 l19 -21" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="guar-copy"><strong>We look after you.</strong><span>If RooWatch does not win you 1 job in 30 days, we refund you.</span></div></div>
   </section>
 
   <section class="section" id="faq" aria-labelledby="faq-title">
@@ -831,7 +903,7 @@
     <div class="pill"><span class="pill-icon"></span> Built for local businesses</div>
     <h2 id="final-title">More local jobs, sent to <span class="highlight highlight-gold">your phone</span></h2>
     <p class="section-lede">Tell us your trade and your suburb. We send you leads.</p>
-    <a class="button button-coral" href="mailto:hello@roowatch.com.au?subject=RooWatch">Get local leads</a>
+    <a class="button button-coral" href="/reserve">Get local leads</a>
     <img class="final-mascot" src="/roowatch-mascot-newlead-belly.png" alt="RooWatch kangaroo mascot holding a phone that says New lead">
   </section>
 
@@ -843,7 +915,7 @@
       </div>
       <div class="footer-col"><strong>Product</strong><a href="#how-it-works">How it works</a></div>
       <div class="footer-col"><strong>Company</strong><a href="#pricing">Pricing</a><a href="#leads">Why groups</a><a href="mailto:hello@roowatch.com.au">Contact</a></div>
-      <div class="footer-col"><strong>Get started</strong><a href="#get-started">Get local leads</a><a href="mailto:hello@roowatch.com.au?subject=RooWatch%20question">Ask a question</a></div>
+      <div class="footer-col"><strong>Get started</strong><a href="/reserve">Get local leads</a><a href="mailto:hello@roowatch.com.au?subject=RooWatch%20question">Ask a question</a></div>
       <div class="footer-bottom"><span>© 2026 RooWatch. Made for local businesses.</span><span>Public-group launch · Australia</span></div>
     </div>
   </footer>

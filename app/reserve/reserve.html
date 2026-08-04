@@ -1,0 +1,83 @@
+<style>
+  :root {
+    --cream: #fff9f1;
+    --ink: #172038;
+    --muted: #6b7385;
+    --line: #ece5da;
+    --navy: #111d36;
+    --coral: #ff6a4d;
+    --coral-deep: #f04f31;
+    --mint: #2eaa81;
+    --gold-soft: #ffe3a3;
+    --shadow: 0 30px 70px rgba(23, 32, 56, 0.13);
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--cream); color: var(--ink); font-family: var(--font-inter-tight), "Inter Tight", Arial, sans-serif; margin: 0; }
+  a { color: inherit; text-decoration: none; }
+
+  .r-topbar { align-items: center; display: flex; justify-content: center; margin: 0 auto; max-width: 1240px; padding: 26px 28px; }
+  .brand { align-items: center; display: inline-flex; font-size: 21px; font-weight: 800; gap: 9px; letter-spacing: -0.04em; }
+  .brand-mark { align-items: center; background: var(--coral); border-radius: 9px 9px 9px 3px; color: #fff; display: inline-flex; font-size: 17px; font-weight: 900; height: 30px; justify-content: center; transform: rotate(-6deg); width: 30px; }
+
+  .r-wrap { margin: 0 auto; max-width: 620px; padding: 30px 20px 90px; text-align: center; }
+  .r-mascot { display: block; margin: 0 auto 6px; width: 170px; }
+  .pill { align-items: center; background: var(--navy); border-radius: 99px; color: #fff; display: inline-flex; font-size: 13px; font-weight: 700; gap: 8px; padding: 8px 16px 8px 10px; }
+  .pill i { background: var(--coral); border-radius: 99px; display: inline-block; height: 8px; margin-left: 5px; width: 8px; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.16; margin: 26px 0 0; }
+  .highlight { background: var(--gold-soft); border-radius: 6px; padding: 0 10px 3px; white-space: nowrap; }
+  .r-lede { color: var(--muted); font-size: 17px; line-height: 1.7; margin: 24px auto 0; max-width: 480px; }
+  .r-lede b { color: var(--ink); }
+
+  .r-card { background: #fff; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); margin: 40px auto 0; max-width: 460px; padding: 32px; }
+  .r-price { align-items: baseline; display: flex; gap: 8px; justify-content: center; }
+  .r-price strong { font-size: 52px; font-weight: 800; letter-spacing: -.03em; }
+  .r-price span { color: #98a0b3; font-size: 15px; }
+  .r-card p { color: var(--muted); font-size: 14.5px; line-height: 1.6; margin: 12px 0 0; }
+  .button {
+    align-items: center; background: var(--coral); border-radius: 99px;
+    box-shadow: 0 12px 26px rgba(240, 79, 49, .32); color: #fff; display: inline-flex;
+    font-size: 16px; font-weight: 700; justify-content: center; margin-top: 24px;
+    padding: 15px 30px; transition: transform .2s ease, background .2s ease; width: 100%;
+  }
+  .button:hover { background: var(--coral-deep); transform: translateY(-2px); }
+  .r-points { color: #55607a; display: grid; gap: 11px; list-style: none; margin: 24px 0 0; padding: 0; text-align: left; }
+  .r-points li { align-items: center; display: flex; font-size: 14px; gap: 10px; }
+  .r-points li span { align-items: center; background: var(--mint); border-radius: 99px; color: #fff; display: inline-flex; flex: none; font-size: 11px; font-weight: 900; height: 19px; justify-content: center; width: 19px; }
+  .r-back { color: #98a0b3; display: inline-block; font-size: 14px; font-weight: 600; margin-top: 34px; }
+  .r-back:hover { color: var(--coral); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes rise { from { opacity: 0; transform: translateY(26px); } }
+    .r-mascot { animation: rise .5s cubic-bezier(.22, 1, .36, 1) both; }
+    .r-wrap .pill { animation: rise .5s .1s cubic-bezier(.22, 1, .36, 1) both; }
+    h1 { animation: rise .55s .2s cubic-bezier(.22, 1, .36, 1) both; }
+    .r-lede { animation: rise .55s .3s cubic-bezier(.22, 1, .36, 1) both; }
+    .r-card { animation: rise .6s .4s cubic-bezier(.22, 1, .36, 1) both; }
+  }
+</style>
+
+<main>
+  <header class="r-topbar">
+    <a class="brand" href="/" aria-label="RooWatch home"><span class="brand-mark">R</span><span>RooWatch</span></a>
+  </header>
+
+  <div class="r-wrap">
+    <img class="r-mascot" src="/roowatch-mascot-3d.png" alt="RooWatch kangaroo mascot waving">
+    <div class="pill"><i></i> Fully booked</div>
+    <h1>Sorry, we are <span class="highlight">full</span> right now</h1>
+    <p class="r-lede">Every spot is taken while we look after our current members. But you can <b>hold your place in line</b>. When a spot opens up, we will message you first and have a chat about your business.</p>
+
+    <div class="r-card">
+      <div class="r-price"><strong>$1</strong><span>holds your spot</span></div>
+      <p>Pay one dollar now. You go to the front of the line.</p>
+      <a class="button" href="https://buy.stripe.com/REPLACE_WITH_YOUR_PAYMENT_LINK">Reserve my spot for $1</a>
+      <ul class="r-points">
+        <li><span>✓</span> You go to the front of the line</li>
+        <li><span>✓</span> We message you before your spot opens</li>
+        <li><span>✓</span> Refunded any time you ask</li>
+      </ul>
+    </div>
+
+    <a class="r-back" href="/">Back to RooWatch</a>
+  </div>
+</main>
