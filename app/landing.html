@@ -560,6 +560,24 @@ fbq('track','PageView');
 }
 </script>
 
+<script>
+(function(){
+  function roo(name){
+    try{
+      var b=JSON.stringify({name:name,path:location.pathname});
+      if(navigator.sendBeacon){navigator.sendBeacon('/api/track',new Blob([b],{type:'application/json'}));}
+      else{fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:b,keepalive:true});}
+    }catch(e){}
+  }
+  window.rooTrack=roo;
+  roo('view_landing');
+  document.addEventListener('click',function(e){
+    var a=e.target.closest('a[href="/reserve"]');
+    if(a){roo('click_cta');}
+  },true);
+})();
+</script>
+
 <main class="site-shell">
   <header class="topbar" id="top">
     <a class="brand" href="#top" aria-label="RooWatch home"><span class="brand-mark">R</span><span>RooWatch</span></a>

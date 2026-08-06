@@ -67,3 +67,12 @@ export const alerts = sqliteTable("alerts", {
   reason: text("reason").notNull().default(""),
   sentAt: text("sent_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const events = sqliteTable("events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  path: text("path").notNull().default(""),
+  ref: text("ref").notNull().default(""),
+  device: text("device").notNull().default(""),
+  ts: integer("ts").notNull(),
+});

@@ -77,7 +77,7 @@ const I = {
 export default function DashboardApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState("overview");
-  const [adminTab, setAdminTab] = useState<null | "members" | "stripe" | "pipeline">(null);
+  const [adminTab, setAdminTab] = useState<null | "members" | "stripe" | "pipeline" | "funnel">(null);
   const [adminPass, setAdminPass] = useState("");
   const [adminPrompt, setAdminPrompt] = useState(false);
   const [adminError, setAdminError] = useState("");
@@ -88,6 +88,7 @@ export default function DashboardApp() {
   const [sources, setSources] = useState<Source[]>([]);
   const [uncovered, setUncovered] = useState<string[]>([]);
   const [keys, setKeys] = useState<{ apify: boolean; anthropic: boolean }>({ apify: false, anthropic: false });
+  const [funnel, setFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/me");
@@ -105,7 +106,7 @@ export default function DashboardApp() {
     refresh();
   }
 
-  async function unlockAdmin(target: "members" | "stripe" | "pipeline") {
+  async function unlockAdmin(target: "members" | "stripe" | "pipeline" | "funnel") {
     setAdminBusy(true);
     setAdminError("");
     try {
@@ -115,10 +116,11 @@ export default function DashboardApp() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: adminPass }),
         });
-      const [mRes, sRes, pRes] = await Promise.all([
+      const [mRes, sRes, pRes, fRes] = await Promise.all([
         post("/api/admin/members"),
         post("/api/admin/stripe"),
         post("/api/admin/sources"),
+        post("/api/admin/funnel"),
       ]);
       if (mRes.status === 401) {
         setAdminError("Wrong password.");
@@ -140,6 +142,10 @@ export default function DashboardApp() {
         setSources(p.sources ?? []);
         setUncovered(p.uncovered ?? []);
         setKeys(p.keys ?? { apify: false, anthropic: false });
+      }
+      if (fRes.ok) {
+        const f = await fRes.json();
+        setFunnel(f.funnel ?? []);
       }
       setAdminTab(target);
       setAdminPrompt(false);
@@ -203,6 +209,7 @@ export default function DashboardApp() {
               <>
                 <button className={adminTab === "members" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("members") : setAdminPrompt(true))}>{I.shield} Members</button>
                 <button className={adminTab === "pipeline" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("pipeline") : setAdminPrompt(true))}>{I.flow} Pipeline</button>
+                <button className={adminTab === "funnel" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("funnel") : setAdminPrompt(true))}>{I.grid} Ad funnel</button>
                 <button className={adminTab === "stripe" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("stripe") : setAdminPrompt(true))}>{I.card} Payments</button>
               </>
             )}
@@ -220,6 +227,7 @@ export default function DashboardApp() {
 
         <main className="main">
           {adminTab === "members" && <MembersView members={members} onAction={adminCall} />}
+          {adminTab === "funnel" && <FunnelView rows={funnel} />}
           {adminTab === "pipeline" && <PipelineView sources={sources} uncovered={uncovered} keys={keys} onAction={adminCall} onScan={scanSource} />}
           {adminTab === "stripe" && <PaymentsView rows={stripeRows} stripe={stripeOn} onRefresh={() => unlockAdmin("stripe")} busy={adminBusy} />}
           {!adminTab && <MemberView me={me} tab={tab} onLogout={logout} onRefresh={refresh} />}
@@ -970,6 +978,38 @@ function shrinkImage(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+function FunnelView({ rows }: { rows: { label: string; count: number; rate: number }[] }) {
+  const top = rows[0]?.count ?? 0;
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <h1>Ad funnel</h1>
+          <p className="muted">Last 7 days. Where visitors drop out.</p>
+        </div>
+      </header>
+      <div className="card">
+        {top === 0 ? (
+          <div className="empty">
+            <p><strong>No visits recorded yet.</strong></p>
+            <p className="muted">Tracking starts from now. Send some ad traffic and this fills in.</p>
+          </div>
+        ) : (
+          rows.map((r, i) => (
+            <div className="group-row" key={r.label}>
+              <span className="group-name">{r.label}</span>
+              <span className="row gap">
+                <span className="muted">{r.rate}%</span>
+                <strong>{r.count}</strong>
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 const CSS = `

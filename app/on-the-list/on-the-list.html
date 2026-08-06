@@ -67,6 +67,21 @@ content_name:'RooWatch spot reservation'
 }
 </script>
 
+<script>
+(function(){
+  function roo(name){
+    try{
+      var b=JSON.stringify({name:name,path:location.pathname});
+      if(navigator.sendBeacon){navigator.sendBeacon('/api/track',new Blob([b],{type:'application/json'}));}
+      else{fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:b,keepalive:true});}
+    }catch(e){}
+  }
+  window.rooTrack=roo;
+  roo('view_onlist');
+  
+})();
+</script>
+
 <main>
   <header class="r-topbar">
     <a class="brand" href="/" aria-label="RooWatch home"><span class="brand-mark">R</span><span>RooWatch</span></a>
