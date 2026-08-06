@@ -56,6 +56,21 @@
   }
 </style>
 
+
+<script>
+var ROO_PIXEL_ID='__PIXEL_ID__';
+if(/^[0-9]{6,}$/.test(ROO_PIXEL_ID)){
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init',ROO_PIXEL_ID);
+fbq('track','PageView');
+fbq('track','ViewContent',{content_name:'RooWatch reservation',value:1.00,currency:'AUD'});
+}
+</script>
+
 <main>
   <header class="r-topbar">
     <a class="brand" href="/" aria-label="RooWatch home"><span class="brand-mark">R</span><span>RooWatch</span></a>
@@ -70,7 +85,7 @@
     <div class="r-card">
       <div class="r-price"><strong>$1</strong><span>holds your spot</span></div>
       <p>Pay one dollar now. You go to the front of the line.</p>
-      <a class="button" href="https://buy.stripe.com/28E14h91DbE68p24ntgUM00" onclick="navigator.sendBeacon('/api/reserve-click')">Reserve my spot for $1</a>
+      <a class="button" href="https://buy.stripe.com/28E14h91DbE68p24ntgUM00" onclick="navigator.sendBeacon('/api/reserve-click');if(window.fbq)fbq('track','InitiateCheckout',{value:1.00,currency:'AUD'});">Reserve my spot for $1</a>
       <ul class="r-points">
         <li><span>✓</span> You go to the front of the line</li>
         <li><span>✓</span> We message you before your spot opens</li>
