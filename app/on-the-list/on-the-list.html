@@ -56,8 +56,14 @@ t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
 document,'script','https://connect.facebook.net/en_US/fbevents.js');
 fbq('init',ROO_PIXEL_ID);
 fbq('track','PageView');
-fbq('track','Lead',{content_name:'RooWatch reservation',value:1.00,currency:'AUD'});
-fbq('track','Purchase',{value:1.00,currency:'AUD'});
+fbq('track','Purchase',{
+value:1.00,
+currency:'AUD',
+contents:[{id:'roowatchlist',quantity:1}],
+content_ids:['roowatchlist'],
+content_type:'product',
+content_name:'RooWatch spot reservation'
+});
 }
 </script>
 
