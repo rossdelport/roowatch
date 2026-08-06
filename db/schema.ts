@@ -28,7 +28,26 @@ export const profiles = sqliteTable("profiles", {
   website: text("website").notNull().default(""),
   services: text("services").notNull().default(""),
   location: text("location").notNull().default(""),
+  brief: text("brief").notNull().default(""),
   onboardedAt: text("onboarded_at"),
+});
+
+export const sources = sqliteTable("sources", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  groupName: text("group_name").notNull(),
+  url: text("url").notNull().default(""),
+  active: integer("active").notNull().default(1),
+  lastChecked: integer("last_checked").notNull().default(0),
+  lastCount: integer("last_count").notNull().default(0),
+  lastMatches: integer("last_matches").notNull().default(0),
+  lastError: text("last_error").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const seenPosts = sqliteTable("seen_posts", {
+  id: text("id").primaryKey(),
+  sourceId: integer("source_id").notNull(),
+  seenAt: integer("seen_at").notNull(),
 });
 
 export const groups = sqliteTable("groups", {

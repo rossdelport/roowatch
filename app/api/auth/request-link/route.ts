@@ -1,13 +1,29 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { sendEmail } from "../../../../db/auth";
+import { isAdminEmail, sendEmail } from "../../../../db/auth";
 import { loginTokens, users } from "../../../../db/schema";
 
-export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as {
-    email?: string;
-    name?: string;
+/** Has this email paid us through Stripe checkout? */
+async function hasPaid(email: string) {
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) return false;
+  const res = await fetch(
+    "https://api.stripe.com/v1/checkout/sessions?limit=100",
+    { headers: { Authorization: `Bearer ${stripeKey}` } }
+  );
+  if (!res.ok) return false;
+  const data = (await res.json()) as {
+    data?: { payment_status: string; customer_details?: { email?: string | null } | null }[];
   };
+  return (data.data ?? []).some(
+    (s) =>
+      s.payment_status === "paid" &&
+      (s.customer_details?.email ?? "").toLowerCase() === email
+  );
+}
+
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as { email?: string };
   const email = (body.email ?? "").trim().toLowerCase();
   if (!/.+@.+\..+/.test(email)) {
     return Response.json({ error: "bad_email" }, { status: 400 });
@@ -16,13 +32,20 @@ export async function POST(request: Request) {
   const db = getDb();
   let [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
+  // Accounts exist for members Ross created, past logins, Ross himself,
+  // and anyone who has paid through Stripe. Everyone else is told to reserve.
   if (!user) {
+    const allowed = isAdminEmail(email) || (await hasPaid(email));
+    if (!allowed) {
+      return Response.json({ ok: true, found: false });
+    }
     const id = crypto.randomUUID();
-    await db.insert(users).values({ id, email, name: (body.name ?? "").trim() });
+    await db.insert(users).values({ id, email });
     [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   }
 
-  const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+  const token =
+    crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
   await db.insert(loginTokens).values({
     token,
     userId: user.id,
@@ -48,5 +71,5 @@ export async function POST(request: Request) {
     ].join("\n")
   );
 
-  return Response.json({ ok: true, sent, link: sent ? undefined : link });
+  return Response.json({ ok: true, found: true, sent, link: sent ? undefined : link });
 }

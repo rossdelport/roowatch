@@ -7,8 +7,21 @@ type Profile = {
   website: string;
   services: string;
   location: string;
+  brief: string;
   onboardedAt: string | null;
 } | null;
+
+type Source = {
+  id: number;
+  groupName: string;
+  url: string;
+  active: boolean;
+  lastChecked: number;
+  lastCount: number;
+  lastMatches: number;
+  lastError: string;
+  watchers: number;
+};
 type Group = { id: number; name: string; status: string };
 type Alert = {
   id: number;
@@ -36,6 +49,7 @@ type Member = {
   website: string;
   services: string;
   location: string;
+  brief: string;
   groups: Group[];
   alertCount: number;
 };
@@ -56,13 +70,14 @@ const I = {
   gear: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33 1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
   shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   card: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="18" height="18"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>,
+  flow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M4 4v6a2 2 0 0 0 2 2h12a2 2 0 0 1 2 2v6"/><circle cx="4" cy="3" r="1.6"/><circle cx="20" cy="21" r="1.6"/></svg>,
   out: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
 };
 
 export default function DashboardApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState("overview");
-  const [adminTab, setAdminTab] = useState<null | "members" | "stripe">(null);
+  const [adminTab, setAdminTab] = useState<null | "members" | "stripe" | "pipeline">(null);
   const [adminPass, setAdminPass] = useState("");
   const [adminPrompt, setAdminPrompt] = useState(false);
   const [adminError, setAdminError] = useState("");
@@ -70,6 +85,9 @@ export default function DashboardApp() {
   const [members, setMembers] = useState<Member[]>([]);
   const [stripeRows, setStripeRows] = useState<StripeRow[]>([]);
   const [stripeOn, setStripeOn] = useState(true);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [uncovered, setUncovered] = useState<string[]>([]);
+  const [keys, setKeys] = useState<{ apify: boolean; anthropic: boolean }>({ apify: false, anthropic: false });
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/me");
@@ -87,21 +105,20 @@ export default function DashboardApp() {
     refresh();
   }
 
-  async function unlockAdmin(target: "members" | "stripe") {
+  async function unlockAdmin(target: "members" | "stripe" | "pipeline") {
     setAdminBusy(true);
     setAdminError("");
     try {
-      const [mRes, sRes] = await Promise.all([
-        fetch("/api/admin/members", {
+      const post = (path: string) =>
+        fetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: adminPass }),
-        }),
-        fetch("/api/admin/stripe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: adminPass }),
-        }),
+        });
+      const [mRes, sRes, pRes] = await Promise.all([
+        post("/api/admin/members"),
+        post("/api/admin/stripe"),
+        post("/api/admin/sources"),
       ]);
       if (mRes.status === 401) {
         setAdminError("Wrong password.");
@@ -118,6 +135,12 @@ export default function DashboardApp() {
         setStripeRows(s.rows ?? []);
         setStripeOn(Boolean(s.stripe));
       }
+      if (pRes.ok) {
+        const p = await pRes.json();
+        setSources(p.sources ?? []);
+        setUncovered(p.uncovered ?? []);
+        setKeys(p.keys ?? { apify: false, anthropic: false });
+      }
       setAdminTab(target);
       setAdminPrompt(false);
     } catch {
@@ -125,6 +148,17 @@ export default function DashboardApp() {
     } finally {
       setAdminBusy(false);
     }
+  }
+
+  async function scanSource(sourceId: number) {
+    const res = await fetch("/api/admin/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceId, password: adminPass }),
+    });
+    const data = await res.json().catch(() => ({}));
+    await unlockAdmin("pipeline");
+    return { ok: res.ok, ...data } as { ok: boolean; matches?: number; posts?: number; error?: string };
   }
 
   async function adminCall(path: string, payload: Record<string, unknown>) {
@@ -168,6 +202,7 @@ export default function DashboardApp() {
             {me.isAdmin && (
               <>
                 <button className={adminTab === "members" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("members") : setAdminPrompt(true))}>{I.shield} Members</button>
+                <button className={adminTab === "pipeline" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("pipeline") : setAdminPrompt(true))}>{I.flow} Pipeline</button>
                 <button className={adminTab === "stripe" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("stripe") : setAdminPrompt(true))}>{I.card} Payments</button>
               </>
             )}
@@ -185,6 +220,7 @@ export default function DashboardApp() {
 
         <main className="main">
           {adminTab === "members" && <MembersView members={members} onAction={adminCall} />}
+          {adminTab === "pipeline" && <PipelineView sources={sources} uncovered={uncovered} keys={keys} onAction={adminCall} onScan={scanSource} />}
           {adminTab === "stripe" && <PaymentsView rows={stripeRows} stripe={stripeOn} onRefresh={() => unlockAdmin("stripe")} busy={adminBusy} />}
           {!adminTab && <MemberView me={me} tab={tab} onLogout={logout} onRefresh={refresh} />}
         </main>
@@ -219,6 +255,7 @@ function Avatar({ avatar, name }: { avatar?: string; name: string }) {
 function Login({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
+  const [notFound, setNotFound] = useState(false);
   const [devLink, setDevLink] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const ok = /.+@.+\..+/.test(email);
@@ -233,6 +270,10 @@ function Login({ onDone }: { onDone: () => void }) {
         body: JSON.stringify({ email }),
       });
       const data = await res.json();
+      if (data.found === false) {
+        setNotFound(true);
+        return;
+      }
       setSent(true);
       if (data.link) setDevLink(data.link);
     } finally {
@@ -247,7 +288,14 @@ function Login({ onDone }: { onDone: () => void }) {
           <span className="brand-mark">R</span>
           <span>RooWatch</span>
         </a>
-        {sent ? (
+        {notFound ? (
+          <>
+            <h1>We could not find you</h1>
+            <p className="muted">There is no RooWatch account for {email} yet. Spots are limited, so members join through a reservation.</p>
+            <a className="btn primary wide" href="/reserve">Reserve my spot</a>
+            <button className="btn ghost wide" onClick={() => { setNotFound(false); setEmail(""); }}>Try another email</button>
+          </>
+        ) : sent ? (
           <>
             <h1>Check your email</h1>
             <p className="muted">We sent a login link to {email}. It lasts 30 minutes.</p>
@@ -406,24 +454,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
   }
 
   if (tab === "groups") {
-    return (
-      <div className="page">
-        <header className="page-head"><div><h1>Groups watching</h1><p className="muted">The groups we read for you, day and night.</p></div></header>
-        <div className="card">
-          {groups.length === 0 ? (
-            <div className="empty"><p><strong>We are picking your groups now.</strong></p><p className="muted">We find the best local groups for your services and add them here.</p></div>
-          ) : (
-            groups.map((g) => (
-              <div className="group-row" key={g.id}>
-                <span className="group-name">{g.name}</span>
-                <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : "Setting up"}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <p className="tiny">Want a group added or swapped? Email ross@roowatch.com.au and we do it same day.</p>
-      </div>
-    );
+    return <GroupsTab groups={groups} onRefresh={onRefresh} />;
   }
 
   if (tab === "alerts") {
@@ -455,12 +486,9 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
           <button className="btn ghost" onClick={() => fileRef.current?.click()}>Change photo</button>
           <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickAvatar} />
         </div>
-        <div className="kv"><span>Business</span><strong>{user.name || "Not set"}</strong></div>
         <div className="kv"><span>Email</span><strong>{user.email}</strong></div>
-        <div className="kv"><span>Website</span><strong>{me.profile?.website || "Not set"}</strong></div>
-        <div className="kv"><span>Area</span><strong>{me.profile?.location || "Not set"}</strong></div>
-        <div className="kv"><span>Services</span><strong>{me.profile?.services || "Not set"}</strong></div>
       </div>
+      <ProfileForm me={me} onRefresh={onRefresh} />
       <div className="card">
         <h3>Your plan</h3>
         <div className="kv"><span>Plan</span><strong>Monthly. 10 groups watched.</strong></div>
@@ -471,6 +499,143 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
         <h3>Session</h3>
         <button className="btn ghost" onClick={onLogout}>Log out</button>
       </div>
+      <DangerZone />
+    </div>
+  );
+}
+
+function GroupsTab({ groups, onRefresh }: { groups: Group[]; onRefresh: () => void }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const LIMIT = 10;
+
+  async function call(payload: Record<string, unknown>) {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/member/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(
+          d.error === "plan_limit"
+            ? `Your plan covers ${LIMIT} groups. Remove one first.`
+            : d.error === "duplicate"
+            ? "That group is already on your list."
+            : "Could not save that."
+        );
+        return;
+      }
+      setName("");
+      onRefresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div><h1>Groups watching</h1><p className="muted">The groups we read for you, day and night.</p></div>
+        <span className="tiny">{groups.length} of {LIMIT}</span>
+      </header>
+      <div className="card">
+        {groups.length === 0 ? (
+          <div className="empty"><p><strong>No groups yet.</strong></p><p className="muted">Add the local groups your customers use. We take it from there.</p></div>
+        ) : (
+          groups.map((g) => (
+            <div className="group-row" key={g.id}>
+              <span className="group-name">{g.name}</span>
+              <span className="row gap">
+                <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : "Setting up"}</span>
+                <button className="mini" disabled={busy} onClick={() => call({ action: "remove", groupId: g.id })}>Remove</button>
+              </span>
+            </div>
+          ))
+        )}
+        <div className="row gap mt">
+          <input placeholder="Add a group name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim() && call({ action: "add", name })} />
+          <button className="btn ghost" disabled={busy || !name.trim()} onClick={() => call({ action: "add", name })}>Add</button>
+        </div>
+        {error && <p className="error">{error}</p>}
+      </div>
+      <p className="tiny">New groups show as Setting up while we connect them. That usually takes a few hours.</p>
+    </div>
+  );
+}
+
+function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
+  const [name, setName] = useState(me.user?.name ?? "");
+  const [website, setWebsite] = useState(me.profile?.website ?? "");
+  const [services, setServices] = useState(me.profile?.services ?? "");
+  const [location, setLocation] = useState(me.profile?.location ?? "");
+  const [brief, setBrief] = useState(me.profile?.brief ?? "");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await fetch("/api/member/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, website, services, location, brief }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+      onRefresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Your business</h3>
+      <label className="lbl">Business name</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} />
+      <label className="lbl">Website</label>
+      <input value={website} onChange={(e) => setWebsite(e.target.value)} />
+      <label className="lbl">What you do</label>
+      <textarea rows={3} value={services} onChange={(e) => setServices(e.target.value)} />
+      <label className="lbl">Suburbs you serve</label>
+      <input value={location} onChange={(e) => setLocation(e.target.value)} />
+      <label className="lbl">What a good lead sounds like</label>
+      <textarea rows={3} placeholder="Tell me when someone asks for a solar quote or an installer near me." value={brief} onChange={(e) => setBrief(e.target.value)} />
+      <div className="row gap mt">
+        <button className="btn primary" disabled={busy} onClick={save}>{busy ? "Saving" : "Save changes"}</button>
+        {saved && <span className="flash">Saved.</span>}
+      </div>
+    </div>
+  );
+}
+
+function DangerZone() {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function remove() {
+    setBusy(true);
+    await fetch("/api/member/account", { method: "DELETE" });
+    window.location.href = "/";
+  }
+
+  return (
+    <div className="card danger">
+      <h3>Delete account</h3>
+      <p className="muted">This removes your account, your groups, and your leads. It cannot be undone.</p>
+      {confirming ? (
+        <div className="row gap mt">
+          <button className="btn ghost" onClick={() => setConfirming(false)}>Keep my account</button>
+          <button className="btn danger-btn" disabled={busy} onClick={remove}>{busy ? "Deleting" : "Yes, delete everything"}</button>
+        </div>
+      ) : (
+        <button className="btn ghost mt" onClick={() => setConfirming(true)}>Delete my account</button>
+      )}
     </div>
   );
 }
@@ -499,8 +664,22 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
   const [alertReason, setAlertReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [newName, setNewName] = useState("");
 
   const member = members.find((m) => m.id === open) ?? null;
+
+  async function createMember() {
+    setBusy(true);
+    const ok = await onAction("/api/admin/members", { action: "create", email: newEmail, name: newName });
+    if (ok) {
+      setNewEmail("");
+      setNewName("");
+      setFlash("Member created and emailed.");
+      setTimeout(() => setFlash(""), 3000);
+    }
+    setBusy(false);
+  }
 
   async function addGroup() {
     if (!member || !groupName.trim()) return;
@@ -535,6 +714,14 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
       <header className="page-head">
         <div><h1>Members</h1><p className="muted">Everyone who has signed up. Only you see this.</p></div>
       </header>
+      <div className="card">
+        <h3>Add a member</h3>
+        <div className="form-grid">
+          <input placeholder="their@email.com.au" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+          <input placeholder="Business name (optional)" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        </div>
+        <button className="btn primary mt" disabled={busy || !newEmail.trim()} onClick={createMember}>Create and email them</button>
+      </div>
       <div className="tiles">
         <div className="tile"><span className="tile-num">{members.length}</span><span className="tile-label">Members</span></div>
         <div className="tile"><span className="tile-num">{members.filter((m) => m.onboarded).length}</span><span className="tile-label">Onboarded</span></div>
@@ -561,6 +748,7 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
               <div className="kv"><span>Website</span><strong>{m.website || "-"}</strong></div>
               <div className="kv"><span>Area</span><strong>{m.location || "-"}</strong></div>
               <div className="kv"><span>Services</span><strong>{m.services || "-"}</strong></div>
+              <div className="kv"><span>Their brief</span><strong>{m.brief || "-"}</strong></div>
 
               <h3 className="mt">Their groups</h3>
               {m.groups.map((g) => (
@@ -588,10 +776,125 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
                 <button className="btn primary" onClick={sendAlert} disabled={busy}>{busy ? "Sending" : "Send lead and email"}</button>
                 {flash && <span className="flash">{flash}</span>}
               </div>
+              <div className="row gap mt">
+                <button className="mini" onClick={() => { if (confirm(`Delete ${m.email} and all their data?`)) onAction("/api/admin/members", { action: "delete", userId: m.id }); }}>Delete this member</button>
+              </div>
             </div>
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
+  sources: Source[];
+  uncovered: string[];
+  keys: { apify: boolean; anthropic: boolean };
+  onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+  onScan: (sourceId: number) => Promise<{ ok: boolean; matches?: number; posts?: number; error?: string }>;
+}) {
+  const [groupName, setGroupName] = useState("");
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState("");
+
+  const ago = (ts: number) =>
+    !ts ? "never" : `${Math.max(1, Math.round((Date.now() - ts) / 60000))} min ago`;
+
+  async function add() {
+    if (!groupName.trim() || !url.trim()) return;
+    setBusy(true);
+    await onAction("/api/admin/sources", { action: "add", groupName, url });
+    setGroupName("");
+    setUrl("");
+    setBusy(false);
+  }
+
+  async function scan(id: number) {
+    setBusy(true);
+    setFlash("Scanning. This can take a minute.");
+    const r = await onScan(id);
+    setFlash(
+      !r.ok
+        ? "Scan failed."
+        : r.error
+        ? `Scan error: ${r.error}`
+        : `Read ${r.posts ?? 0} posts, found ${r.matches ?? 0} leads.`
+    );
+    setBusy(false);
+    setTimeout(() => setFlash(""), 6000);
+  }
+
+  return (
+    <div className="page admin">
+      <header className="page-head">
+        <div><h1>Pipeline</h1><p className="muted">Every group we scan, and how it is going.</p></div>
+        {flash && <span className="flash">{flash}</span>}
+      </header>
+
+      <div className="tiles">
+        <div className="tile"><span className="tile-num">{sources.filter((s) => s.active).length}</span><span className="tile-label">Active sources</span></div>
+        <div className="tile"><span className="tile-num">{sources.reduce((n, s) => n + s.lastMatches, 0)}</span><span className="tile-label">Leads last pass</span></div>
+        <div className="tile"><span className="tile-num">{uncovered.length}</span><span className="tile-label">Groups needing a source</span></div>
+        <div className={keys.apify ? "tile tile-accent" : "tile tile-warn"}><span className="tile-num">{keys.apify ? "Live" : "No key"}</span><span className="tile-label">Scraper</span></div>
+      </div>
+
+      {!keys.apify && (
+        <div className="card">
+          <h3>Scraper is not connected</h3>
+          <p className="muted">Add APIFY_TOKEN as a worker secret to start scanning. Until then the pipeline sits idle and you can still send leads by hand from the Members tab.</p>
+        </div>
+      )}
+      {!keys.anthropic && keys.apify && (
+        <div className="card">
+          <h3>Matching runs on keywords</h3>
+          <p className="muted">Add ANTHROPIC_API_KEY for proper intent matching. Keywords work, but they let more noise through.</p>
+        </div>
+      )}
+
+      {uncovered.length > 0 && (
+        <div className="card">
+          <h3>Members are watching these, but we have no source yet</h3>
+          <div className="chips">
+            {uncovered.map((u) => <span className="chip" key={u}>{u}</span>)}
+          </div>
+          <p className="tiny">Add the group URL below and scanning starts on the next pass.</p>
+        </div>
+      )}
+
+      <div className="card">
+        <h3>Add a source</h3>
+        <div className="form-grid">
+          <input placeholder="Group name (must match what members type)" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
+          <input placeholder="https://www.facebook.com/groups/..." value={url} onChange={(e) => setUrl(e.target.value)} />
+        </div>
+        <button className="btn primary mt" disabled={busy} onClick={add}>Add source</button>
+      </div>
+
+      <div className="card">
+        <h3>Sources</h3>
+        {sources.length === 0 ? (
+          <div className="empty"><p><strong>No sources yet.</strong></p><p className="muted">Add the first group above.</p></div>
+        ) : (
+          sources.map((s) => (
+            <div className="source-row" key={s.id}>
+              <div>
+                <strong>{s.groupName}</strong>
+                <span className="tiny block">{s.watchers} watching · {s.lastCount} posts last pass · {s.lastMatches} leads · checked {ago(s.lastChecked)}</span>
+                {s.lastError && <span className="tiny block err">Error: {s.lastError}</span>}
+              </div>
+              <span className="row gap">
+                <span className={s.active ? "chip-status ok" : "chip-status pending"}>{s.active ? "Active" : "Paused"}</span>
+                <button className="mini" disabled={busy} onClick={() => scan(s.id)}>Run now</button>
+                <button className="mini" onClick={() => onAction("/api/admin/sources", { action: "update", sourceId: s.id, active: !s.active })}>{s.active ? "Pause" : "Resume"}</button>
+                <button className="mini" onClick={() => onAction("/api/admin/sources", { action: "remove", sourceId: s.id })}>Delete</button>
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+      <p className="tiny">The pipeline runs itself every 10 minutes. Run now is for testing a single group.</p>
     </div>
   );
 }
@@ -786,6 +1089,15 @@ const CSS = `
 .modal .row.gap{justify-content:flex-end;margin-top:18px;}
 .form-grid{display:grid;gap:10px;grid-template-columns:1fr 1fr;}
 
+.lbl{display:block;font-size:12.5px;font-weight:700;margin:14px 0 6px;}
+.card.danger{border-color:#f6d5cd;}
+.btn.danger-btn{background:var(--coral-deep);color:#fff;}
+.btn.mt{margin-top:14px;}
+.tile-warn{background:#fff3d8;border-color:#f2ddaa;}
+.tile-warn .tile-label{color:#8a5a00;}
+.source-row{align-items:center;border-top:1px solid #f4efe7;display:flex;gap:14px;justify-content:space-between;padding:13px 2px;}
+.source-row:first-of-type{border-top:0;}
+.tiny.err{color:var(--coral-deep);}
 .member-head{align-items:center;cursor:pointer;display:flex;gap:14px;justify-content:space-between;}
 .member-body{animation:dRise .35s var(--ease) both;border-top:1px solid #f4efe7;margin-top:16px;padding-top:6px;}
 .table-wrap{overflow-x:auto;}

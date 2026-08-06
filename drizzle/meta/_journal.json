@@ -15,6 +15,13 @@
       "when": 1785904492402,
       "tag": "0001_cold_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785986117257,
+      "tag": "0002_little_phil_sheldon",
+      "breakpoints": true
     }
   ]
 }

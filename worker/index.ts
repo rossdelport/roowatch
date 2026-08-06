@@ -5,6 +5,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  CRON_SECRET?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -41,6 +42,20 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+
+  async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (!env.CRON_SECRET) return;
+    ctx.waitUntil(
+      worker.fetch(
+        new Request("https://roowatch.com.au/api/cron/scan", {
+          method: "POST",
+          headers: { "x-cron-secret": env.CRON_SECRET },
+        }),
+        env,
+        ctx
+      )
+    );
   },
 };
 
