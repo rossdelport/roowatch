@@ -1,6 +1,6 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { events } from "../../../../db/schema";
+import { events, waitlist } from "../../../../db/schema";
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
@@ -52,9 +52,21 @@ export async function POST(request: Request) {
   const pay = step("click_pay");
   const done = step("view_onlist");
 
+  const signups = await db
+    .select({
+      email: waitlist.email,
+      name: waitlist.name,
+      phone: waitlist.phone,
+      createdAt: waitlist.createdAt,
+    })
+    .from(waitlist)
+    .orderBy(desc(waitlist.createdAt))
+    .limit(200);
+
   return Response.json({
     ok: true,
     days,
+    signups,
     funnel: [
       { label: "Landed on site", count: landing, rate: 100 },
       { label: "Clicked a CTA", count: cta, rate: pct(cta, landing) },

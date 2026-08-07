@@ -89,6 +89,7 @@ export default function DashboardApp() {
   const [uncovered, setUncovered] = useState<string[]>([]);
   const [keys, setKeys] = useState<{ apify: boolean; anthropic: boolean }>({ apify: false, anthropic: false });
   const [funnel, setFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
+  const [signups, setSignups] = useState<{ email: string; name: string; phone: string; createdAt: string }[]>([]);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/me");
@@ -146,6 +147,7 @@ export default function DashboardApp() {
       if (fRes.ok) {
         const f = await fRes.json();
         setFunnel(f.funnel ?? []);
+        setSignups(f.signups ?? []);
       }
       setAdminTab(target);
       setAdminPrompt(false);
@@ -227,7 +229,7 @@ export default function DashboardApp() {
 
         <main className="main">
           {adminTab === "members" && <MembersView members={members} onAction={adminCall} />}
-          {adminTab === "funnel" && <FunnelView rows={funnel} />}
+          {adminTab === "funnel" && <FunnelView rows={funnel} signups={signups} />}
           {adminTab === "pipeline" && <PipelineView sources={sources} uncovered={uncovered} keys={keys} onAction={adminCall} onScan={scanSource} />}
           {adminTab === "stripe" && <PaymentsView rows={stripeRows} stripe={stripeOn} onRefresh={() => unlockAdmin("stripe")} busy={adminBusy} />}
           {!adminTab && <MemberView me={me} tab={tab} onLogout={logout} onRefresh={refresh} />}
@@ -980,10 +982,17 @@ function shrinkImage(file: File): Promise<string> {
   });
 }
 
-function FunnelView({ rows }: { rows: { label: string; count: number; rate: number }[] }) {
+function FunnelView({ rows, signups }: {
+  rows: { label: string; count: number; rate: number }[];
+  signups: { email: string; name: string; phone: string; createdAt: string }[];
+}) {
   const top = rows[0]?.count ?? 0;
+  const when = (t: string) =>
+    new Date(t.replace(" ", "T") + "Z").toLocaleString("en-AU", {
+      timeZone: "Australia/Perth", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    });
   return (
-    <div className="page">
+    <div className="page admin">
       <header className="page-head">
         <div>
           <h1>Ad funnel</h1>
@@ -1006,6 +1015,32 @@ function FunnelView({ rows }: { rows: { label: string; count: number; rate: numb
               </span>
             </div>
           ))
+        )}
+      </div>
+      <div className="card">
+        <h3>Waitlist signups ({signups.length})</h3>
+        {signups.length === 0 ? (
+          <div className="empty">
+            <p><strong>No signups yet.</strong></p>
+            <p className="muted">Everyone who joins the waitlist shows here with their details.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>When</th><th>Name</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead>
+              <tbody>
+                {signups.map((w) => (
+                  <tr key={w.email}>
+                    <td>{when(w.createdAt)}</td>
+                    <td>{w.name || "-"}</td>
+                    <td>{w.phone ? <a href={`tel:${w.phone.replace(/\s/g, "")}`}>{w.phone}</a> : "-"}</td>
+                    <td><a href={`mailto:${w.email}`}>{w.email}</a></td>
+                    <td><span className={w.phone ? "chip-status ok" : "chip-status pending"}>{w.phone ? "Ready to call" : "Email only"}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
