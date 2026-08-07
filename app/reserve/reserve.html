@@ -40,6 +40,8 @@
     padding: 15px 30px; transition: transform .2s ease, background .2s ease; width: 100%;
   }
   .button:hover { background: var(--coral-deep); transform: translateY(-2px); }
+  .button { box-shadow: 0 5px 0 #cf3f1f, 0 14px 26px rgba(240, 79, 49, .32) !important; overflow: hidden; position: relative; }
+  .button:active { transform: translateY(2px); }
   .r-points { color: #55607a; display: grid; gap: 11px; list-style: none; margin: 24px 0 0; padding: 0; text-align: left; }
   .r-points li { align-items: center; display: flex; font-size: 14px; gap: 10px; }
   .r-points li span { align-items: center; background: var(--mint); border-radius: 99px; color: #fff; display: inline-flex; flex: none; font-size: 11px; font-weight: 900; height: 19px; justify-content: center; width: 19px; }
@@ -59,6 +61,13 @@
     h1 { animation: rise .55s .2s cubic-bezier(.22, 1, .36, 1) both; }
     .r-lede { animation: rise .55s .3s cubic-bezier(.22, 1, .36, 1) both; }
     .r-card { animation: rise .6s .4s cubic-bezier(.22, 1, .36, 1) both; }
+    .button::after {
+      animation: btnShine 3s ease-in-out infinite;
+      background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, .5) 50%, transparent 60%);
+      bottom: 0; content: ""; left: -80%; pointer-events: none;
+      position: absolute; top: 0; transform: skewX(-20deg); width: 60%;
+    }
+    @keyframes btnShine { 0% { left: -80%; } 30% { left: 130%; } 100% { left: 130%; } }
   }
 </style>
 

@@ -80,6 +80,28 @@
     transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
   }
   .button:hover { transform: translateY(-2px); }
+  .button:active { transform: translateY(2px); }
+  .button-coral, .button-dark { overflow: hidden; position: relative; }
+  .button-coral { box-shadow: 0 5px 0 #cf3f1f, 0 14px 26px rgba(240, 79, 49, .32); }
+  .button-coral:hover { box-shadow: 0 7px 0 #cf3f1f, 0 18px 30px rgba(240, 79, 49, .38); }
+  .button-coral:active { box-shadow: 0 1px 0 #cf3f1f, 0 8px 16px rgba(240, 79, 49, .3); }
+  .button-dark { box-shadow: 0 4px 0 #05080f, 0 10px 20px rgba(17, 29, 54, .3); }
+  .button-dark:hover { box-shadow: 0 6px 0 #05080f, 0 14px 24px rgba(17, 29, 54, .35); }
+  .button-dark:active { box-shadow: 0 1px 0 #05080f, 0 6px 12px rgba(17, 29, 54, .28); }
+  .button-outline { box-shadow: 0 4px 0 var(--line); }
+  .button-coral::after, .button-dark::after {
+    animation: btnShine 3s ease-in-out infinite;
+    background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, .5) 50%, transparent 60%);
+    bottom: 0;
+    content: "";
+    left: -80%;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    transform: skewX(-20deg);
+    width: 60%;
+  }
+  @keyframes btnShine { 0% { left: -80%; } 30% { left: 130%; } 100% { left: 130%; } }
   .button-coral { background: var(--coral); box-shadow: 0 12px 26px rgba(240, 79, 49, .32); color: #fff; }
   .button-coral:hover { background: var(--coral-deep); }
   .button-dark { background: var(--navy); color: #fff; }
@@ -189,7 +211,7 @@
   @keyframes floatDrift { from { translate: 0 0; } to { translate: 0 -14px; } }
 
   /* hero facebook post */
-  .hero-post { margin: 58px auto 0; max-width: 540px; position: relative; z-index: 2; }
+  .hero-post { margin: 84px auto 0; max-width: 540px; position: relative; z-index: 2; }
   .hero-post-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding-bottom: 4px; text-align: left; transform: rotate(-1.2deg); }
   .hero-post-pill {
     animation: pillBob 2.6s ease-in-out infinite alternate;
@@ -521,7 +543,7 @@
     .topbar-actions { margin-left: auto; }
     .hero { padding: 52px 18px 10px; }
     .floaty { display: none; }
-    .hero-post { margin-top: 46px; }
+    .hero-post { margin-top: 62px; }
     .hero-post-card { transform: none; }
     .hero-post-pill { font-size: 12.5px; padding: 8px 14px; right: 6px; top: -14px; transform: rotate(2deg); }
     .hero-post .fb-head { padding: 14px 15px 0; }
