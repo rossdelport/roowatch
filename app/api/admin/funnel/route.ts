@@ -59,8 +59,8 @@ export async function POST(request: Request) {
       { label: "Landed on site", count: landing, rate: 100 },
       { label: "Clicked a CTA", count: cta, rate: pct(cta, landing) },
       { label: "Saw reserve page", count: reserve, rate: pct(reserve, landing) },
-      { label: "Clicked pay $1", count: pay, rate: pct(pay, landing) },
-      { label: "Paid", count: done, rate: pct(done, landing) },
+      { label: "Joined waitlist", count: pay, rate: pct(pay, landing) },
+      { label: "Saw confirmation", count: done, rate: pct(done, landing) },
     ],
     byDevice,
   });

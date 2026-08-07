@@ -43,6 +43,12 @@
   .r-points { color: #55607a; display: grid; gap: 11px; list-style: none; margin: 24px 0 0; padding: 0; text-align: left; }
   .r-points li { align-items: center; display: flex; font-size: 14px; gap: 10px; }
   .r-points li span { align-items: center; background: var(--mint); border-radius: 99px; color: #fff; display: inline-flex; flex: none; font-size: 11px; font-weight: 900; height: 19px; justify-content: center; width: 19px; }
+  .r-card-title { font-size: 16px; font-weight: 800; letter-spacing: .04em; margin: 0; text-transform: uppercase; }
+  .wl-input { background: #faf7f2; border: 1px solid var(--line); border-radius: 99px; color: var(--ink); font-family: inherit; font-size: 15px; margin-top: 18px; outline: none; padding: 14px 20px; text-align: center; transition: border-color .2s; width: 100%; }
+  .wl-input:focus { border-color: var(--coral); }
+  .r-card form .button { border: 0; cursor: pointer; font-family: inherit; margin-top: 12px; }
+  .r-card form .button:disabled { opacity: .6; transform: none; }
+  .wl-error { color: var(--coral-deep); font-size: 13px; font-weight: 600; margin: 10px 0 0; }
   .r-back { color: #98a0b3; display: inline-block; font-size: 14px; font-weight: 600; margin-top: 34px; }
   .r-back:hover { color: var(--coral); }
 
@@ -67,7 +73,7 @@ t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
 document,'script','https://connect.facebook.net/en_US/fbevents.js');
 fbq('init',ROO_PIXEL_ID);
 fbq('track','PageView');
-fbq('track','ViewContent',{content_name:'RooWatch reservation',value:1.00,currency:'AUD'});
+fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
 }
 </script>
 
@@ -95,16 +101,20 @@ fbq('track','ViewContent',{content_name:'RooWatch reservation',value:1.00,curren
     <img class="r-mascot" src="/roowatch-mascot-3d.png" alt="RooWatch kangaroo mascot waving">
     <div class="pill"><i></i> Fully booked</div>
     <h1>Sorry, we are <span class="highlight">full</span> right now</h1>
-    <p class="r-lede">Every spot is taken while we look after our current members. But you can <b>hold your place in line</b>. When a spot opens up, we will message you first and have a chat about your business.</p>
+    <p class="r-lede">Every spot is taken while we look after our current members. But you can <b>hold your place in line</b> with your email. When a spot opens up, we message you first.</p>
 
     <div class="r-card">
-      <div class="r-price"><strong>$1</strong><span>holds your spot</span></div>
-      <p>Pay one dollar now. You go to the front of the line.</p>
-      <a class="button" href="https://buy.stripe.com/28E14h91DbE68p24ntgUM00" onclick="navigator.sendBeacon('/api/reserve-click');if(window.rooTrack)rooTrack('click_pay');if(window.fbq)fbq('track','InitiateCheckout',{value:1.00,currency:'AUD'});">Reserve my spot for $1</a>
+      <h2 class="r-card-title">Join the waitlist</h2>
+      <p>Pop your email in. You go to the front of the line.</p>
+      <form onsubmit="event.preventDefault();var b=document.getElementById('wl-btn'),er=document.getElementById('wl-error');b.disabled=true;b.textContent='Saving...';er.hidden=true;if(window.rooTrack)rooTrack('click_pay');fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('wl-email').value})}).then(function(r){if(r.ok){location.href='/on-the-list'}else{b.disabled=false;b.textContent='Save my spot';er.hidden=false}}).catch(function(){b.disabled=false;b.textContent='Save my spot';er.hidden=false});return false;">
+        <input id="wl-email" class="wl-input" type="email" required placeholder="you@business.com.au" autocomplete="email">
+        <button class="button" type="submit" id="wl-btn">Save my spot</button>
+        <p class="wl-error" id="wl-error" hidden>That email does not look right. Try again.</p>
+      </form>
       <ul class="r-points">
-        <li><span>✓</span> You go to the front of the line</li>
-        <li><span>✓</span> We message you before your spot opens</li>
-        <li><span>✓</span> Refunded any time you ask</li>
+        <li><span>&#10003;</span> You go to the front of the line</li>
+        <li><span>&#10003;</span> We message you before your spot opens</li>
+        <li><span>&#10003;</span> It costs nothing to hold your place</li>
       </ul>
     </div>
 

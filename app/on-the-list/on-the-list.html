@@ -56,14 +56,7 @@ t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
 document,'script','https://connect.facebook.net/en_US/fbevents.js');
 fbq('init',ROO_PIXEL_ID);
 fbq('track','PageView');
-fbq('track','Purchase',{
-value:1.00,
-currency:'AUD',
-contents:[{id:'roowatchlist',quantity:1}],
-content_ids:['roowatchlist'],
-content_type:'product',
-content_name:'RooWatch spot reservation'
-});
+fbq('track','Lead',{content_name:'RooWatch waitlist'});
 }
 </script>
 
@@ -91,7 +84,7 @@ content_name:'RooWatch spot reservation'
     <img class="r-mascot" src="/roowatch-mascot-onlist.png" alt="RooWatch kangaroo mascot holding a phone that says You're on the list">
     <div class="pill"><i></i> Spot reserved</div>
     <h1>You're <span class="highlight">on the list</span></h1>
-    <p class="r-lede">Your spot is saved. We have your <b>email and phone number</b> from checkout. When a spot opens up, you hear from us first.</p>
+    <p class="r-lede">Your spot is saved. We sent a note to <b>your inbox</b> to confirm. When a spot opens up, you hear from us first.</p>
 
     <div class="r-card">
       <h2>What happens next</h2>
