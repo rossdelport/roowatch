@@ -261,6 +261,15 @@
   .status-checking { background: #e9f1ff; color: #3a6fd8; }
   .status-skipped { background: #f1f2f5; color: #8b93a7; }
 
+  /* ---------- trades ticker ---------- */
+  .trades { margin: 90px auto 0; max-width: none; overflow: hidden; text-align: center; }
+  .trades-label { color: #98a0b3; font-size: 13px; font-weight: 800; letter-spacing: .08em; margin: 0 18px; text-transform: uppercase; }
+  .trades-wrap { -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); margin-top: 24px; mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); overflow: hidden; }
+  .trades-track { animation: tradesScroll 36s linear infinite; display: flex; gap: 46px; width: max-content; }
+  .trades-track:hover { animation-play-state: paused; }
+  .trades-track span { align-items: center; color: #b3aa9c; display: inline-flex; font-size: 19px; font-weight: 800; gap: 12px; letter-spacing: -.01em; white-space: nowrap; }
+  .trades-track i { background: var(--coral); border-radius: 99px; display: inline-block; height: 7px; opacity: .55; width: 7px; }
+  @keyframes tradesScroll { to { transform: translateX(-50%); } }
   /* ---------- shared section bits ---------- */
   .section { margin: 0 auto; max-width: 1240px; padding: 160px 28px 0; text-align: center; }
   .section h2 { font-size: clamp(2.2rem, 4.4vw, 3.4rem); font-weight: 800; letter-spacing: -0.015em; line-height: 1.22; margin: 30px auto 0; max-width: 760px; }
@@ -543,6 +552,9 @@
     .hero { padding: 52px 18px 10px; }
     .floaty { display: none; }
     .hero-post { margin-top: 62px; }
+    .trades { margin-top: 64px; }
+    .trades-track { gap: 30px; }
+    .trades-track span { font-size: 16px; }
     .hero-post-card { transform: none; }
     .hero-post-pill { font-size: 12.5px; padding: 8px 14px; right: 6px; top: -14px; transform: rotate(2deg); }
     .hero-post .fb-head { padding: 14px 15px 0; }
@@ -586,6 +598,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .trades-track { animation: none !important; flex-wrap: wrap; justify-content: center; width: auto; }
     .step-link .draw { animation: none !important; stroke-dashoffset: 0 !important; }
     .ticker-word { animation: none !important; display: none; }
     .ticker-word:first-child { display: inline-block; opacity: 1; transform: none; }
@@ -690,6 +703,14 @@ fbq('track','PageView');
       <span class="hero-post-pill">This post is worth $800</span>
     </div>
   </section>
+
+  <section class="trades" aria-label="Built for home service businesses in Australia">
+    <p class="trades-label">Built for home service businesses in Aus</p>
+    <div class="trades-wrap">
+      <div class="trades-track"><span><i></i>Solar installers</span><span><i></i>Plumbers</span><span><i></i>Electricians</span><span><i></i>Gutter cleaners</span><span><i></i>Landscapers</span><span><i></i>Removalists</span><span><i></i>Painters</span><span><i></i>Pest control</span><span><i></i>Carpet cleaners</span><span><i></i>Air con installers</span><span><i></i>Tilers</span><span><i></i>Roofers</span><span><i></i>Fencing crews</span><span><i></i>Pool care</span><span><i></i>Locksmiths</span><span><i></i>Solar installers</span><span><i></i>Plumbers</span><span><i></i>Electricians</span><span><i></i>Gutter cleaners</span><span><i></i>Landscapers</span><span><i></i>Removalists</span><span><i></i>Painters</span><span><i></i>Pest control</span><span><i></i>Carpet cleaners</span><span><i></i>Air con installers</span><span><i></i>Tilers</span><span><i></i>Roofers</span><span><i></i>Fencing crews</span><span><i></i>Pool care</span><span><i></i>Locksmiths</span></div>
+    </div>
+  </section>
+
 
   <section class="section" id="leads" aria-labelledby="leads-title">
     <div class="pill"><span class="pill-icon"></span> New leads on autopilot</div>
