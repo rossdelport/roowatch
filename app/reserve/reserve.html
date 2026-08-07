@@ -118,7 +118,7 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
     <div class="r-card">
       <h2 class="r-card-title">Join the waitlist</h2>
       <div id="wl-step1">
-        <p><span class="wl-step">Step 1 of 2</span> Pop your email in. You go to the front of the line.</p>
+        <p><span class="wl-step">Step 1 of 2</span> Pop your email in. You join the waitlist.</p>
         <input id="wl-email" class="wl-input" type="email" required placeholder="you@business.com.au" autocomplete="email">
         <button class="button" type="button" onclick="var e=document.getElementById('wl-email');if(!e.checkValidity()){e.reportValidity();return false;}fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.value,partial:true})}).catch(function(){});document.getElementById('wl-step1').hidden=true;document.getElementById('wl-step2').hidden=false;document.getElementById('wl-echo').textContent=e.value;document.getElementById('wl-name').focus();return false;">Continue</button>
       </div>
@@ -131,7 +131,7 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
         <p class="wl-note">Signing up as <b id="wl-echo"></b>. <a href="#" onclick="document.getElementById('wl-step2').hidden=true;document.getElementById('wl-step1').hidden=false;return false;">Change</a></p>
       </form>
       <ul class="r-points">
-        <li><span>&#10003;</span> You go to the front of the line</li>
+        <li><span>&#10003;</span> You join the waitlist</li>
         <li><span>&#10003;</span> We message you before your spot opens</li>
         <li><span>&#10003;</span> It costs nothing to hold your place</li>
       </ul>
