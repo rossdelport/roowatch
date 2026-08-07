@@ -50,6 +50,9 @@
   .wl-input:focus { border-color: var(--coral); }
   .r-card form .button { border: 0; cursor: pointer; font-family: inherit; margin-top: 12px; }
   .r-card form .button:disabled { opacity: .6; transform: none; }
+  .wl-step { background: var(--gold-soft); border-radius: 99px; color: #8a5a00; font-size: 11px; font-weight: 800; letter-spacing: .04em; margin-right: 6px; padding: 3px 9px; text-transform: uppercase; }
+  .wl-note { color: #98a0b3; font-size: 12.5px; margin: 12px 0 0; }
+  .wl-note a { color: var(--coral); font-weight: 700; }
   .wl-error { color: var(--coral-deep); font-size: 13px; font-weight: 600; margin: 10px 0 0; }
   .r-back { color: #98a0b3; display: inline-block; font-size: 14px; font-weight: 600; margin-top: 34px; }
   .r-back:hover { color: var(--coral); }
@@ -114,11 +117,18 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
 
     <div class="r-card">
       <h2 class="r-card-title">Join the waitlist</h2>
-      <p>Pop your email in. You go to the front of the line.</p>
-      <form onsubmit="event.preventDefault();var b=document.getElementById('wl-btn'),er=document.getElementById('wl-error');b.disabled=true;b.textContent='Saving...';er.hidden=true;if(window.rooTrack)rooTrack('click_pay');fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('wl-email').value})}).then(function(r){if(r.ok){location.href='/on-the-list'}else{b.disabled=false;b.textContent='Save my spot';er.hidden=false}}).catch(function(){b.disabled=false;b.textContent='Save my spot';er.hidden=false});return false;">
+      <div id="wl-step1">
+        <p><span class="wl-step">Step 1 of 2</span> Pop your email in. You go to the front of the line.</p>
         <input id="wl-email" class="wl-input" type="email" required placeholder="you@business.com.au" autocomplete="email">
+        <button class="button" type="button" onclick="var e=document.getElementById('wl-email');if(!e.checkValidity()){e.reportValidity();return false;}fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.value,partial:true})}).catch(function(){});document.getElementById('wl-step1').hidden=true;document.getElementById('wl-step2').hidden=false;document.getElementById('wl-echo').textContent=e.value;document.getElementById('wl-name').focus();return false;">Continue</button>
+      </div>
+      <form id="wl-step2" hidden onsubmit="event.preventDefault();var b=document.getElementById('wl-btn'),er=document.getElementById('wl-error');b.disabled=true;b.textContent='Saving...';er.hidden=true;if(window.rooTrack)rooTrack('click_pay');fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('wl-email').value,name:document.getElementById('wl-name').value,phone:document.getElementById('wl-phone').value})}).then(function(r){if(r.ok){location.href='/on-the-list'}else{b.disabled=false;b.textContent='Save my spot';er.hidden=false}}).catch(function(){b.disabled=false;b.textContent='Save my spot';er.hidden=false});return false;">
+        <p><span class="wl-step">Step 2 of 2</span> Last step. So we can call you when your spot opens.</p>
+        <input id="wl-name" class="wl-input" type="text" required placeholder="Your name" autocomplete="name">
+        <input id="wl-phone" class="wl-input" type="tel" required minlength="8" placeholder="0400 123 456" autocomplete="tel">
         <button class="button" type="submit" id="wl-btn">Save my spot</button>
-        <p class="wl-error" id="wl-error" hidden>That email does not look right. Try again.</p>
+        <p class="wl-error" id="wl-error" hidden>Those details do not look right. Try again.</p>
+        <p class="wl-note">Signing up as <b id="wl-echo"></b>. <a href="#" onclick="document.getElementById('wl-step2').hidden=true;document.getElementById('wl-step1').hidden=false;return false;">Change</a></p>
       </form>
       <ul class="r-points">
         <li><span>&#10003;</span> You go to the front of the line</li>

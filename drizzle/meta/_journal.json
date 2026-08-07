@@ -36,6 +36,13 @@
       "when": 1786064433496,
       "tag": "0004_salty_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786078242184,
+      "tag": "0005_public_vin_gonzales",
+      "breakpoints": true
     }
   ]
 }
