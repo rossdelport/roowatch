@@ -82,5 +82,6 @@ export const waitlist = sqliteTable("waitlist", {
   email: text("email").notNull().unique(),
   name: text("name").notNull().default(""),
   phone: text("phone").notNull().default(""),
+  trade: text("trade").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

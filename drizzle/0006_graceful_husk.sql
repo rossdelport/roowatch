@@ -1,0 +1,1 @@
+ALTER TABLE `waitlist` ADD `trade` text DEFAULT '' NOT NULL;

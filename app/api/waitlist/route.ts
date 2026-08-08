@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { waitlist } from "../../../db/schema";
 
-function sendEmails(key: string, email: string, name: string, phone: string) {
+function sendEmails(key: string, email: string, name: string, phone: string, trade: string) {
   const firstName = name.trim().split(/\s+/)[0] || "there";
   const send = (payload: unknown) =>
     fetch("https://api.resend.com/emails", {
@@ -27,6 +27,7 @@ function sendEmails(key: string, email: string, name: string, phone: string) {
         `Name: ${name || "not given"}`,
         `Phone: ${phone || "not given"}`,
         `Email: ${email}`,
+        `Trade: ${trade || "not known"}`,
         "",
         "Call them while it is warm.",
         "",
@@ -63,11 +64,14 @@ export async function POST(request: Request) {
     name?: string;
     phone?: string;
     partial?: boolean;
+    trade?: string;
   };
   const email = String(body.email ?? "").trim().toLowerCase();
   if (!/.+@.+\..+/.test(email) || email.length > 200) {
     return Response.json({ ok: false, error: "bad_email" }, { status: 400 });
   }
+
+  const trade = String(body.trade ?? "").trim().slice(0, 40).replace(/[^a-zA-Z \-]/g, "");
 
   const db = getDb();
   const existing = await db
@@ -79,7 +83,7 @@ export async function POST(request: Request) {
   // Step 1: save the email straight away, quietly
   if (body.partial) {
     if (existing.length === 0) {
-      await db.insert(waitlist).values({ email });
+      await db.insert(waitlist).values({ email, trade });
     }
     return Response.json({ ok: true });
   }
@@ -95,17 +99,17 @@ export async function POST(request: Request) {
   const alreadyComplete = existing.length > 0 && existing[0].phone.length > 0;
 
   if (existing.length === 0) {
-    await db.insert(waitlist).values({ email, name, phone });
+    await db.insert(waitlist).values({ email, name, phone, trade });
   } else if (!alreadyComplete) {
     await db
       .update(waitlist)
-      .set({ name, phone })
+      .set(trade ? { name, phone, trade } : { name, phone })
       .where(eq(waitlist.email, email));
   }
 
   const key = process.env.RESEND_API_KEY;
   if (key && !alreadyComplete) {
-    await sendEmails(key, email, name, phone);
+    await sendEmails(key, email, name, phone, trade);
   }
 
   return Response.json({ ok: true });

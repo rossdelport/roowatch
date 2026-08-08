@@ -19,8 +19,8 @@
   .brand { align-items: center; display: inline-flex; font-size: 21px; font-weight: 800; gap: 9px; letter-spacing: -0.04em; }
   .brand-mark { align-items: center; background: var(--coral); border-radius: 9px 9px 9px 3px; color: #fff; display: inline-flex; font-size: 17px; font-weight: 900; height: 30px; justify-content: center; transform: rotate(-6deg); width: 30px; }
 
-  .r-wrap { margin: 0 auto; max-width: 620px; padding: 30px 20px 90px; text-align: center; }
-  .r-mascot { display: block; margin: 0 auto 6px; width: 170px; }
+  .r-wrap { margin: 0 auto; max-width: 620px; padding: 14px 20px 70px; text-align: center; }
+  .r-mascot-b { display: block; margin: 40px auto 0; width: 150px; }
   .pill { align-items: center; background: var(--navy); border-radius: 99px; color: #fff; display: inline-flex; font-size: 13px; font-weight: 700; gap: 8px; padding: 8px 16px 8px 10px; }
   .pill i { background: var(--coral); border-radius: 99px; display: inline-block; height: 8px; margin-left: 5px; width: 8px; }
   h1 { font-size: clamp(2.2rem, 6vw, 3.2rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.16; margin: 26px 0 0; }
@@ -81,10 +81,9 @@
 
   @media (prefers-reduced-motion: no-preference) {
     @keyframes rise { from { opacity: 0; transform: translateY(26px); } }
-    .r-mascot { animation: rise .5s cubic-bezier(.22, 1, .36, 1) both; }
-    .r-wrap .pill { animation: rise .5s .1s cubic-bezier(.22, 1, .36, 1) both; }
-    h1 { animation: rise .55s .15s cubic-bezier(.22, 1, .36, 1) both; }
-    .r-lede { animation: rise .55s .25s cubic-bezier(.22, 1, .36, 1) both; }
+    h1 { animation: rise .55s cubic-bezier(.22, 1, .36, 1) both; }
+    .r-lede { animation: rise .55s .12s cubic-bezier(.22, 1, .36, 1) both; }
+    .r-mascot-b { animation: rise .6s .8s cubic-bezier(.22, 1, .36, 1) both; }
     .rpost { animation: rise .6s .4s cubic-bezier(.22, 1, .36, 1) both; }
     .r-bridge { animation: rise .6s .55s cubic-bezier(.22, 1, .36, 1) both; }
     .r-card { animation: rise .6s .65s cubic-bezier(.22, 1, .36, 1) both; }
@@ -134,7 +133,6 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
   </header>
 
   <div class="r-wrap">
-    <img class="r-mascot" src="/roowatch-mascot-3d.png" alt="RooWatch kangaroo mascot waving">
     <h1>Your next customer is asking for you <span class="highlight">right now</span></h1>
     <p class="r-lede">Every day, people in local Facebook groups ask for a tradie they can trust. RooWatch watches the groups day and night. When someone needs what you do, we text you fast. You reply first. You win the job.</p>
 
@@ -156,12 +154,13 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
 
     <div class="r-card">
       <h2 class="r-card-title">Join the waitlist</h2>
+      <input type="hidden" id="wl-trade" value="">
       <div id="wl-step1">
         <p><span class="wl-step">Step 1 of 2</span> Pop your email in. You join the waitlist.</p>
         <input id="wl-email" class="wl-input" type="email" required placeholder="you@business.com.au" autocomplete="email">
-        <button class="button" type="button" onclick="var e=document.getElementById('wl-email');if(!e.checkValidity()){e.reportValidity();return false;}fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.value,partial:true})}).catch(function(){});document.getElementById('wl-step1').hidden=true;document.getElementById('wl-step2').hidden=false;document.getElementById('wl-echo').textContent=e.value;document.getElementById('wl-name').focus();return false;">Continue</button>
+        <button class="button" type="button" onclick="var e=document.getElementById('wl-email');if(!e.checkValidity()){e.reportValidity();return false;}fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.value,partial:true,trade:document.getElementById('wl-trade').value})}).catch(function(){});document.getElementById('wl-step1').hidden=true;document.getElementById('wl-step2').hidden=false;document.getElementById('wl-echo').textContent=e.value;document.getElementById('wl-name').focus();return false;">Continue</button>
       </div>
-      <form id="wl-step2" hidden onsubmit="event.preventDefault();var b=document.getElementById('wl-btn'),er=document.getElementById('wl-error');b.disabled=true;b.textContent='Saving...';er.hidden=true;if(window.rooTrack)rooTrack('click_pay');fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('wl-email').value,name:document.getElementById('wl-name').value,phone:document.getElementById('wl-phone').value})}).then(function(r){if(r.ok){location.href='/on-the-list'}else{b.disabled=false;b.textContent='Save my spot';er.hidden=false}}).catch(function(){b.disabled=false;b.textContent='Save my spot';er.hidden=false});return false;">
+      <form id="wl-step2" hidden onsubmit="event.preventDefault();var b=document.getElementById('wl-btn'),er=document.getElementById('wl-error');b.disabled=true;b.textContent='Saving...';er.hidden=true;if(window.rooTrack)rooTrack('click_pay');fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('wl-email').value,name:document.getElementById('wl-name').value,phone:document.getElementById('wl-phone').value,trade:document.getElementById('wl-trade').value})}).then(function(r){if(r.ok){location.href='/on-the-list'}else{b.disabled=false;b.textContent='Save my spot';er.hidden=false}}).catch(function(){b.disabled=false;b.textContent='Save my spot';er.hidden=false});return false;">
         <p><span class="wl-step">Step 2 of 2</span> Last step. So we can call you when your spot opens.</p>
         <input id="wl-name" class="wl-input" type="text" required placeholder="Your name" autocomplete="name">
         <input id="wl-phone" class="wl-input" type="tel" required minlength="8" placeholder="0400 123 456" autocomplete="tel">
@@ -177,6 +176,7 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
     </div>
 
     <p class="r-trust">Alerts in under 5 minutes &middot; No Facebook login needed &middot; Made in Australia</p>
+    <img class="r-mascot-b" src="/roowatch-mascot-3d.png" alt="RooWatch kangaroo mascot waving">
     <a class="r-back" href="/">See the full site</a>
   </div>
 </main>

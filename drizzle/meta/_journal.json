@@ -43,6 +43,13 @@
       "when": 1786078242184,
       "tag": "0005_public_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786170275955,
+      "tag": "0006_graceful_husk",
+      "breakpoints": true
     }
   ]
 }
