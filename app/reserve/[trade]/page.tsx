@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import base from "../reserve.html?raw";
 
 export const metadata: Metadata = {
-  title: "RooWatch - Join the waitlist",
+  title: "RooWatch - Claim your spot",
   robots: { index: false, follow: false },
 };
 

@@ -149,14 +149,14 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
 
     <div class="r-bridge">
       <div class="pill"><i></i> Fully booked</div>
-      <p class="r-lede">We are full right now while we look after our current members. Join the waitlist and you hear from us first when a spot opens.</p>
+      <p class="r-lede">We are full right now while we look after our current members. Claim your spot and you hear from us first when one opens.</p>
     </div>
 
     <div class="r-card">
-      <h2 class="r-card-title">Join the waitlist</h2>
+      <h2 class="r-card-title">Claim your spot</h2>
       <input type="hidden" id="wl-trade" value="">
       <div id="wl-step1">
-        <p><span class="wl-step">Step 1 of 2</span> Pop your email in. You join the waitlist.</p>
+        <p><span class="wl-step">Step 1 of 2</span> Pop your email in. You claim your spot.</p>
         <input id="wl-email" class="wl-input" type="email" required placeholder="you@business.com.au" autocomplete="email">
         <button class="button" type="button" onclick="var e=document.getElementById('wl-email');if(!e.checkValidity()){e.reportValidity();return false;}fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.value,partial:true,trade:document.getElementById('wl-trade').value})}).catch(function(){});document.getElementById('wl-step1').hidden=true;document.getElementById('wl-step2').hidden=false;document.getElementById('wl-echo').textContent=e.value;document.getElementById('wl-name').focus();return false;">Continue</button>
       </div>
@@ -169,7 +169,7 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
         <p class="wl-note">Signing up as <b id="wl-echo"></b>. <a href="#" onclick="document.getElementById('wl-step2').hidden=true;document.getElementById('wl-step1').hidden=false;return false;">Change</a></p>
       </form>
       <ul class="r-points">
-        <li><span>&#10003;</span> You join the waitlist</li>
+        <li><span>&#10003;</span> You claim your spot on the waitlist</li>
         <li><span>&#10003;</span> We message you before your spot opens</li>
         <li><span>&#10003;</span> It costs nothing to hold your place</li>
       </ul>

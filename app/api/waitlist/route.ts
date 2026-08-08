@@ -42,7 +42,7 @@ function sendEmails(key: string, email: string, name: string, phone: string, tra
       text: [
         `G'day ${firstName},`,
         "",
-        "Your spot on the RooWatch waitlist is saved.",
+        "Your spot on the RooWatch waitlist is claimed.",
         "",
         "Here is what happens next:",
         "1. We message you before your spot opens.",
