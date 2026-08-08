@@ -208,12 +208,7 @@ export default function DashboardApp() {
           </nav>
           <div className="side-bottom">
             {me.isAdmin && (
-              <>
-                <button className={adminTab === "members" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("members") : setAdminPrompt(true))}>{I.shield} Members</button>
-                <button className={adminTab === "pipeline" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("pipeline") : setAdminPrompt(true))}>{I.flow} Pipeline</button>
-                <button className={adminTab === "funnel" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("funnel") : setAdminPrompt(true))}>{I.grid} Ad funnel</button>
-                <button className={adminTab === "stripe" ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("stripe") : setAdminPrompt(true))}>{I.card} Payments</button>
-              </>
+              <button className={adminTab ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("funnel") : setAdminPrompt(true))}>{I.flow} Marketing</button>
             )}
             <button className={tab === "settings" && !adminTab ? "on" : ""} onClick={() => { setTab("settings"); setAdminTab(null); }}>{I.gear} Settings</button>
             <div className="side-user">
@@ -228,11 +223,17 @@ export default function DashboardApp() {
         </aside>
 
         <main className="main">
-          {adminTab === "members" && <MembersView members={members} onAction={adminCall} />}
-          {adminTab === "funnel" && <FunnelView rows={funnel} signups={signups} />}
-          {adminTab === "pipeline" && <PipelineView sources={sources} uncovered={uncovered} keys={keys} onAction={adminCall} onScan={scanSource} />}
-          {adminTab === "stripe" && <PaymentsView rows={stripeRows} stripe={stripeOn} onRefresh={() => unlockAdmin("stripe")} busy={adminBusy} />}
-          {!adminTab && <MemberView me={me} tab={tab} onLogout={logout} onRefresh={refresh} />}
+          {adminTab ? (
+            <MarketingView
+              active={adminTab} setActive={setAdminTab}
+              funnel={funnel} signups={signups}
+              members={members} adminCall={adminCall}
+              sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
+              stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
+            />
+          ) : (
+            <MemberView me={me} tab={tab} onLogout={logout} onRefresh={refresh} />
+          )}
         </main>
 
         {needsOnboarding && <Onboarding email={me.user.email} onDone={refresh} />}
@@ -720,9 +721,9 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
   }
 
   return (
-    <div className="page admin">
-      <header className="page-head">
-        <div><h1>Members</h1><p className="muted">Everyone who has signed up. Only you see this.</p></div>
+    <div className="subview">
+      <header className="subhead">
+        <div><p className="muted">Everyone who has signed up. Only you see this.</p></div>
       </header>
       <div className="card">
         <h3>Add a member</h3>
@@ -837,9 +838,9 @@ function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
   }
 
   return (
-    <div className="page admin">
-      <header className="page-head">
-        <div><h1>Pipeline</h1><p className="muted">Every group we scan, and how it is going.</p></div>
+    <div className="subview">
+      <header className="subhead">
+        <div><p className="muted">Every group we scan, and how it is going.</p></div>
         {flash && <span className="flash">{flash}</span>}
       </header>
 
@@ -915,9 +916,9 @@ function PaymentsView({ rows, stripe, onRefresh, busy }: { rows: StripeRow[]; st
   const fmt = (ts: number) => new Date(ts * 1000).toLocaleString("en-AU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className="page admin">
-      <header className="page-head">
-        <div><h1>Payments</h1><p className="muted">Live from Stripe.</p></div>
+    <div className="subview">
+      <header className="subhead">
+        <div><p className="muted">Live from Stripe.</p></div>
         <button className="btn ghost" onClick={onRefresh} disabled={busy}>{busy ? "Refreshing" : "Refresh"}</button>
       </header>
       {!stripe ? (
@@ -982,6 +983,46 @@ function shrinkImage(file: File): Promise<string> {
   });
 }
 
+function MarketingView(props: {
+  active: "members" | "stripe" | "pipeline" | "funnel";
+  setActive: (t: "members" | "stripe" | "pipeline" | "funnel") => void;
+  funnel: { label: string; count: number; rate: number }[];
+  signups: { email: string; name: string; phone: string; createdAt: string }[];
+  members: Member[];
+  adminCall: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+  sources: Source[]; uncovered: string[]; keys: { apify: boolean; anthropic: boolean };
+  onScan: (id: number) => Promise<{ ok: boolean; matches?: number; posts?: number; error?: string }>;
+  stripeRows: StripeRow[]; stripeOn: boolean; onRefreshStripe: () => void; adminBusy: boolean;
+}) {
+  const tabs: { key: "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
+    { key: "funnel", label: "Ad funnel" },
+    { key: "members", label: "Members" },
+    { key: "pipeline", label: "Pipeline" },
+    { key: "stripe", label: "Payments" },
+  ];
+  return (
+    <div className="page admin">
+      <header className="page-head">
+        <div>
+          <h1>Marketing</h1>
+          <p className="muted">Your funnel, members, pipeline and payments in one place.</p>
+        </div>
+      </header>
+      <div className="subtabs" role="tablist">
+        {tabs.map((t) => (
+          <button key={t.key} role="tab" aria-selected={props.active === t.key} className={props.active === t.key ? "subtab on" : "subtab"} onClick={() => props.setActive(t.key)}>{t.label}</button>
+        ))}
+      </div>
+      <div className="subpanel">
+        {props.active === "funnel" && <FunnelView rows={props.funnel} signups={props.signups} />}
+        {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
+        {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
+        {props.active === "stripe" && <PaymentsView rows={props.stripeRows} stripe={props.stripeOn} onRefresh={props.onRefreshStripe} busy={props.adminBusy} />}
+      </div>
+    </div>
+  );
+}
+
 function FunnelView({ rows, signups }: {
   rows: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; createdAt: string }[];
@@ -992,29 +1033,37 @@ function FunnelView({ rows, signups }: {
       timeZone: "Australia/Perth", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
     });
   return (
-    <div className="page admin">
-      <header className="page-head">
-        <div>
-          <h1>Ad funnel</h1>
-          <p className="muted">Last 7 days. Where visitors drop out.</p>
-        </div>
+    <div className="subview">
+      <header className="subhead">
+        <div><p className="muted">Last 7 days. Where visitors drop out.</p></div>
       </header>
       <div className="card">
+        <h3>Funnel</h3>
         {top === 0 ? (
           <div className="empty">
             <p><strong>No visits recorded yet.</strong></p>
             <p className="muted">Tracking starts from now. Send some ad traffic and this fills in.</p>
           </div>
         ) : (
-          rows.map((r, i) => (
-            <div className="group-row" key={r.label}>
-              <span className="group-name">{r.label}</span>
-              <span className="row gap">
-                <span className="muted">{r.rate}%</span>
-                <strong>{r.count}</strong>
-              </span>
-            </div>
-          ))
+          <div className="funnel-chart">
+            {rows.map((r, i) => {
+              const prev = i > 0 ? rows[i - 1].count : r.count;
+              const stepDrop = i > 0 && prev > 0 ? Math.round(((prev - r.count) / prev) * 100) : 0;
+              const width = top > 0 ? Math.max((r.count / top) * 100, r.count > 0 ? 3 : 0) : 0;
+              return (
+                <div className="fbar-row" key={r.label} title={`${r.label}: ${r.count} (${r.rate}% of top)`}>
+                  <span className="fbar-label">{r.label}</span>
+                  <div className="fbar-track">
+                    <div className="fbar-fill" style={{ width: `${width}%` }}>
+                      <span className="fbar-count">{r.count}</span>
+                    </div>
+                    <span className="fbar-rate">{r.rate}%</span>
+                  </div>
+                  {i > 0 && stepDrop > 0 && <span className="fbar-drop">&minus;{stepDrop}%</span>}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
       <div className="card">
@@ -1193,5 +1242,29 @@ const CSS = `
   .main{padding:22px 16px 50px;}
   .tiles{grid-template-columns:repeat(2,1fr);}
   .form-grid{grid-template-columns:1fr;}
+}
+
+.subtabs{border-bottom:1px solid var(--line);display:flex;gap:4px;margin-bottom:22px;overflow-x:auto;}
+.subtab{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);font-size:14px;font-weight:700;margin-bottom:-1px;padding:10px 14px;transition:color .2s var(--ease),border-color .2s var(--ease);white-space:nowrap;}
+.subtab:hover{color:var(--ink);}
+.subtab.on{border-bottom-color:var(--coral);color:var(--ink);}
+.subpanel{animation:dRise .35s var(--ease) both;}
+.subview{margin:0;}
+.subhead{margin-bottom:16px;}
+.subhead .muted{font-size:13.5px;}
+
+.funnel-chart{display:grid;gap:14px;padding:4px 0;}
+.fbar-row{align-items:center;display:grid;gap:12px;grid-template-columns:150px 1fr auto;}
+.fbar-label{color:var(--ink);font-size:13.5px;font-weight:600;}
+.fbar-track{align-items:center;display:flex;gap:10px;}
+.fbar-fill{align-items:center;animation:fbarGrow .6s var(--ease) both;background:var(--coral);border-radius:6px;box-shadow:0 4px 12px rgba(240,79,49,.25);color:#fff;display:flex;height:34px;justify-content:flex-end;min-width:34px;padding:0 12px;}
+.fbar-count{font-size:14px;font-weight:800;}
+.fbar-rate{color:var(--muted);font-size:12.5px;font-weight:700;white-space:nowrap;}
+.fbar-drop{background:#fdece8;border-radius:99px;color:var(--coral-deep);font-size:11.5px;font-weight:800;padding:4px 9px;white-space:nowrap;}
+@keyframes fbarGrow{from{transform:scaleX(.4);opacity:0;transform-origin:left;}}
+@media(max-width:640px){
+  .fbar-row{grid-template-columns:1fr;gap:5px;}
+  .fbar-label{font-size:13px;}
+  .fbar-drop{justify-self:start;}
 }
 `;
