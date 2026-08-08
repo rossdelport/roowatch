@@ -89,7 +89,8 @@ export default function DashboardApp() {
   const [uncovered, setUncovered] = useState<string[]>([]);
   const [keys, setKeys] = useState<{ apify: boolean; anthropic: boolean }>({ apify: false, anthropic: false });
   const [funnel, setFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
-  const [signups, setSignups] = useState<{ email: string; name: string; phone: string; createdAt: string }[]>([]);
+  const [signups, setSignups] = useState<{ email: string; name: string; phone: string; trade: string; createdAt: string }[]>([]);
+  const [tradeStats, setTradeStats] = useState<{ slug: string; views: number; signups: number; rate: number }[]>([]);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/me");
@@ -148,6 +149,7 @@ export default function DashboardApp() {
         const f = await fRes.json();
         setFunnel(f.funnel ?? []);
         setSignups(f.signups ?? []);
+        setTradeStats(f.trades ?? []);
       }
       setAdminTab(target);
       setAdminPrompt(false);
@@ -226,7 +228,7 @@ export default function DashboardApp() {
           {adminTab ? (
             <MarketingView
               active={adminTab} setActive={setAdminTab}
-              funnel={funnel} signups={signups}
+              funnel={funnel} signups={signups} tradeStats={tradeStats}
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
@@ -987,7 +989,8 @@ function MarketingView(props: {
   active: "members" | "stripe" | "pipeline" | "funnel";
   setActive: (t: "members" | "stripe" | "pipeline" | "funnel") => void;
   funnel: { label: string; count: number; rate: number }[];
-  signups: { email: string; name: string; phone: string; createdAt: string }[];
+  signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
+  tradeStats: { slug: string; views: number; signups: number; rate: number }[];
   members: Member[];
   adminCall: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
   sources: Source[]; uncovered: string[]; keys: { apify: boolean; anthropic: boolean };
@@ -1014,7 +1017,7 @@ function MarketingView(props: {
         ))}
       </div>
       <div className="subpanel">
-        {props.active === "funnel" && <FunnelView rows={props.funnel} signups={props.signups} />}
+        {props.active === "funnel" && <FunnelView rows={props.funnel} signups={props.signups} trades={props.tradeStats} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
         {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
         {props.active === "stripe" && <PaymentsView rows={props.stripeRows} stripe={props.stripeOn} onRefresh={props.onRefreshStripe} busy={props.adminBusy} />}
@@ -1023,10 +1026,12 @@ function MarketingView(props: {
   );
 }
 
-function FunnelView({ rows, signups }: {
+function FunnelView({ rows, signups, trades }: {
   rows: { label: string; count: number; rate: number }[];
-  signups: { email: string; name: string; phone: string; createdAt: string }[];
+  signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
+  trades: { slug: string; views: number; signups: number; rate: number }[];
 }) {
+  const activeTrades = trades.filter((t) => t.views > 0 || t.signups > 0);
   const top = rows[0]?.count ?? 0;
   const when = (t: string) =>
     new Date(t.replace(" ", "T") + "Z").toLocaleString("en-AU", {
@@ -1067,6 +1072,31 @@ function FunnelView({ rows, signups }: {
         )}
       </div>
       <div className="card">
+        <h3>Which trade is converting</h3>
+        {activeTrades.length === 0 ? (
+          <div className="empty">
+            <p><strong>No trade page visits yet.</strong></p>
+            <p className="muted">When your ads send people to the trade pages, each one shows here with views, signups and conversion.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Trade page</th><th>Views</th><th>Signups</th><th>Conversion</th></tr></thead>
+              <tbody>
+                {activeTrades.map((t) => (
+                  <tr key={t.slug}>
+                    <td>{t.slug}</td>
+                    <td>{t.views}</td>
+                    <td><strong>{t.signups}</strong></td>
+                    <td><span className={t.rate >= 5 ? "chip-status ok" : "chip-status pending"}>{t.rate}%</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <div className="card">
         <h3>Waitlist signups ({signups.length})</h3>
         {signups.length === 0 ? (
           <div className="empty">
@@ -1076,12 +1106,13 @@ function FunnelView({ rows, signups }: {
         ) : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>When</th><th>Name</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead>
+              <thead><tr><th>When</th><th>Name</th><th>Trade</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead>
               <tbody>
                 {signups.map((w) => (
                   <tr key={w.email}>
                     <td>{when(w.createdAt)}</td>
                     <td>{w.name || "-"}</td>
+                    <td>{w.trade || "-"}</td>
                     <td>{w.phone ? <a href={`tel:${w.phone.replace(/\s/g, "")}`}>{w.phone}</a> : "-"}</td>
                     <td><a href={`mailto:${w.email}`}>{w.email}</a></td>
                     <td><span className={w.phone ? "chip-status ok" : "chip-status pending"}>{w.phone ? "Ready to call" : "Email only"}</span></td>

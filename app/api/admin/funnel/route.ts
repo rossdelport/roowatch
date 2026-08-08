@@ -57,16 +57,64 @@ export async function POST(request: Request) {
       email: waitlist.email,
       name: waitlist.name,
       phone: waitlist.phone,
+      trade: waitlist.trade,
       createdAt: waitlist.createdAt,
     })
     .from(waitlist)
     .orderBy(desc(waitlist.createdAt))
     .limit(200);
 
+  const TRADE_BY_PATH: Record<string, string> = {
+    plumbers: "plumber", electricians: "electrician", handymen: "handyman",
+    painters: "painter", "air-con": "air con installer",
+    "gutter-cleaning": "gutter cleaner", cleaners: "cleaner",
+    "pest-control": "pest controller", removalists: "removalist",
+    landscapers: "landscaper",
+  };
+
+  const viewRows = (await db
+    .select({ path: events.path, n: sql<number>`count(*)` })
+    .from(events)
+    .where(sql`${events.name} = 'view_reserve' AND ${events.ts} >= ${since}`)
+    .groupBy(events.path)) as { path: string; n: number }[];
+
+  const signupRows = (await db
+    .select({ trade: waitlist.trade, n: sql<number>`count(*)` })
+    .from(waitlist)
+    .where(sql`${waitlist.createdAt} >= datetime(${since}, 'unixepoch')`)
+    .groupBy(waitlist.trade)) as { trade: string; n: number }[];
+
+  const signupByTrade: Record<string, number> = {};
+  for (const r of signupRows) signupByTrade[r.trade] = Number(r.n);
+
+  const trades = Object.entries(TRADE_BY_PATH).map(([slug, noun]) => {
+    const views = viewRows
+      .filter((v) => v.path === `/reserve/${slug}`)
+      .reduce((a, v) => a + Number(v.n), 0);
+    const joined = signupByTrade[noun] ?? 0;
+    return {
+      slug,
+      views,
+      signups: joined,
+      rate: views > 0 ? Math.round((joined / views) * 1000) / 10 : 0,
+    };
+  });
+  const genericViews = viewRows
+    .filter((v) => v.path === "/reserve" || v.path === "/reserve/")
+    .reduce((a, v) => a + Number(v.n), 0);
+  trades.push({
+    slug: "generic",
+    views: genericViews,
+    signups: signupByTrade[""] ?? 0,
+    rate: genericViews > 0 ? Math.round(((signupByTrade[""] ?? 0) / genericViews) * 1000) / 10 : 0,
+  });
+  trades.sort((a, b) => b.signups - a.signups || b.views - a.views);
+
   return Response.json({
     ok: true,
     days,
     signups,
+    trades,
     funnel: [
       { label: "Landed on site", count: landing, rate: 100 },
       { label: "Clicked a CTA", count: cta, rate: pct(cta, landing) },
