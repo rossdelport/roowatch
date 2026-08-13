@@ -57,6 +57,13 @@
       "when": 1786598702440,
       "tag": "0007_hard_the_spike",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786601493604,
+      "tag": "0008_magenta_ikaris",
+      "breakpoints": true
     }
   ]
 }

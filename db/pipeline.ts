@@ -1,6 +1,7 @@
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { sendEmail } from "./auth";
+import { postPermalink } from "./fbgroups";
 import { alerts, groups, profiles, seenPosts, sources, users } from "./schema";
 
 export type FetchedPost = {
@@ -39,8 +40,13 @@ export async function fetchPosts(sourceUrl: string): Promise<FetchedPost[]> {
   return items
     .map((item) => {
       const text = String(item.text ?? item.message ?? item.postText ?? "").trim();
-      const url = String(item.url ?? item.postUrl ?? item.topLevelUrl ?? "").trim();
-      const id = String(item.postId ?? item.id ?? url ?? text.slice(0, 80));
+      const rawUrl = String(item.url ?? item.postUrl ?? item.topLevelUrl ?? "").trim();
+      const id = String(item.postId ?? item.id ?? rawUrl ?? text.slice(0, 80));
+      const url = postPermalink(
+        rawUrl,
+        String(item.facebookUrl ?? item.inputUrl ?? sourceUrl ?? ""),
+        String(item.legacyId ?? item.postId ?? item.id ?? "")
+      );
       const author =
         typeof item.user === "object" && item.user
           ? String((item.user as Record<string, unknown>).name ?? "")
@@ -149,7 +155,12 @@ export async function processSource(sourceId: number) {
       const watchers = await db
         .select({ userId: groups.userId })
         .from(groups)
-        .where(and(sql`lower(${groups.name}) = lower(${source.groupName})`, eq(groups.status, "watching")));
+        .where(
+          and(
+            eq(groups.status, "watching"),
+            sql`(${groups.sourceId} = ${source.id} OR (${groups.sourceId} IS NULL AND lower(${groups.name}) = lower(${source.groupName})))`
+          )
+        );
       const watcherIds = [...new Set(watchers.map((w) => w.userId))];
 
       for (const userId of watcherIds) {

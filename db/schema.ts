@@ -57,6 +57,7 @@ export const groups = sqliteTable("groups", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull(),
   name: text("name").notNull(),
+  sourceId: integer("source_id"),
   status: text("status").notNull().default("watching"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

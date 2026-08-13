@@ -350,7 +350,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
     { title: "What do you do?", sub: "Tell us your services in plain English.", valid: services.trim().length > 5 },
     { title: "Where do you work?", sub: "Your city and the suburbs you serve.", valid: location.trim().length > 2 },
     { title: "What a good lead sounds like", sub: "Describe the posts you want, in your own words. This is what we look for.", valid: brief.trim().length > 10 },
-    { title: "Groups to watch", sub: "Paste the Facebook link for each group your customers use. The more you add, the more leads we catch.", valid: true },
+    { title: "Groups to watch", sub: "Paste the Facebook link for each group. We start watching the moment you finish.", valid: true },
   ];
 
   function addGroup() {
@@ -407,7 +407,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
                 ))}
               </div>
             )}
-            <p className="tiny">The link works best. A name is fine too and we will find it. Not sure? Leave it and we will pick them together on your welcome call.</p>
+            <p className="tiny">Open the group on Facebook and copy the address. Links start watching straight away. A name alone means we set it up for you on your welcome call.</p>
           </div>
         )}
 
@@ -670,13 +670,20 @@ function AlertRow({ alert }: { alert: Alert }) {
   const when = new Date(alert.sentAt + "Z").toLocaleString("en-AU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
   return (
     <div className="alert-item">
-      <div className="alert-top">
-        <strong>{alert.groupName}</strong>
-        <span className="tiny">{when}</span>
+      <div className="alert-main">
+        <div className="alert-top">
+          <strong>{alert.groupName}</strong>
+          <span className="tiny">{when}</span>
+        </div>
+        <p className="alert-text">{alert.postText}</p>
+        {alert.reason && <p className="alert-reason">{alert.reason}</p>}
       </div>
-      <p className="alert-text">{alert.postText}</p>
-      {alert.reason && <p className="alert-reason">{alert.reason}</p>}
-      {alert.postUrl && <a className="alert-link" href={alert.postUrl} target="_blank" rel="noreferrer">Open the post</a>}
+      {alert.postUrl && (
+        <a className="btn-go" href={alert.postUrl} target="_blank" rel="noreferrer">
+          Go to post
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </a>
+      )}
     </div>
   );
 }
@@ -1201,13 +1208,21 @@ const CSS = `
 .chip-status.ok{background:#e2f6ec;color:#1d8a63;}
 .chip-status.pending{background:#fff3d8;color:#8a5a00;}
 
-.alert-item{border-top:1px solid #f4efe7;padding:14px 2px;}
+.alert-item{align-items:center;border-top:1px solid #f4efe7;display:flex;gap:20px;padding:18px 2px;}
 .alert-item:first-of-type{border-top:0;}
-.alert-top{align-items:center;display:flex;gap:10px;justify-content:space-between;}
-.alert-text{color:#3c465e;font-size:14.5px;line-height:1.5;margin:8px 0 0;}
-.alert-reason{color:var(--mint);font-size:13px;font-weight:700;margin:8px 0 0;}
-.alert-link{color:var(--coral-deep);font-size:13.5px;font-weight:700;display:inline-block;margin-top:8px;text-decoration:none;}
-.alert-link:hover{text-decoration:underline;}
+.alert-main{flex:1;min-width:0;}
+.alert-top{align-items:baseline;display:flex;gap:10px;}
+.alert-top strong{font-size:14px;letter-spacing:-.01em;}
+.alert-text{color:#3c465e;font-size:14.5px;line-height:1.5;margin:6px 0 0;}
+.alert-reason{align-items:center;color:var(--mint);display:flex;font-size:13px;font-weight:700;gap:6px;margin:8px 0 0;}
+.alert-reason::before{content:"";background:var(--mint);border-radius:99px;flex:none;height:6px;width:6px;}
+.btn-go{align-items:center;background:var(--mint);border-radius:99px;box-shadow:0 4px 0 #1f7d5f,0 10px 20px rgba(46,170,129,.28);color:#fff;display:inline-flex;flex:none;font-size:14px;font-weight:800;gap:8px;padding:11px 20px;text-decoration:none;transition:transform .18s var(--ease),box-shadow .18s var(--ease),background .18s var(--ease);}
+.btn-go:hover{background:#279c76;box-shadow:0 6px 0 #1f7d5f,0 14px 24px rgba(46,170,129,.34);transform:translateY(-2px);}
+.btn-go:active{box-shadow:0 1px 0 #1f7d5f,0 6px 12px rgba(46,170,129,.25);transform:translateY(2px);}
+@media(max-width:640px){
+  .alert-item{align-items:stretch;flex-direction:column;gap:12px;}
+  .btn-go{justify-content:center;}
+}
 
 .kv{border-top:1px solid #f4efe7;display:flex;font-size:14px;gap:16px;justify-content:space-between;padding:11px 2px;}
 .kv span{color:var(--muted);flex:none;}
