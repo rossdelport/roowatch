@@ -206,7 +206,7 @@ export default function DashboardApp() {
           <nav className="nav">
             <button className={tab === "overview" && !adminTab ? "on" : ""} onClick={() => { setTab("overview"); setAdminTab(null); }}>{I.grid} Overview</button>
             <button className={tab === "groups" && !adminTab ? "on" : ""} onClick={() => { setTab("groups"); setAdminTab(null); }}>{I.eye} Groups watching</button>
-            <button className={tab === "alerts" && !adminTab ? "on" : ""} onClick={() => { setTab("alerts"); setAdminTab(null); }}>{I.bell} Notifications sent</button>
+            <button className={tab === "alerts" && !adminTab ? "on" : ""} onClick={() => { setTab("alerts"); setAdminTab(null); }}>{I.bell} Leads</button>
           </nav>
           <div className="side-bottom">
             {me.isAdmin && (
@@ -481,17 +481,16 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
   if (tab === "alerts") {
     return (
       <div className="page">
-        <header className="page-head"><div><h1>Notifications sent</h1><p className="muted">Every lead we have sent you, newest first.</p></div></header>
+        <header className="page-head">
+          <div><h1>Leads</h1><p className="muted">Every lead we have sent you, newest first.</p></div>
+          {alerts.length > 0 && <span className="live"><i /> {alerts.length} so far</span>}
+        </header>
         <div className="card">
           {alerts.length === 0 ? (
-            <div className="empty"><p><strong>Nothing here yet.</strong></p><p className="muted">When a post matches your services, it shows here and goes to your email.</p></div>
+            <div className="empty"><p><strong>No leads yet.</strong></p><p className="muted">When someone posts a job that matches your brief, it lands here and in your inbox.</p></div>
           ) : (
             alerts.map((a) => <AlertRow key={a.id} alert={a} />)
           )}
-        </div>
-        <div className="card">
-          <h3>Your channels</h3>
-          <div className="group-row"><span className="group-name">Email ({user.email})</span><span className="chip-status ok">On</span></div>
         </div>
       </div>
     );
@@ -510,6 +509,12 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
         <div className="kv"><span>Email</span><strong>{user.email}</strong></div>
       </div>
       <ProfileForm me={me} onRefresh={onRefresh} />
+      <div className="card">
+        <h3>Where your leads go</h3>
+        <div className="group-row"><span className="group-name">Email ({user.email})</span><span className="chip-status ok">On</span></div>
+        <div className="group-row"><span className="group-name">Text message</span><span className="chip-status pending">Coming soon</span></div>
+        <p className="tiny">Want leads sent somewhere else? Email ross@roowatch.com.au and we will set it up.</p>
+      </div>
       <div className="card">
         <h3>Your plan</h3>
         <div className="kv"><span>Plan</span><strong>Monthly. 10 groups watched.</strong></div>
