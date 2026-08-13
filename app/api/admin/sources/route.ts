@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { requireAdmin } from "../../../../db/admin";
 import { groups, sources } from "../../../../db/schema";
@@ -24,6 +24,11 @@ export async function POST(request: Request) {
       return Response.json({ error: "bad_request" }, { status: 400 });
     }
     await db.insert(sources).values({ groupName, url });
+    // A member asked for this group by name, so start watching it for them.
+    await db
+      .update(groups)
+      .set({ status: "watching" })
+      .where(sql`lower(${groups.name}) = lower(${groupName})`);
   }
 
   if (body.action === "update" && body.sourceId) {

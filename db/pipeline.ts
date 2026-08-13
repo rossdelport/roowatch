@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { sendEmail } from "./auth";
 import { alerts, groups, profiles, seenPosts, sources, users } from "./schema";
@@ -149,7 +149,7 @@ export async function processSource(sourceId: number) {
       const watchers = await db
         .select({ userId: groups.userId })
         .from(groups)
-        .where(and(eq(groups.name, source.groupName), eq(groups.status, "watching")));
+        .where(and(sql`lower(${groups.name}) = lower(${source.groupName})`, eq(groups.status, "watching")));
       const watcherIds = [...new Set(watchers.map((w) => w.userId))];
 
       for (const userId of watcherIds) {
