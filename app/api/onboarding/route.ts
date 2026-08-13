@@ -64,12 +64,20 @@ export async function POST(request: Request) {
     }
 
     const [existing] = await db
-      .select({ id: sources.id })
+      .select({ id: sources.id, active: sources.active })
       .from(sources)
       .where(eq(sources.url, g.url))
       .limit(1);
 
     let sourceId = existing?.id;
+    if (sourceId && !existing.active) {
+      // Ross paused this group earlier. A member just asked for it, so it
+      // has to start scanning again or they would never get a lead.
+      await db
+        .update(sources)
+        .set({ active: 1, lastError: "" })
+        .where(eq(sources.id, sourceId));
+    }
     if (!sourceId) {
       const [created] = await db
         .insert(sources)

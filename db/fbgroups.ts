@@ -5,7 +5,7 @@
 
 export type ParsedGroup = { name: string; url: string | null; slug: string | null };
 
-const GROUP_RE = /facebook\.com\/groups\/([^/?#\s]+)/i;
+const GROUP_RE = /(?:facebook\.com|fb\.com)\/groups\/([^/?#\s]+)/i;
 
 /** Pretty label from a slug: "trustedtradiesperth" stays, "perth-solar" -> "Perth Solar" */
 function labelFromSlug(slug: string): string {
@@ -33,8 +33,9 @@ export function parseGroupInput(raw: string): ParsedGroup | null {
     };
   }
 
-  // Not a link. Treat it as a group name for Ross to look up.
-  if (/^https?:\/\//i.test(input)) return null; // a link, but not to a group
+  // Anything else (a bare name, or a link we cannot resolve such as a
+  // facebook.com/share/g/... redirect) is kept for Ross to look up on the
+  // welcome call. Never drop it silently: losing it loses the member leads.
   return { name: input.slice(0, 120), url: null, slug: null };
 }
 
