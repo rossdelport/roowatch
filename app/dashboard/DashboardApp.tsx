@@ -348,7 +348,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
     { title: "Your website", sub: "Where can we see your business?", valid: website.trim().length > 3 },
     { title: "What do you do?", sub: "Tell us your services in plain English.", valid: services.trim().length > 5 },
     { title: "Where do you work?", sub: "Your city and the suburbs you serve.", valid: location.trim().length > 2 },
-    { title: "Groups to watch", sub: "Know any good local groups? Add them. We find the rest.", valid: true },
+    { title: "Groups to watch", sub: "Add the local groups your customers use. The more you add, the more leads we catch.", valid: true },
   ];
 
   function addGroup() {
@@ -389,7 +389,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
         {step === 4 && (
           <div>
             <div className="row gap">
-              <input placeholder="Home Advice Sydney" value={groupInput} onChange={(e) => setGroupInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} autoFocus />
+              <input placeholder="Type a group name, then Add" value={groupInput} onChange={(e) => setGroupInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} autoFocus />
               <button className="btn ghost" onClick={addGroup}>Add</button>
             </div>
             {groupList.length > 0 && (
@@ -399,7 +399,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
                 ))}
               </div>
             )}
-            <p className="tiny">This step is optional. Skip it if you are not sure.</p>
+            <p className="tiny">Not sure which groups? Leave it and we will pick them together on your welcome call.</p>
           </div>
         )}
 

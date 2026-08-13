@@ -29,6 +29,9 @@ export const profiles = sqliteTable("profiles", {
   services: text("services").notNull().default(""),
   location: text("location").notNull().default(""),
   brief: text("brief").notNull().default(""),
+  alertPhone: text("alert_phone").notNull().default(""),
+  smsEnabled: integer("sms_enabled").notNull().default(0),
+  emailEnabled: integer("email_enabled").notNull().default(1),
   onboardedAt: text("onboarded_at"),
 });
 
