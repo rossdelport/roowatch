@@ -12,6 +12,7 @@ export async function POST(request: Request) {
     website?: string;
     services?: string;
     location?: string;
+    brief?: string;
     groups?: string[];
   };
 
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
     website: (body.website ?? "").trim(),
     services: (body.services ?? "").trim(),
     location: (body.location ?? "").trim(),
+    brief: (body.brief ?? "").trim(),
     onboardedAt: new Date().toISOString(),
   };
 
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
       `Website: ${values.website}`,
       `Services: ${values.services}`,
       `Location: ${values.location}`,
+      `Their brief: ${values.brief || "not given"}`,
       `Groups they suggested: ${wanted.length ? wanted.join(", ") : "none"}`,
       "",
       "Open the master dashboard to set up their watchlist.",

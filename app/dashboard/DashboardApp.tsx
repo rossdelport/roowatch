@@ -339,6 +339,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
   const [website, setWebsite] = useState("");
   const [services, setServices] = useState("");
   const [location, setLocation] = useState("");
+  const [brief, setBrief] = useState("");
   const [groupInput, setGroupInput] = useState("");
   const [groupList, setGroupList] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -348,7 +349,8 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
     { title: "Your website", sub: "Where can we see your business?", valid: website.trim().length > 3 },
     { title: "What do you do?", sub: "Tell us your services in plain English.", valid: services.trim().length > 5 },
     { title: "Where do you work?", sub: "Your city and the suburbs you serve.", valid: location.trim().length > 2 },
-    { title: "Groups to watch", sub: "Add the local groups your customers use. The more you add, the more leads we catch.", valid: true },
+    { title: "What a good lead sounds like", sub: "Describe the posts you want, in your own words. This is what we look for.", valid: brief.trim().length > 10 },
+    { title: "Groups to watch", sub: "Paste the Facebook link for each group your customers use. The more you add, the more leads we catch.", valid: true },
   ];
 
   function addGroup() {
@@ -363,7 +365,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
       await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, website, services, location, groups: groupList }),
+        body: JSON.stringify({ name, website, services, location, brief, groups: groupList }),
       });
       onDone();
     } finally {
@@ -388,8 +390,14 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
         {step === 3 && <input placeholder="Sydney. Northern Beaches, Manly, Dee Why." value={location} onChange={(e) => setLocation(e.target.value)} autoFocus />}
         {step === 4 && (
           <div>
+            <textarea rows={4} placeholder="Someone in Perth asking who cleans solar panels, or saying their panels are dirty or their solar output has dropped." value={brief} onChange={(e) => setBrief(e.target.value)} autoFocus />
+            <p className="tiny">Tell us what to skip too. For example: people selling panels, or businesses advertising their own service.</p>
+          </div>
+        )}
+        {step === 5 && (
+          <div>
             <div className="row gap">
-              <input placeholder="Type a group name, then Add" value={groupInput} onChange={(e) => setGroupInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} autoFocus />
+              <input placeholder="facebook.com/groups/... or the group name" value={groupInput} onChange={(e) => setGroupInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} autoFocus />
               <button className="btn ghost" onClick={addGroup}>Add</button>
             </div>
             {groupList.length > 0 && (
@@ -399,7 +407,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
                 ))}
               </div>
             )}
-            <p className="tiny">Not sure which groups? Leave it and we will pick them together on your welcome call.</p>
+            <p className="tiny">The link works best. A name is fine too and we will find it. Not sure? Leave it and we will pick them together on your welcome call.</p>
           </div>
         )}
 
