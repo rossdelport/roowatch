@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -69,8 +69,14 @@ export const alerts = sqliteTable("alerts", {
   postText: text("post_text").notNull(),
   postUrl: text("post_url").notNull().default(""),
   reason: text("reason").notNull().default(""),
+  postKey: text("post_key").notNull().default(""),
+  emailSent: integer("email_sent").notNull().default(0),
   sentAt: text("sent_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => ({
+  userPostKeyUnique: uniqueIndex("alerts_user_post_key_unique")
+    .on(table.userId, table.postKey)
+    .where(sql`${table.postKey} <> ''`),
+}));
 
 export const events = sqliteTable("events", {
   id: integer("id").primaryKey({ autoIncrement: true }),

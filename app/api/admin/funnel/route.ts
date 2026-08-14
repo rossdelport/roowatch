@@ -49,7 +49,6 @@ export async function POST(request: Request) {
   const landing = step("view_landing");
   const cta = step("click_cta");
   const reserve = step("view_reserve");
-  const pay = step("click_pay");
   const done = step("view_onlist");
 
   const signups = await db
@@ -61,8 +60,17 @@ export async function POST(request: Request) {
       createdAt: waitlist.createdAt,
     })
     .from(waitlist)
+    .where(sql`${waitlist.createdAt} >= datetime(${since}, 'unixepoch')`)
     .orderBy(desc(waitlist.createdAt))
     .limit(200);
+
+  const [completedSignupRow] = (await db
+    .select({ n: sql<number>`count(*)` })
+    .from(waitlist)
+    .where(
+      sql`${waitlist.createdAt} >= datetime(${since}, 'unixepoch') AND ${waitlist.phone} <> ''`
+    )) as { n: number }[];
+  const completedSignups = Number(completedSignupRow?.n ?? 0);
 
   const TRADE_BY_PATH: Record<string, string> = {
     plumbers: "plumber", electricians: "electrician", handymen: "handyman",
@@ -81,7 +89,9 @@ export async function POST(request: Request) {
   const signupRows = (await db
     .select({ trade: waitlist.trade, n: sql<number>`count(*)` })
     .from(waitlist)
-    .where(sql`${waitlist.createdAt} >= datetime(${since}, 'unixepoch')`)
+    .where(
+      sql`${waitlist.createdAt} >= datetime(${since}, 'unixepoch') AND ${waitlist.phone} <> ''`
+    )
     .groupBy(waitlist.trade)) as { trade: string; n: number }[];
 
   const signupByTrade: Record<string, number> = {};
@@ -119,7 +129,7 @@ export async function POST(request: Request) {
       { label: "Landed on site", count: landing, rate: 100 },
       { label: "Clicked a CTA", count: cta, rate: pct(cta, landing) },
       { label: "Saw reserve page", count: reserve, rate: pct(reserve, landing) },
-      { label: "Joined waitlist", count: pay, rate: pct(pay, landing) },
+      { label: "Joined waitlist", count: completedSignups, rate: pct(completedSignups, landing) },
       { label: "Saw confirmation", count: done, rate: pct(done, landing) },
     ],
     byDevice,

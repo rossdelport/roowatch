@@ -33,13 +33,13 @@ export async function POST(request: Request) {
   const postUrl = (body.postUrl ?? "").trim();
   const reason = (body.reason ?? "").trim();
 
-  await db.insert(alerts).values({
+  const [createdAlert] = await db.insert(alerts).values({
     userId: member.id,
     groupName,
     postText,
     postUrl,
     reason,
-  });
+  }).returning({ id: alerts.id });
 
   const emailed = await sendEmail(
     member.email,
@@ -61,6 +61,13 @@ export async function POST(request: Request) {
       .filter(Boolean)
       .join("\n")
   );
+
+  if (createdAlert) {
+    await db
+      .update(alerts)
+      .set({ emailSent: emailed ? 1 : 0 })
+      .where(eq(alerts.id, createdAlert.id));
+  }
 
   return Response.json({ ok: true, emailed });
 }

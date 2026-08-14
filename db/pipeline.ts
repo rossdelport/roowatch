@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { sendEmail } from "./auth";
 import { postPermalink } from "./fbgroups";
@@ -129,6 +129,24 @@ export async function processSource(sourceId: number) {
   const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1);
   if (!source) return { error: "no_source" };
 
+  // Older deployments could already contain duplicate source URLs. Only the
+  // oldest row owns a URL; skipping the others prevents duplicate alerts while
+  // still allowing the duplicate to become canonical if the original is
+  // removed later.
+  const [canonical] = await db
+    .select({ id: sources.id })
+    .from(sources)
+    .where(eq(sources.url, source.url))
+    .orderBy(asc(sources.id))
+    .limit(1);
+  if (canonical && canonical.id !== source.id) {
+    await db
+      .update(sources)
+      .set({ lastChecked: Date.now(), lastError: "duplicate_source" })
+      .where(eq(sources.id, source.id));
+    return { posts: 0, fresh: 0, matches: 0, error: "duplicate_source" };
+  }
+
   const summary = { posts: 0, fresh: 0, matches: 0, error: "" };
   try {
     const posts = await fetchPosts(source.url);
@@ -140,15 +158,10 @@ export async function processSource(sourceId: number) {
       ? await db.select().from(seenPosts).where(inArray(seenPosts.id, ids))
       : [];
     const seenIds = new Set(already.map((r) => r.id));
-    const fresh = posts.filter((p, i) => !seenIds.has(ids[i]));
+    const fresh = posts.filter(
+      (p, i) => !seenIds.has(ids[i]) && ids.indexOf(ids[i]) === i
+    );
     summary.fresh = fresh.length;
-
-    for (const post of fresh) {
-      await db
-        .insert(seenPosts)
-        .values({ id: `${source.id}:${post.id}`.slice(0, 190), sourceId: source.id, seenAt: Date.now() })
-        .onConflictDoNothing();
-    }
 
     if (fresh.length) {
       // members watching a group with this name
@@ -163,47 +176,94 @@ export async function processSource(sourceId: number) {
         );
       const watcherIds = [...new Set(watchers.map((w) => w.userId))];
 
-      for (const userId of watcherIds) {
-        const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-        const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
-        if (!user || !profile) continue;
+      for (const post of fresh) {
+        const postKey = `${source.id}:${post.id}`.slice(0, 190);
+        let postOk = true;
 
-        for (const post of fresh) {
-          const verdict = await classifyPost(post, {
-            services: profile.services,
-            location: profile.location,
-            brief: profile.brief,
-          });
-          if (!verdict.match) continue;
+        for (const userId of watcherIds) {
+          const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+          const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
+          if (!user || !profile) continue;
 
-          summary.matches += 1;
-          await db.insert(alerts).values({
-            userId,
-            groupName: source.groupName,
-            postText: post.text.slice(0, 1000),
-            postUrl: post.url,
-            reason: verdict.reason,
-          });
-          await sendEmail(
-            user.email,
-            `New lead in ${source.groupName}`,
-            [
-              "G'day,",
-              "",
-              `Someone just posted in ${source.groupName}:`,
-              "",
-              `"${post.text.slice(0, 600)}"`,
-              "",
-              verdict.reason ? `Why we sent this: ${verdict.reason}` : "",
-              post.url ? `Open the post: ${post.url}` : "",
-              "",
-              "Reply fast. The first business to answer usually wins the job.",
-              "",
-              "Ross from RooWatch",
-            ]
-              .filter(Boolean)
-              .join("\n")
-          );
+          try {
+            const verdict = await classifyPost(post, {
+              services: profile.services,
+              location: profile.location,
+              brief: profile.brief,
+            });
+            if (!verdict.match) continue;
+
+            summary.matches += 1;
+
+            // Keep the alert row as an idempotent outbox record. If delivery
+            // fails, the next scan retries the email without creating another
+            // alert in the member's dashboard.
+            let [alert] = await db
+              .select({ id: alerts.id, emailSent: alerts.emailSent })
+              .from(alerts)
+              .where(and(eq(alerts.userId, userId), eq(alerts.postKey, postKey)))
+              .limit(1);
+            if (!alert) {
+              await db
+                .insert(alerts)
+                .values({
+                  userId,
+                  groupName: source.groupName,
+                  postText: post.text.slice(0, 1000),
+                  postUrl: post.url,
+                  reason: verdict.reason,
+                  postKey,
+                })
+                .onConflictDoNothing();
+              [alert] = await db
+                .select({ id: alerts.id, emailSent: alerts.emailSent })
+                .from(alerts)
+                .where(and(eq(alerts.userId, userId), eq(alerts.postKey, postKey)))
+                .limit(1);
+            }
+            if (!alert) throw new Error("alert_not_persisted");
+            if (alert.emailSent === 1) continue;
+
+            const emailed = await sendEmail(
+              user.email,
+              `New lead in ${source.groupName}`,
+              [
+                "G'day,",
+                "",
+                `Someone just posted in ${source.groupName}:`,
+                "",
+                `"${post.text.slice(0, 600)}"`,
+                "",
+                verdict.reason ? `Why we sent this: ${verdict.reason}` : "",
+                post.url ? `Open the post: ${post.url}` : "",
+                "",
+                "Reply fast. The first business to answer usually wins the job.",
+                "",
+                "Ross from RooWatch",
+              ]
+                .filter(Boolean)
+                .join("\n")
+            );
+            if (!emailed) throw new Error("email_delivery_failed");
+
+            await db
+              .update(alerts)
+              .set({ emailSent: 1 })
+              .where(eq(alerts.id, alert.id));
+          } catch (err) {
+            postOk = false;
+            summary.error ||= err instanceof Error ? err.message : "alert_failed";
+          }
+        }
+
+        // Only fingerprint a post after every matching member has received a
+        // durable alert and a successful email result. Failed work is retried
+        // on the next scan instead of being silently lost.
+        if (postOk) {
+          await db
+            .insert(seenPosts)
+            .values({ id: postKey, sourceId: source.id, seenAt: Date.now() })
+            .onConflictDoNothing();
         }
       }
     }
@@ -233,5 +293,13 @@ export async function processSource(sourceId: number) {
 export async function dueSources(limit: number) {
   const db = getDb();
   const all = await db.select().from(sources).where(eq(sources.active, 1));
-  return all.sort((a, b) => a.lastChecked - b.lastChecked).slice(0, limit);
+  const selected = [];
+  const urls = new Set<string>();
+  for (const source of all.sort((a, b) => a.lastChecked - b.lastChecked)) {
+    if (urls.has(source.url)) continue;
+    urls.add(source.url);
+    selected.push(source);
+    if (selected.length >= limit) break;
+  }
+  return selected;
 }

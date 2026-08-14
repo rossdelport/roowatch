@@ -23,25 +23,61 @@ export async function POST(request: Request) {
     if (!groupName || !url.startsWith("http")) {
       return Response.json({ error: "bad_request" }, { status: 400 });
     }
-    await db.insert(sources).values({ groupName, url });
+
+    // Reuse an existing source for the same URL. Source IDs are part of the
+    // post de-duplication key, so duplicate rows would process every post
+    // twice and send duplicate leads.
+    const [existing] = await db
+      .select({ id: sources.id })
+      .from(sources)
+      .where(eq(sources.url, url))
+      .limit(1);
+    let sourceId = existing?.id;
+    if (sourceId) {
+      await db
+        .update(sources)
+        .set({ groupName, active: 1, lastError: "" })
+        .where(eq(sources.id, sourceId));
+    } else {
+      const [created] = await db
+        .insert(sources)
+        .values({ groupName, url })
+        .returning({ id: sources.id });
+      sourceId = created?.id;
+    }
+
     // A member asked for this group by name, so start watching it for them.
-    await db
-      .update(groups)
-      .set({ status: "watching" })
-      .where(sql`lower(${groups.name}) = lower(${groupName})`);
+    if (sourceId) {
+      await db
+        .update(groups)
+        .set({ status: "watching", sourceId })
+        .where(sql`lower(${groups.name}) = lower(${groupName})`);
+    }
   }
 
   if (body.action === "update" && body.sourceId) {
     const patch: Record<string, unknown> = {};
     if (typeof body.url === "string") patch.url = body.url.trim();
     if (typeof body.groupName === "string") patch.groupName = body.groupName.trim();
-    if (typeof body.active === "boolean") patch.active = body.active ? 1 : 0;
+    if (typeof body.active === "boolean") {
+      patch.active = body.active ? 1 : 0;
+      await db
+        .update(groups)
+        .set({ status: body.active ? "watching" : "paused" })
+        .where(eq(groups.sourceId, body.sourceId));
+    }
     if (Object.keys(patch).length) {
       await db.update(sources).set(patch).where(eq(sources.id, body.sourceId));
     }
   }
 
   if (body.action === "remove" && body.sourceId) {
+    // Keep member rows usable if Ross removes a source. They become pending
+    // instead of retaining a foreign ID that can never be scanned again.
+    await db
+      .update(groups)
+      .set({ sourceId: null, status: "pending" })
+      .where(eq(groups.sourceId, body.sourceId));
     await db.delete(sources).where(eq(sources.id, body.sourceId));
   }
 
@@ -58,7 +94,8 @@ export async function POST(request: Request) {
     lastMatches: s.lastMatches,
     lastError: s.lastError,
     watchers: allGroups.filter(
-      (g) => g.name.toLowerCase() === s.groupName.toLowerCase()
+      (g) =>
+        g.sourceId === s.id || g.name.toLowerCase() === s.groupName.toLowerCase()
     ).length,
   }));
 
@@ -67,7 +104,7 @@ export async function POST(request: Request) {
   const uncovered = [
     ...new Set(
       allGroups
-        .filter((g) => !covered.has(g.name.toLowerCase()))
+        .filter((g) => !g.sourceId && !covered.has(g.name.toLowerCase()))
         .map((g) => g.name)
     ),
   ];

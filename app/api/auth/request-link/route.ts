@@ -71,5 +71,14 @@ export async function POST(request: Request) {
     ].join("\n")
   );
 
-  return Response.json({ ok: true, found: true, sent, link: sent ? undefined : link });
+  // Never expose a live login token in the API response. In production the
+  // token must only travel through the member's email channel. Keeping the
+  // development fallback behind an explicit dev-only check preserves local
+  // testing without turning a missing mail provider into an account takeover.
+  return Response.json({
+    ok: true,
+    found: true,
+    sent,
+    link: !sent && process.env.NODE_ENV === "development" ? link : undefined,
+  });
 }

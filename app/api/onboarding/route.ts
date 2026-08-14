@@ -45,10 +45,30 @@ export async function POST(request: Request) {
 
   // A pasted link becomes a watched source straight away. A bare name waits
   // for Ross to find the group on the welcome call.
-  const parsed = (body.groups ?? [])
+  const existingGroups = await db
+    .select({ id: groups.id, name: groups.name })
+    .from(groups)
+    .where(eq(groups.userId, user.id));
+  const requested = (body.groups ?? [])
     .map((g) => parseGroupInput(g))
-    .filter((g): g is NonNullable<typeof g> => Boolean(g))
-    .slice(0, 20);
+    .filter((g): g is NonNullable<typeof g> => Boolean(g));
+  const requestedNames = new Set<string>();
+  const uniqueRequested = requested.filter((g) => {
+    const key = g.name.trim().toLowerCase();
+    if (requestedNames.has(key)) return false;
+    requestedNames.add(key);
+    return true;
+  });
+  const existingNames = new Set(existingGroups.map((g) => g.name.trim().toLowerCase()));
+  const existingLinks = uniqueRequested.filter(
+    (g) => g.url && existingNames.has(g.name.trim().toLowerCase())
+  );
+  const newRequested = uniqueRequested.filter(
+    (g) => !existingNames.has(g.name.trim().toLowerCase())
+  );
+  const groupSlots = Math.max(0, 10 - existingGroups.length);
+  const parsed = [...existingLinks, ...newRequested.slice(0, groupSlots)];
+  const skippedGroups = newRequested.length - Math.min(newRequested.length, groupSlots);
 
   const wanted: string[] = [];
   let watchingNow = 0;
@@ -56,7 +76,12 @@ export async function POST(request: Request) {
   for (const g of parsed) {
     wanted.push(g.url ? `${g.name} (${g.url})` : g.name);
 
+    const existingGroup = existingGroups.find(
+      (row) => row.name.trim().toLowerCase() === g.name.trim().toLowerCase()
+    );
+
     if (!g.url) {
+      if (existingGroup) continue;
       await db
         .insert(groups)
         .values({ userId: user.id, name: g.name, status: "pending" });
@@ -86,6 +111,17 @@ export async function POST(request: Request) {
       sourceId = created?.id;
     }
 
+    if (existingGroup) {
+      if (sourceId) {
+        await db
+          .update(groups)
+          .set({ sourceId, status: "watching" })
+          .where(eq(groups.id, existingGroup.id));
+        watchingNow += 1;
+      }
+      continue;
+    }
+
     await db
       .insert(groups)
       .values({ userId: user.id, name: g.name, sourceId, status: "watching" });
@@ -111,5 +147,5 @@ export async function POST(request: Request) {
     ].join("\n")
   );
 
-  return Response.json({ ok: true, watching: watchingNow });
+  return Response.json({ ok: true, watching: watchingNow, skipped: skippedGroups });
 }

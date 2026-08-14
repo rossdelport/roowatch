@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `alerts_user_post_key_unique` ON `alerts` (`user_id`,`post_key`) WHERE "alerts"."post_key" <> '';

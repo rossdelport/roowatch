@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 type User = { id: string; email: string; name: string };
 type Profile = {
@@ -94,12 +95,23 @@ export default function DashboardApp() {
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/me");
-    setMe(await res.json());
+    setMe((await res.json()) as Me);
   }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    let cancelled = false;
+    fetch("/api/me")
+      .then((res) => res.json() as Promise<Me>)
+      .then((data: Me) => {
+        if (!cancelled) setMe(data);
+      })
+      .catch(() => {
+        if (!cancelled) setMe({ user: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -132,21 +144,29 @@ export default function DashboardApp() {
         setAdminError("Server is not set up yet.");
         return;
       }
-      const m = await mRes.json();
+      const m = (await mRes.json()) as { members?: Member[] };
       setMembers(m.members ?? []);
       if (sRes.ok) {
-        const s = await sRes.json();
+        const s = (await sRes.json()) as { rows?: StripeRow[]; stripe?: boolean };
         setStripeRows(s.rows ?? []);
         setStripeOn(Boolean(s.stripe));
       }
       if (pRes.ok) {
-        const p = await pRes.json();
+        const p = (await pRes.json()) as {
+          sources?: Source[];
+          uncovered?: string[];
+          keys?: { apify: boolean; anthropic: boolean };
+        };
         setSources(p.sources ?? []);
         setUncovered(p.uncovered ?? []);
         setKeys(p.keys ?? { apify: false, anthropic: false });
       }
       if (fRes.ok) {
-        const f = await fRes.json();
+        const f = (await fRes.json()) as {
+          funnel?: { label: string; count: number; rate: number }[];
+          signups?: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
+          trades?: { slug: string; views: number; signups: number; rate: number }[];
+        };
         setFunnel(f.funnel ?? []);
         setSignups(f.signups ?? []);
         setTradeStats(f.trades ?? []);
@@ -166,7 +186,7 @@ export default function DashboardApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sourceId, password: adminPass }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = (await res.json().catch(() => ({}))) as { matches?: number; posts?: number; error?: string };
     await unlockAdmin("pipeline");
     return { ok: res.ok, ...data } as { ok: boolean; matches?: number; posts?: number; error?: string };
   }
@@ -199,10 +219,10 @@ export default function DashboardApp() {
       <style>{CSS}</style>
       <div className="shell">
         <aside className="side">
-          <a className="brand" href="/dashboard">
+          <Link className="brand" href="/dashboard">
             <span className="brand-mark">R</span>
             <span>RooWatch</span>
-          </a>
+          </Link>
           <nav className="nav">
             <button className={tab === "overview" && !adminTab ? "on" : ""} onClick={() => { setTab("overview"); setAdminTab(null); }}>{I.grid} Overview</button>
             <button className={tab === "groups" && !adminTab ? "on" : ""} onClick={() => { setTab("groups"); setAdminTab(null); }}>{I.eye} Groups watching</button>
@@ -260,6 +280,9 @@ export default function DashboardApp() {
 }
 
 function Avatar({ avatar, name }: { avatar?: string; name: string }) {
+  // Avatar values are member-uploaded data URLs, so Next's remote image
+  // optimizer cannot safely handle them.
+  // eslint-disable-next-line @next/next/no-img-element
   if (avatar) return <img className="avatar-img" src={avatar} alt="" />;
   const initials = name.replace(/@.*/, "").split(/[ .]/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   return <span className="avatar-fallback">{initials || "R"}</span>;
@@ -282,7 +305,7 @@ function Login({ onDone }: { onDone: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as { found?: boolean; link?: string };
       if (data.found === false) {
         setNotFound(true);
         return;
@@ -297,15 +320,15 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="login">
       <div className="login-card">
-        <a className="brand brand-dark" href="/">
+        <Link className="brand brand-dark" href="/">
           <span className="brand-mark">R</span>
           <span>RooWatch</span>
-        </a>
+        </Link>
         {notFound ? (
           <>
             <h1>We could not find you</h1>
             <p className="muted">There is no RooWatch account for {email} yet. Spots are limited, so members join through a reservation.</p>
-            <a className="btn primary wide" href="/reserve">Reserve my spot</a>
+            <Link className="btn primary wide" href="/reserve">Reserve my spot</Link>
             <button className="btn ghost wide" onClick={() => { setNotFound(false); setEmail(""); }}>Try another email</button>
           </>
         ) : sent ? (
@@ -426,6 +449,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
 
 function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onLogout: () => void; onRefresh: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [now] = useState(() => Date.now());
   const groups = me.groups ?? [];
   const alerts = me.alerts ?? [];
   const user = me.user!;
@@ -448,7 +472,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
       <div className="page">
         <header className="page-head">
           <div>
-            <h1>G'day{firstName ? `, ${firstName}` : ""}</h1>
+            <h1>G&apos;day{firstName ? `, ${firstName}` : ""}</h1>
             <p className="muted">Your leads land here and on your phone.</p>
           </div>
           <span className="live"><i /> Watching live</span>
@@ -456,7 +480,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
         <div className="tiles">
           <div className="tile"><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></div>
           <div className="tile"><span className="tile-num">{alerts.length}</span><span className="tile-label">Leads sent to you</span></div>
-          <div className="tile"><span className="tile-num">{alerts.filter((a) => Date.now() - new Date(a.sentAt + "Z").getTime() < 7 * 864e5).length}</span><span className="tile-label">Leads this week</span></div>
+          <div className="tile"><span className="tile-num">{alerts.filter((a) => now - new Date(a.sentAt + "Z").getTime() < 7 * 864e5).length}</span><span className="tile-label">Leads this week</span></div>
           <div className="tile tile-accent"><span className="tile-num">&lt;5 min</span><span className="tile-label">Alert speed</span></div>
         </div>
         <div className="card">
@@ -546,7 +570,7 @@ function GroupsTab({ groups, onRefresh }: { groups: Group[]; onRefresh: () => vo
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
         setError(
           d.error === "plan_limit"
             ? `Your plan covers ${LIMIT} groups. Remove one first.`
@@ -577,7 +601,7 @@ function GroupsTab({ groups, onRefresh }: { groups: Group[]; onRefresh: () => vo
             <div className="group-row" key={g.id}>
               <span className="group-name">{g.name}</span>
               <span className="row gap">
-                <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : "Setting up"}</span>
+                    <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
                 <button className="mini" disabled={busy} onClick={() => call({ action: "remove", groupId: g.id })}>Remove</button>
               </span>
             </div>
@@ -788,7 +812,7 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
                 <div className="group-row" key={g.id}>
                   <span className="group-name">{g.name}</span>
                   <span className="row gap">
-                    <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status}</span>
+                    <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "paused" ? "Paused" : g.status}</span>
                     <button className="mini" onClick={() => onAction("/api/admin/groups", { action: "remove", groupId: g.id })}>Remove</button>
                   </span>
                 </div>
@@ -831,9 +855,10 @@ function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState("");
+  const [now] = useState(() => Date.now());
 
   const ago = (ts: number) =>
-    !ts ? "never" : `${Math.max(1, Math.round((Date.now() - ts) / 60000))} min ago`;
+    !ts ? "never" : `${Math.max(1, Math.round((now - ts) / 60000))} min ago`;
 
   async function add() {
     if (!groupName.trim() || !url.trim()) return;
