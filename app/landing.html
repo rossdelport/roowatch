@@ -449,14 +449,14 @@
   }
   @keyframes chipHot { 0%, 36% { opacity: 0; } 39%, 95% { opacity: 1; } 99%, 100% { opacity: 0; } }
   /* ---------- pricing ---------- */
-  .plans { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; margin: 56px auto 0; max-width: 920px; text-align: left; }
-  .plan { background: #fff; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; padding: 30px 32px 34px; }
+  .plans { display: grid; gap: 20px; grid-template-columns: repeat(3, 1fr); margin: 56px auto 0; max-width: 1120px; text-align: left; }
+  .plan { background: #fff; border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow-soft); display: flex; flex-direction: column; padding: 30px 28px 34px; }
   .plan-best { border-color: #f4c9a8; box-shadow: var(--shadow); }
   .plan-head { align-items: center; display: flex; justify-content: space-between; }
   .plan-title { font-size: 18px; font-weight: 800; letter-spacing: -.01em; }
   .best-badge { background: var(--gold-soft); border-radius: 99px; color: #8a5a00; font-size: 11px; font-weight: 800; letter-spacing: .05em; padding: 5px 11px; text-transform: uppercase; }
   .plan-amount { align-items: baseline; display: flex; gap: 8px; margin-top: 24px; }
-  .plan-amount strong { font-size: 48px; font-weight: 800; letter-spacing: -.03em; }
+  .plan-amount strong { font-size: 44px; font-weight: 800; letter-spacing: -.03em; }
   .plan-old { color: #98a0b3; font-size: 24px; font-weight: 800; text-decoration: line-through; text-decoration-color: var(--coral); text-decoration-thickness: 3px; }
   .plan-amount span { color: #98a0b3; font-size: 15px; }
   .plan-sub { color: var(--muted); font-size: 14.5px; line-height: 1.5; margin: 10px 0 0; }
@@ -544,6 +544,9 @@
     .desktop-nav { gap: 18px; }
     .floaty { opacity: .7; transform: scale(.82); }
     .floaty-e, .floaty-f { display: none; }
+    /* Three cards get squeezed here. One column reads better than a squash. */
+    .plans { grid-template-columns: 1fr; max-width: 460px; }
+    .plan { padding: 30px 32px 34px; }
   }
   @media (max-width: 820px) {
     .topbar { padding: 18px 20px; }
@@ -945,12 +948,12 @@ fbq('track','PageView');
   <section class="section" id="pricing" aria-labelledby="pricing-title">
     <div class="pill"><span class="pill-icon"></span> Pricing</div>
     <h2 id="pricing-title">Simple <span class="highlight highlight-gold">pricing</span></h2>
-    <p class="section-lede">Two plans. No surprise fees. Cancel any time.</p>
+    <p class="section-lede">Three plans. No surprise fees. Cancel any time.</p>
     <div class="plans">
       <article class="plan">
-        <div class="plan-head"><span class="plan-title">Monthly</span><span class="best-badge">Intro offer</span></div>
-        <div class="plan-amount"><s class="plan-old">$197</s><strong>$49</strong><span>/ first month</span></div>
-        <p class="plan-sub">Then <b>$197</b> a month. <b>10</b> groups watched for you. Leads sent to your phone.</p>
+        <div class="plan-head"><span class="plan-title">Local</span></div>
+        <div class="plan-amount"><strong>$297</strong><span>/ month</span></div>
+        <p class="plan-sub"><b>10</b> groups watched for you. Leads sent to your phone.</p>
         <a class="button button-coral" href="/signup">Get local leads</a>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> 10 groups watched for you</li>
@@ -961,12 +964,25 @@ fbq('track','PageView');
         </ul>
       </article>
       <article class="plan plan-best">
-        <div class="plan-head"><span class="plan-title">Done for you</span></div>
-        <div class="plan-amount"><strong>$1,497</strong><span>/ month</span></div>
+        <div class="plan-head"><span class="plan-title">Growth</span></div>
+        <div class="plan-amount"><strong>$597</strong><span>/ month</span></div>
+        <p class="plan-sub"><b>25</b> groups watched for you. Cover more suburbs.</p>
+        <a class="button button-coral" href="/signup">Get local leads</a>
+        <ul class="plan-features">
+          <li><span class="pf-check">✓</span> Everything in Local</li>
+          <li><span class="pf-check">✓</span> 25 groups watched for you</li>
+          <li><span class="pf-check">✓</span> Alerts in under 5 minutes</li>
+          <li><span class="pf-check">✓</span> We set your groups up for you</li>
+          <li><span class="pf-check">✓</span> Cancel any time</li>
+        </ul>
+      </article>
+      <article class="plan">
+        <div class="plan-head"><span class="plan-title">Scale</span></div>
+        <div class="plan-amount"><strong>$1,997</strong><span>/ month</span></div>
         <p class="plan-sub"><b>100</b> groups watched for you. Alerts in <b>3 minutes</b>.</p>
         <a class="button button-dark" href="/signup">Talk to us</a>
         <ul class="plan-features">
-          <li><span class="pf-check">✓</span> Everything in Monthly</li>
+          <li><span class="pf-check">✓</span> Everything in Growth</li>
           <li><span class="pf-check">✓</span> 100 groups watched for you</li>
           <li><span class="pf-check">✓</span> Alerts in under 3 minutes</li>
           <li><span class="pf-check">✓</span> We set it all up for you</li>
@@ -986,7 +1002,7 @@ fbq('track','PageView');
       <details class="faq-item"><summary>Which groups can you watch?<span class="faq-x">+</span></summary><p>Public Facebook groups across Australia. You pick them. You can change them any time.</p></details>
       <details class="faq-item"><summary>How do I tell you what leads I want?<span class="faq-x">+</span></summary><p>In plain English. Like this: “Tell me when someone in Sydney asks for a solar quote.” That is all we need.</p></details>
       <details class="faq-item"><summary>Where do the alerts go?<span class="faq-x">+</span></summary><p>Email and text right now. Teams and custom channels are coming soon.</p></details>
-      <details class="faq-item"><summary>What does it cost?<span class="faq-x">+</span></summary><p>$49 for your first month. Then $197 a month for 10 groups watched. Done for you is $1,497 a month for 100 groups and 3 minute alerts. Cancel any time.</p></details>
+      <details class="faq-item"><summary>What does it cost?<span class="faq-x">+</span></summary><p>Local is $297 a month for 10 groups watched. Growth is $597 a month for 25 groups. Scale is $1,997 a month for 100 groups and 3 minute alerts. Cancel any time.</p></details>
     </div>
   </section>
 
