@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { sendEmail } from "./auth";
-import { postPermalink } from "./fbgroups";
+import { groupSlug, postPermalink } from "./fbgroups";
 import { alerts, groups, profiles, seenPosts, sources, users } from "./schema";
 
 export type FetchedPost = {
@@ -15,6 +15,67 @@ export type FetchedPost = {
 const SEEN_TTL_DAYS = 14;
 
 /** Pull recent posts for one group through the Apify actor. */
+/**
+ * One Apify run can cover many groups. The run start fee is charged once, and
+ * the date window means we only pay for posts we have not seen. Returns posts
+ * keyed by group slug so each source picks up its own.
+ */
+export async function fetchPostsBatch(
+  sourceUrls: string[],
+  newerThan: string
+): Promise<Map<string, FetchedPost[]>> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) throw new Error("apify_not_configured");
+  const actor = process.env.APIFY_ACTOR || "apify~facebook-groups-scraper";
+
+  const res = await fetch(
+    `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${token}&timeout=240&memory=1024`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startUrls: sourceUrls.map((url) => ({ url })),
+        onlyPostsNewerThan: newerThan,
+        viewOption: "CHRONOLOGICAL",
+        resultsLimit: 200,
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`apify_${res.status}`);
+  const items = (await res.json()) as Record<string, unknown>[];
+
+  const out = new Map<string, FetchedPost[]>();
+  for (const url of sourceUrls) out.set(groupSlug(url), []);
+
+  for (const item of items) {
+    const from = String(item.facebookUrl ?? item.inputUrl ?? "");
+    const slug = groupSlug(from);
+    const bucket = out.get(slug);
+    if (!bucket) continue;
+    const post = toPost(item, from);
+    if (post) bucket.push(post);
+  }
+  return out;
+}
+
+/** Shape one raw Apify item into a post, or null if it is not usable. */
+function toPost(item: Record<string, unknown>, sourceUrl: string): FetchedPost | null {
+  const text = String(item.text ?? item.message ?? item.postText ?? "").trim();
+  const rawUrl = String(item.url ?? item.postUrl ?? item.topLevelUrl ?? "").trim();
+  const id = String(item.postId ?? item.id ?? rawUrl ?? text.slice(0, 80));
+  if (!id || text.length <= 10) return null;
+  const url = postPermalink(
+    rawUrl,
+    String(item.facebookUrl ?? item.inputUrl ?? sourceUrl ?? ""),
+    String(item.legacyId ?? item.postId ?? item.id ?? "")
+  );
+  const author =
+    typeof item.user === "object" && item.user
+      ? String((item.user as Record<string, unknown>).name ?? "")
+      : String(item.authorName ?? "");
+  return { id, text, url, author, postedAt: String(item.time ?? item.date ?? "") };
+}
+
 export async function fetchPosts(sourceUrl: string): Promise<FetchedPost[]> {
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error("apify_not_configured");
@@ -124,7 +185,7 @@ Reply with only JSON: {"match": true or false, "reason": "one short plain senten
 }
 
 /** Run one source end to end: fetch, dedup, match per member, alert. */
-export async function processSource(sourceId: number) {
+export async function processSource(sourceId: number, prefetched?: FetchedPost[]) {
   const db = getDb();
   const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1);
   if (!source) return { error: "no_source" };
@@ -149,7 +210,7 @@ export async function processSource(sourceId: number) {
 
   const summary = { posts: 0, fresh: 0, matches: 0, error: "" };
   try {
-    const posts = await fetchPosts(source.url);
+    const posts = prefetched ?? (await fetchPosts(source.url));
     summary.posts = posts.length;
 
     // dedup against seen_posts

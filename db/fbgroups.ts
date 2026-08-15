@@ -1,11 +1,17 @@
+const GROUP_RE = /(?:facebook\.com|fb\.com)\/groups\/([^/?#\s]+)/i;
+
 /**
  * Turning whatever a member types into a watchable Facebook group.
  * They may paste a full link, a bare facebook.com path, or just a name.
  */
 
+/** The group slug from any Facebook group URL, for matching posts to sources. */
+export function groupSlug(url: string): string {
+  return (String(url ?? "").match(GROUP_RE)?.[1] ?? "").toLowerCase().replace(/\/$/, "");
+}
+
 export type ParsedGroup = { name: string; url: string | null; slug: string | null };
 
-const GROUP_RE = /(?:facebook\.com|fb\.com)\/groups\/([^/?#\s]+)/i;
 
 /** Pretty label from a slug: "trustedtradiesperth" stays, "perth-solar" -> "Perth Solar" */
 function labelFromSlug(slug: string): string {
