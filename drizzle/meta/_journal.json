@@ -78,6 +78,13 @@
       "when": 1786626201281,
       "tag": "0010_rich_shockwave",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786779585203,
+      "tag": "0011_lethal_ego",
+      "breakpoints": true
     }
   ]
 }

@@ -32,6 +32,10 @@ export async function GET(request: Request) {
     avatar: user.avatar || undefined,
     isAdmin: isAdminEmail(user.email),
     profile: profile ?? null,
+    postsUsed:
+      profile && profile.usageMonth === new Date().toISOString().slice(0, 7)
+        ? profile.postsUsed
+        : 0,
     onboarded: Boolean(profile?.onboardedAt),
     groups: myGroups,
     alerts: myAlerts,

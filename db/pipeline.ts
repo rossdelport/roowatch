@@ -13,6 +13,8 @@ export type FetchedPost = {
 };
 
 const SEEN_TTL_DAYS = 14;
+/** Fair use: posts we will read for one member each month. */
+const POSTS_PER_MONTH = Number(process.env.POSTS_PER_MONTH || 10000);
 
 /** Pull recent posts for one group through the Apify actor. */
 /**
@@ -245,6 +247,16 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
           const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
           const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
           if (!user || !profile) continue;
+
+          // Fair use. Reading a post costs money, so a member who is far past
+          // their monthly allowance stops being charged for until next month.
+          const month = new Date().toISOString().slice(0, 7);
+          const used = profile.usageMonth === month ? profile.postsUsed : 0;
+          if (used >= POSTS_PER_MONTH) continue;
+          await db
+            .update(profiles)
+            .set({ postsUsed: used + 1, usageMonth: month })
+            .where(eq(profiles.userId, userId));
 
           try {
             const verdict = await classifyPost(post, {

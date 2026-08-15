@@ -40,6 +40,7 @@ type Me = {
   groups?: Group[];
   alerts?: Alert[];
   avatar?: string;
+  postsUsed?: number;
 };
 type Member = {
   id: string;
@@ -542,6 +543,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
       <div className="card">
         <h3>Your plan</h3>
         <div className="kv"><span>Plan</span><strong>Monthly. 10 groups watched.</strong></div>
+        <div className="kv"><span>Posts checked this month</span><strong>{(me.postsUsed ?? 0).toLocaleString()} of 10,000</strong></div>
         <div className="kv"><span>Guarantee</span><strong>1 job in 30 days or we refund you</strong></div>
         <p className="tiny">Need to change anything? Email ross@roowatch.com.au and we sort it same day.</p>
       </div>

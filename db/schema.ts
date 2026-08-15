@@ -30,6 +30,8 @@ export const profiles = sqliteTable("profiles", {
   location: text("location").notNull().default(""),
   brief: text("brief").notNull().default(""),
   alertPhone: text("alert_phone").notNull().default(""),
+  postsUsed: integer("posts_used").notNull().default(0),
+  usageMonth: text("usage_month").notNull().default(""),
   smsEnabled: integer("sms_enabled").notNull().default(0),
   emailEnabled: integer("email_enabled").notNull().default(1),
   onboardedAt: text("onboarded_at"),
