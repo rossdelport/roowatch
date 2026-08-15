@@ -61,7 +61,11 @@ export function isAdminEmail(email: string) {
   return email.trim().toLowerCase() === "ross@roowatch.com.au";
 }
 
-export async function sendEmail(to: string, subject: string, text: string) {
+export async function sendEmail(
+  to: string | string[],
+  subject: string,
+  text: string
+) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return false;
   const res = await fetch("https://api.resend.com/emails", {
@@ -73,7 +77,7 @@ export async function sendEmail(to: string, subject: string, text: string) {
     body: JSON.stringify({
       from: "RooWatch <notify@trynoisy.com>",
       reply_to: "ross@roowatch.com.au",
-      to: [to],
+      to: Array.isArray(to) ? to : [to],
       subject,
       text,
     }),

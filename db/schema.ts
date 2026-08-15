@@ -6,6 +6,7 @@ export const users = sqliteTable("users", {
   email: text("email").notNull().unique(),
   name: text("name").notNull().default(""),
   avatar: text("avatar").notNull().default(""),
+  passwordHash: text("password_hash").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -25,6 +26,9 @@ export const sessions = sqliteTable("sessions", {
 
 export const profiles = sqliteTable("profiles", {
   userId: text("user_id").primaryKey(),
+  businessName: text("business_name").notNull().default(""),
+  trade: text("trade").notNull().default(""),
+  state: text("state").notNull().default(""),
   website: text("website").notNull().default(""),
   services: text("services").notNull().default(""),
   location: text("location").notNull().default(""),

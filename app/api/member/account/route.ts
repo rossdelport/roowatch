@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { clearedCookie, currentUser, sendEmail } from "../../../../db/auth";
+import { hashPassword, passwordProblem, verifyPassword } from "../../../../db/password";
 import {
   alerts,
   groups,
@@ -21,8 +22,27 @@ export async function POST(request: Request) {
     services?: string;
     location?: string;
     brief?: string;
+    password?: string;
+    currentPassword?: string;
   };
   const db = getDb();
+
+  if (typeof body.password === "string") {
+    const weak = passwordProblem(body.password);
+    if (weak) {
+      return Response.json({ error: "weak_password", message: weak }, { status: 400 });
+    }
+    // Someone with a password must prove they know it. Members who joined by
+    // email link have none yet, so their valid session is proof enough.
+    if (user.passwordHash) {
+      const ok = await verifyPassword(String(body.currentPassword ?? ""), user.passwordHash);
+      if (!ok) return Response.json({ error: "wrong_password" }, { status: 400 });
+    }
+    await db
+      .update(users)
+      .set({ passwordHash: await hashPassword(body.password) })
+      .where(eq(users.id, user.id));
+  }
 
   if (typeof body.name === "string") {
     await db

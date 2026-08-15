@@ -5,6 +5,9 @@ import Link from "next/link";
 
 type User = { id: string; email: string; name: string };
 type Profile = {
+  businessName: string;
+  trade: string;
+  state: string;
   website: string;
   services: string;
   location: string;
@@ -41,6 +44,7 @@ type Me = {
   alerts?: Alert[];
   avatar?: string;
   postsUsed?: number;
+  hasPassword?: boolean;
 };
 type Member = {
   id: string;
@@ -208,7 +212,7 @@ export default function DashboardApp() {
     return (
       <div className="dash">
         <style>{CSS}</style>
-        <Login onDone={refresh} />
+        <Login />
       </div>
     );
   }
@@ -259,7 +263,7 @@ export default function DashboardApp() {
           )}
         </main>
 
-        {needsOnboarding && <Onboarding email={me.user.email} onDone={refresh} />}
+        {needsOnboarding && <Onboarding me={me} onDone={refresh} />}
 
         {adminPrompt && (
           <div className="overlay">
@@ -289,34 +293,11 @@ function Avatar({ avatar, name }: { avatar?: string; name: string }) {
   return <span className="avatar-fallback">{initials || "R"}</span>;
 }
 
-function Login({ onDone }: { onDone: () => void }) {
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-  const [notFound, setNotFound] = useState(false);
-  const [devLink, setDevLink] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const ok = /.+@.+\..+/.test(email);
-
-  async function submit() {
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const res = await fetch("/api/auth/request-link", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = (await res.json()) as { found?: boolean; link?: string };
-      if (data.found === false) {
-        setNotFound(true);
-        return;
-      }
-      setSent(true);
-      if (data.link) setDevLink(data.link);
-    } finally {
-      setBusy(false);
-    }
-  }
+/** Log in and sign up both live on /signup now, so send people there. */
+function Login() {
+  useEffect(() => {
+    window.location.replace("/signup?mode=login");
+  }, []);
 
   return (
     <div className="login">
@@ -325,57 +306,41 @@ function Login({ onDone }: { onDone: () => void }) {
           <span className="brand-mark">R</span>
           <span>RooWatch</span>
         </Link>
-        {notFound ? (
-          <>
-            <h1>We could not find you</h1>
-            <p className="muted">There is no RooWatch account for {email} yet. Spots are limited, so members join through a reservation.</p>
-            <Link className="btn primary wide" href="/reserve">Reserve my spot</Link>
-            <button className="btn ghost wide" onClick={() => { setNotFound(false); setEmail(""); }}>Try another email</button>
-          </>
-        ) : sent ? (
-          <>
-            <h1>Check your email</h1>
-            <p className="muted">We sent a login link to {email}. It lasts 30 minutes.</p>
-            {devLink && (
-              <p className="tiny">Email is not set up here. <a href={devLink}>Use this link</a>.</p>
-            )}
-            <button className="btn ghost wide" onClick={() => { setSent(false); setDevLink(null); }}>Use a different email</button>
-            <p className="tiny">Already clicked it? <button className="linkish" onClick={onDone}>Refresh</button></p>
-          </>
-        ) : (
-          <>
-            <h1>Log in</h1>
-            <p className="muted">We send you a link. No password to remember.</p>
-            <label>Your email</label>
-            <input type="email" placeholder="you@business.com.au" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoFocus />
-            <button className="btn primary wide" disabled={!ok || busy} onClick={submit}>{busy ? "Sending" : "Send my login link"}</button>
-            <p className="tiny">Trouble logging in? Email ross@roowatch.com.au</p>
-          </>
-        )}
+        <h1>Taking you to the login page</h1>
+        <p className="muted">One moment.</p>
+        <Link className="btn primary wide" href="/signup?mode=login">Log in</Link>
       </div>
     </div>
   );
 }
 
-function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
+function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
+  const email = me.user!.email;
+  // Signup already asked for the business name, the trade and the state. Never
+  // ask the same question twice: reuse those answers as the starting point.
+  const known = me.profile;
   const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
-  const [website, setWebsite] = useState("");
-  const [services, setServices] = useState("");
-  const [location, setLocation] = useState("");
-  const [brief, setBrief] = useState("");
+  const [name, setName] = useState(known?.businessName ?? "");
+  const [website, setWebsite] = useState(known?.website ?? "");
+  const [services, setServices] = useState(known?.services ?? "");
+  const [location, setLocation] = useState(known?.location ?? "");
+  const [brief, setBrief] = useState(known?.brief ?? "");
   const [groupInput, setGroupInput] = useState("");
   const [groupList, setGroupList] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
+  const trade = (known?.trade ?? "").trim();
   const steps = [
-    { title: "What is your business called?", sub: "So we know who we are talking to.", valid: name.trim().length > 1 },
-    { title: "Your website", sub: "Where can we see your business?", valid: website.trim().length > 3 },
-    { title: "What do you do?", sub: "Tell us your services in plain English.", valid: services.trim().length > 5 },
-    { title: "Where do you work?", sub: "Your city and the suburbs you serve.", valid: location.trim().length > 2 },
-    { title: "What a good lead sounds like", sub: "Describe the posts you want, in your own words. This is what we look for.", valid: brief.trim().length > 10 },
-    { title: "Groups to watch", sub: "Paste the Facebook link for each group. We start watching the moment you finish.", valid: true },
+    ...((known?.businessName ?? "").trim()
+      ? []
+      : [{ key: "name", title: "What is your business called?", sub: "So we know who we are talking to.", valid: name.trim().length > 1 }]),
+    { key: "website", title: "Your website", sub: "Where can we see your business?", valid: website.trim().length > 3 },
+    { key: "services", title: "What do you do?", sub: trade ? `You told us you are ${aOrAn(trade)}. Now tell us your jobs in plain English.` : "Tell us your services in plain English.", valid: services.trim().length > 5 },
+    { key: "location", title: "Where do you work?", sub: "Your city and the suburbs you serve.", valid: location.trim().length > 2 },
+    { key: "brief", title: "What a good lead sounds like", sub: "Describe the posts you want, in your own words. This is what we look for.", valid: brief.trim().length > 10 },
+    { key: "groups", title: "Groups to watch", sub: "Paste the Facebook link for each group. We start watching the moment you finish.", valid: true },
   ];
+  const current = steps[step];
 
   function addGroup() {
     const g = groupInput.trim();
@@ -389,7 +354,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
       await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, website, services, location, brief, groups: groupList }),
+        body: JSON.stringify({ businessName: name, website, services, location, brief, groups: groupList }),
       });
       onDone();
     } finally {
@@ -401,24 +366,29 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
     <div className="overlay">
       <div className="modal">
         <div className="steps-dots">
-          {steps.map((_, i) => (
-            <span key={i} className={i === step ? "dot on" : i < step ? "dot done" : "dot"} />
+          {steps.map((s, i) => (
+            <span key={s.key} className={i === step ? "dot on" : i < step ? "dot done" : "dot"} />
           ))}
         </div>
-        <h2>{steps[step].title}</h2>
-        <p className="muted">{steps[step].sub}</p>
+        <h2>{current.title}</h2>
+        <p className="muted">{current.sub}</p>
 
-        {step === 0 && <input placeholder="Brightside Solar" value={name} onChange={(e) => setName(e.target.value)} autoFocus />}
-        {step === 1 && <input placeholder="www.yourbusiness.com.au" value={website} onChange={(e) => setWebsite(e.target.value)} autoFocus />}
-        {step === 2 && <textarea rows={4} placeholder="We install solar panels for homes. We also do battery upgrades and repairs." value={services} onChange={(e) => setServices(e.target.value)} autoFocus />}
-        {step === 3 && <input placeholder="Sydney. Northern Beaches, Manly, Dee Why." value={location} onChange={(e) => setLocation(e.target.value)} autoFocus />}
-        {step === 4 && (
+        {current.key === "name" && <input placeholder="Brightside Solar" value={name} onChange={(e) => setName(e.target.value)} autoFocus />}
+        {current.key === "website" && <input placeholder="www.yourbusiness.com.au" value={website} onChange={(e) => setWebsite(e.target.value)} autoFocus />}
+        {current.key === "services" && <textarea rows={4} placeholder="We install solar panels for homes. We also do battery upgrades and repairs." value={services} onChange={(e) => setServices(e.target.value)} autoFocus />}
+        {current.key === "location" && (
+          <div>
+            <input placeholder="Sydney. Northern Beaches, Manly, Dee Why." value={location} onChange={(e) => setLocation(e.target.value)} autoFocus />
+            <p className="tiny">Add your city and suburbs, not just the state.</p>
+          </div>
+        )}
+        {current.key === "brief" && (
           <div>
             <textarea rows={4} placeholder="Someone in Perth asking who cleans solar panels, or saying their panels are dirty or their solar output has dropped." value={brief} onChange={(e) => setBrief(e.target.value)} autoFocus />
             <p className="tiny">Tell us what to skip too. For example: people selling panels, or businesses advertising their own service.</p>
           </div>
         )}
-        {step === 5 && (
+        {current.key === "groups" && (
           <div>
             <div className="row gap">
               <input placeholder="facebook.com/groups/... or the group name" value={groupInput} onChange={(e) => setGroupInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} autoFocus />
@@ -438,7 +408,7 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
         <div className="row spread">
           {step > 0 ? <button className="btn ghost" onClick={() => setStep(step - 1)}>Back</button> : <span className="tiny">{email}</span>}
           {step < steps.length - 1 ? (
-            <button className="btn primary" disabled={!steps[step].valid} onClick={() => setStep(step + 1)}>Next</button>
+            <button className="btn primary" disabled={!current.valid} onClick={() => setStep(step + 1)}>Next</button>
           ) : (
             <button className="btn primary" disabled={busy} onClick={finish}>{busy ? "Saving" : "Finish setup"}</button>
           )}
@@ -446,6 +416,73 @@ function Onboarding({ email, onDone }: { email: string; onDone: () => void }) {
       </div>
     </div>
   );
+}
+
+function PasswordCard({ hasPassword, onRefresh }: { hasPassword: boolean; onRefresh: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const ready = next.length >= 8 && (!hasPassword || current.length > 0);
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    setDone(false);
+    try {
+      const res = await fetch("/api/member/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: next, currentPassword: current }),
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+        setError(
+          d.error === "wrong_password"
+            ? "That is not your current password."
+            : d.message || "Could not save that."
+        );
+        return;
+      }
+      setCurrent("");
+      setNext("");
+      setDone(true);
+      onRefresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Password</h3>
+      <p className="muted">
+        {hasPassword
+          ? "Change the password you log in with."
+          : "You log in with an email link. Set a password to skip that step."}
+      </p>
+      {hasPassword && (
+        <>
+          <label className="lbl">Current password</label>
+          <input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        </>
+      )}
+      <label className="lbl">{hasPassword ? "New password" : "Your password"}</label>
+      <input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ready && save()} />
+      <p className="tiny">8 letters or more.</p>
+      {error && <p className="error">{error}</p>}
+      {done && <p className="flash">Password saved.</p>}
+      <button className="btn primary mt" disabled={!ready || busy} onClick={save}>
+        {busy ? "Saving" : hasPassword ? "Change password" : "Set password"}
+      </button>
+    </div>
+  );
+}
+
+/** "a plumber" but "an electrician". */
+function aOrAn(word: string) {
+  return `${/^[aeiou]/i.test(word) ? "an" : "a"} ${word.toLowerCase()}`;
 }
 
 function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onLogout: () => void; onRefresh: () => void }) {
@@ -534,6 +571,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
         <div className="kv"><span>Email</span><strong>{user.email}</strong></div>
       </div>
       <ProfileForm me={me} onRefresh={onRefresh} />
+      <PasswordCard hasPassword={Boolean(me.hasPassword)} onRefresh={onRefresh} />
       <div className="card">
         <h3>Where your leads go</h3>
         <div className="group-row"><span className="group-name">Email ({user.email})</span><span className="chip-status ok">On</span></div>

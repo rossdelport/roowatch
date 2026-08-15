@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { currentUser, sendEmail } from "../../../db/auth";
-import { groups, profiles, sources, users } from "../../../db/schema";
+import { groups, profiles, sources } from "../../../db/schema";
 import { parseGroupInput } from "../../../db/fbgroups";
 
 export async function POST(request: Request) {
@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await request.json().catch(() => ({}))) as {
-    name?: string;
+    businessName?: string;
     website?: string;
     services?: string;
     location?: string;
@@ -18,12 +18,12 @@ export async function POST(request: Request) {
   };
 
   const db = getDb();
-  const name = (body.name ?? "").trim();
-  if (name) {
-    await db.update(users).set({ name }).where(eq(users.id, user.id));
-  }
+  const businessName = (body.businessName ?? "").trim();
 
   const values = {
+    // Members who signed up on /signup already gave a business name. The wizard
+    // sends it back unchanged, so this write is a no-op for them.
+    ...(businessName ? { businessName } : {}),
     website: (body.website ?? "").trim(),
     services: (body.services ?? "").trim(),
     location: (body.location ?? "").trim(),
@@ -129,13 +129,14 @@ export async function POST(request: Request) {
   }
 
   await sendEmail(
-    "ross@roowatch.com.au",
+    ["ross@roowatch.com.au", "rossdelport1998@gmail.com"],
     `New RooWatch signup: ${user.email}`,
     [
       "A member just finished onboarding.",
       "",
       `Email: ${user.email}`,
-      `Name: ${name || user.name || "not given"}`,
+      `Name: ${user.name || "not given"}`,
+      `Business: ${businessName || existing?.businessName || "not given"}`,
       `Website: ${values.website}`,
       `Services: ${values.services}`,
       `Location: ${values.location}`,

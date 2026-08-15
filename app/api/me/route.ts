@@ -30,6 +30,7 @@ export async function GET(request: Request) {
   return Response.json({
     user: { id: user.id, email: user.email, name: user.name },
     avatar: user.avatar || undefined,
+    hasPassword: Boolean(user.passwordHash),
     isAdmin: isAdminEmail(user.email),
     profile: profile ?? null,
     postsUsed:
