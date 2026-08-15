@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `gbp_url` text DEFAULT '' NOT NULL;

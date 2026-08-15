@@ -4,6 +4,8 @@ import { currentUser, sendEmail } from "../../../db/auth";
 import { groups, profiles, sources } from "../../../db/schema";
 import { parseGroupInput } from "../../../db/fbgroups";
 
+const GROUP_LIMIT = 10;
+
 export async function POST(request: Request) {
   const user = await currentUser(request);
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -11,23 +13,40 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     businessName?: string;
     website?: string;
+    gbpUrl?: string;
+    trade?: string;
     services?: string;
-    location?: string;
+    suburbs?: string[];
     brief?: string;
     groups?: string[];
   };
 
   const db = getDb();
   const businessName = (body.businessName ?? "").trim();
+  const rawTrade = (body.trade ?? "").trim();
+  const suburbs = (body.suburbs ?? [])
+    .map((s) => String(s).trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  const brief = (body.brief ?? "").trim();
+
+  if (!rawTrade) return Response.json({ error: "no_trade" }, { status: 400 });
+  if (!suburbs.length) return Response.json({ error: "no_suburbs" }, { status: 400 });
+  if (brief.length < 20) return Response.json({ error: "short_brief" }, { status: 400 });
+
+  // A trade is either one from our list or the member's own words behind
+  // "Other". Both are plain text, so length is the only thing to police.
+  const trade = rawTrade.slice(0, 60);
 
   const values = {
-    // Members who signed up on /signup already gave a business name. The wizard
-    // sends it back unchanged, so this write is a no-op for them.
     ...(businessName ? { businessName } : {}),
-    website: (body.website ?? "").trim(),
-    services: (body.services ?? "").trim(),
-    location: (body.location ?? "").trim(),
-    brief: (body.brief ?? "").trim(),
+    trade,
+    website: (body.website ?? "").trim().slice(0, 300),
+    gbpUrl: (body.gbpUrl ?? "").trim().slice(0, 500),
+    services: (body.services ?? "").trim().slice(0, 600),
+    // The pipeline reads location as free text, so the suburb list joins up.
+    location: suburbs.join(", ").slice(0, 600),
+    brief: brief.slice(0, 600),
     onboardedAt: new Date().toISOString(),
   };
 
@@ -49,16 +68,18 @@ export async function POST(request: Request) {
     .select({ id: groups.id, name: groups.name })
     .from(groups)
     .where(eq(groups.userId, user.id));
+
   const requested = (body.groups ?? [])
     .map((g) => parseGroupInput(g))
     .filter((g): g is NonNullable<typeof g> => Boolean(g));
-  const requestedNames = new Set<string>();
+  const seen = new Set<string>();
   const uniqueRequested = requested.filter((g) => {
     const key = g.name.trim().toLowerCase();
-    if (requestedNames.has(key)) return false;
-    requestedNames.add(key);
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
+
   const existingNames = new Set(existingGroups.map((g) => g.name.trim().toLowerCase()));
   const existingLinks = uniqueRequested.filter(
     (g) => g.url && existingNames.has(g.name.trim().toLowerCase())
@@ -66,7 +87,7 @@ export async function POST(request: Request) {
   const newRequested = uniqueRequested.filter(
     (g) => !existingNames.has(g.name.trim().toLowerCase())
   );
-  const groupSlots = Math.max(0, 10 - existingGroups.length);
+  const groupSlots = Math.max(0, GROUP_LIMIT - existingGroups.length);
   const parsed = [...existingLinks, ...newRequested.slice(0, groupSlots)];
   const skippedGroups = newRequested.length - Math.min(newRequested.length, groupSlots);
 
@@ -88,14 +109,14 @@ export async function POST(request: Request) {
       continue;
     }
 
-    const [existing] = await db
+    const [source] = await db
       .select({ id: sources.id, active: sources.active })
       .from(sources)
       .where(eq(sources.url, g.url))
       .limit(1);
 
-    let sourceId = existing?.id;
-    if (sourceId && !existing.active) {
+    let sourceId = source?.id;
+    if (sourceId && !source.active) {
       // Ross paused this group earlier. A member just asked for it, so it
       // has to start scanning again or they would never get a lead.
       await db
@@ -132,19 +153,20 @@ export async function POST(request: Request) {
     ["ross@roowatch.com.au", "rossdelport1998@gmail.com"],
     `New RooWatch signup: ${user.email}`,
     [
-      "A member just finished onboarding.",
+      "A member just finished setup.",
       "",
       `Email: ${user.email}`,
       `Name: ${user.name || "not given"}`,
       `Business: ${businessName || existing?.businessName || "not given"}`,
+      `Trade: ${trade}`,
       `Website: ${values.website}`,
-      `Services: ${values.services}`,
-      `Location: ${values.location}`,
-      `Their brief: ${values.brief || "not given"}`,
+      `Google listing: ${values.gbpUrl || "not given"}`,
+      `Suburbs: ${values.location}`,
+      `Their brief: ${values.brief}`,
       `Groups they gave: ${wanted.length ? wanted.join(", ") : "none"}`,
       `Watching now: ${watchingNow} of ${parsed.length}`,
       "",
-      "Open the master dashboard to set up their watchlist.",
+      "Open the master dashboard to check their watchlist.",
     ].join("\n")
   );
 

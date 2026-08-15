@@ -30,6 +30,7 @@ export const profiles = sqliteTable("profiles", {
   trade: text("trade").notNull().default(""),
   state: text("state").notNull().default(""),
   website: text("website").notNull().default(""),
+  gbpUrl: text("gbp_url").notNull().default(""),
   services: text("services").notNull().default(""),
   location: text("location").notNull().default(""),
   brief: text("brief").notNull().default(""),

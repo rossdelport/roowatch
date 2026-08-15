@@ -21,6 +21,8 @@ export const TRADES = [
   "Concreter",
   "Fencing",
   "Tiler",
+  "Plasterer",
+  "Gas fitter",
   "Locksmith",
   "Pool care",
   "Car detailing",

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { profiles } from "../../../../db/schema";
+import { readWebsite } from "../../../../db/website";
 
 /**
  * Writes the "what a good lead sounds like" brief for a member.
@@ -10,45 +11,6 @@ import { profiles } from "../../../../db/schema";
  * Most tradies will not write a good one from a blank box. We read their
  * website and turn it into the brief for them.
  */
-
-const BLOCKED_HOSTS = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.|\[?::1)/i;
-
-/** Best effort plain text from the member's website. Never throws. */
-async function readWebsite(raw: string): Promise<string> {
-  const input = raw.trim();
-  if (!input) return "";
-
-  let url: URL;
-  try {
-    url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
-  } catch {
-    return "";
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return "";
-  if (BLOCKED_HOSTS.test(url.hostname)) return "";
-
-  try {
-    const res = await fetch(url.toString(), {
-      headers: { "user-agent": "RooWatchBot/1.0 (+https://roowatch.com.au)" },
-      signal: AbortSignal.timeout(7000),
-    });
-    if (!res.ok) return "";
-    if (!(res.headers.get("content-type") ?? "").includes("text/html")) return "";
-
-    const html = (await res.text()).slice(0, 200_000);
-    return html
-      .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 4000);
-  } catch {
-    // A slow or dead website must not stop the button working.
-    return "";
-  }
-}
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -73,7 +35,8 @@ export async function POST(request: Request) {
   const website = pick("website", saved?.website ?? "");
   const services = pick("services", saved?.services ?? "");
   const location = pick("location", saved?.location ?? "");
-  const trade = saved?.trade ?? "";
+  // The setup wizard sends the trade before it is saved, so take theirs first.
+  const trade = pick("trade", saved?.trade ?? "");
 
   if (!services && !website && !trade) {
     return Response.json({ error: "not_enough" }, { status: 400 });

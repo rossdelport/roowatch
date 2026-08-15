@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { groupSlug, parseGroupInput } from "../../db/fbgroups";
+import { suburbsFor } from "../../db/suburbs";
+import { OTHER_TRADE, TRADES } from "../../db/trades";
 
 type User = { id: string; email: string; name: string };
 type Profile = {
@@ -9,6 +12,7 @@ type Profile = {
   trade: string;
   state: string;
   website: string;
+  gbpUrl: string;
   services: string;
   location: string;
   brief: string;
@@ -319,105 +323,555 @@ function Login() {
   );
 }
 
+type WizardGroup = { url: string; name: string };
+type Stage = "business" | "trade" | "suburbs" | "jobs" | "groups" | "review";
+const STAGES: Stage[] = ["business", "trade", "suburbs", "jobs", "groups", "review"];
+
 function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
-  const email = me.user!.email;
-  // Signup already asked for the business name, the trade and the state. Never
-  // ask the same question twice: reuse those answers as the starting point.
   const known = me.profile;
-  const [step, setStep] = useState(0);
-  const [name, setName] = useState(known?.businessName ?? "");
+  const state = known?.state ?? "";
+  const [stage, setStage] = useState<Stage>("business");
+
   const [website, setWebsite] = useState(known?.website ?? "");
+  const [gbpUrl, setGbpUrl] = useState(known?.gbpUrl ?? "");
+  const [businessName, setBusinessName] = useState(known?.businessName ?? "");
   const [services, setServices] = useState(known?.services ?? "");
-  const [location, setLocation] = useState(known?.location ?? "");
+  const [trade, setTrade] = useState(known?.trade ?? "");
+  const [tradeOther, setTradeOther] = useState("");
+  const [suburbs, setSuburbs] = useState<string[]>([]);
   const [brief, setBrief] = useState(known?.brief ?? "");
-  const [groupInput, setGroupInput] = useState("");
-  const [groupList, setGroupList] = useState<string[]>([]);
+  const [groupList, setGroupList] = useState<WizardGroup[]>([]);
+
+  const [scanning, setScanning] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const briefTried = useRef(false);
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState("");
+  const [help, setHelp] = useState(false);
 
-  const trade = (known?.trade ?? "").trim();
-  const steps = [
-    ...((known?.businessName ?? "").trim()
-      ? []
-      : [{ key: "name", title: "What is your business called?", sub: "So we know who we are talking to.", valid: name.trim().length > 1 }]),
-    { key: "website", title: "Your website", sub: "Where can we see your business?", valid: website.trim().length > 3 },
-    { key: "services", title: "What do you do?", sub: trade ? `You told us you are ${aOrAn(trade)}. Now tell us your jobs in plain English.` : "Tell us your services in plain English.", valid: services.trim().length > 5 },
-    { key: "location", title: "Where do you work?", sub: "Your city and the suburbs you serve.", valid: location.trim().length > 2 },
-    { key: "brief", title: "What a good lead sounds like", sub: "Describe the posts you want, in your own words. This is what we look for.", valid: brief.trim().length > 10 },
-    { key: "groups", title: "Groups to watch", sub: "Paste the Facebook link for each group. We start watching the moment you finish.", valid: true },
-  ];
-  const current = steps[step];
+  const chosenTrade = trade === OTHER_TRADE ? tradeOther.trim() : trade;
+  const step = STAGES.indexOf(stage);
 
-  function addGroup() {
-    const g = groupInput.trim();
-    if (g && !groupList.includes(g)) setGroupList([...groupList, g]);
-    setGroupInput("");
+  function say(message: string) {
+    setToast(message);
+  }
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 2600);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  /** Step 1. Read the website and the Google listing, then move on. */
+  async function scan() {
+    setScanning(true);
+    setNote("");
+    try {
+      const res = await fetch("/api/onboarding/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ website, gbpUrl }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        businessName?: string;
+        trade?: string;
+        suburbs?: string[];
+        services?: string;
+        note?: string;
+        error?: string;
+      };
+      if (data.businessName && !businessName) setBusinessName(data.businessName);
+      if (data.services && !services) setServices(data.services);
+      if (data.trade) setTrade(data.trade);
+      if (data.suburbs?.length) setSuburbs(data.suburbs);
+      setNote(
+        data.error === "bad_website"
+          ? "That web address does not look right. You can fill the rest in yourself."
+          : data.note ?? ""
+      );
+    } catch {
+      setNote("We could not read your website. You can fill the rest in yourself.");
+    } finally {
+      // A short pause so the message is readable and the jump is not jarring.
+      setTimeout(() => {
+        setScanning(false);
+        setStage("trade");
+      }, 900);
+    }
+  }
+
+  /** Step 4. Ask Claude for the job brief, once, when the member arrives. */
+  const askForBrief = useCallback(async () => {
+    setThinking(true);
+    try {
+      const res = await fetch("/api/member/brief-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessName,
+          website,
+          services,
+          trade: chosenTrade,
+          location: suburbs.join(", "),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { brief?: string };
+      if (data.brief) setBrief(data.brief);
+    } catch {
+      // The member writes it themselves. The placeholder shows them how.
+    } finally {
+      setThinking(false);
+    }
+  }, [businessName, website, services, chosenTrade, suburbs]);
+
+  /** Move on. Arriving at the jobs step starts the draft, once. */
+  function goNext() {
+    const next = STAGES[step + 1];
+    if (next === "jobs" && !brief.trim() && !briefTried.current) {
+      briefTried.current = true;
+      askForBrief();
+    }
+    setStage(next);
+  }
+
+  function addGroup(raw: string) {
+    const parsed = parseGroupInput(raw);
+    if (!parsed?.url) return false;
+    if (groupList.some((g) => g.url === parsed.url)) {
+      say("This group is already on your list");
+      return false;
+    }
+    if (groupList.length >= 10) {
+      say("Your plan covers 10 groups");
+      return false;
+    }
+    setGroupList([...groupList, { url: parsed.url, name: parsed.name }]);
+    say("Group added");
+    return true;
   }
 
   async function finish() {
     setBusy(true);
     try {
-      await fetch("/api/onboarding", {
+      const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businessName: name, website, services, location, brief, groups: groupList }),
+        body: JSON.stringify({
+          businessName,
+          website,
+          gbpUrl,
+          trade: chosenTrade,
+          services,
+          suburbs,
+          brief,
+          groups: groupList.map((g) => g.url),
+        }),
       });
+      if (!res.ok) {
+        setNote("We could not save that. Please check every step and try again.");
+        return;
+      }
       onDone();
     } finally {
       setBusy(false);
     }
   }
 
+  const canGo: Record<Stage, boolean> = {
+    business: Boolean(website.trim()),
+    trade: chosenTrade.length > 1,
+    suburbs: suburbs.length > 0,
+    jobs: brief.trim().length >= 20 && brief.trim().length <= 500,
+    groups: true,
+    review: true,
+  };
+
   return (
     <div className="overlay">
-      <div className="modal">
-        <div className="steps-dots">
-          {steps.map((s, i) => (
-            <span key={s.key} className={i === step ? "dot on" : i < step ? "dot done" : "dot"} />
-          ))}
-        </div>
-        <h2>{current.title}</h2>
-        <p className="muted">{current.sub}</p>
+      <div className="modal modal-wide">
+        {scanning && (
+          <div className="scan-veil">
+            <span className="spinner big" />
+            <strong>Getting your business info</strong>
+            <p className="muted">We are reading your website. This takes a few seconds.</p>
+          </div>
+        )}
 
-        {current.key === "name" && <input placeholder="Brightside Solar" value={name} onChange={(e) => setName(e.target.value)} autoFocus />}
-        {current.key === "website" && <input placeholder="www.yourbusiness.com.au" value={website} onChange={(e) => setWebsite(e.target.value)} autoFocus />}
-        {current.key === "services" && <textarea rows={4} placeholder="We install solar panels for homes. We also do battery upgrades and repairs." value={services} onChange={(e) => setServices(e.target.value)} autoFocus />}
-        {current.key === "location" && (
-          <div>
-            <input placeholder="Sydney. Northern Beaches, Manly, Dee Why." value={location} onChange={(e) => setLocation(e.target.value)} autoFocus />
-            <p className="tiny">Add your city and suburbs, not just the state.</p>
+        <div className="wiz-top">
+          <div className="steps-dots">
+            {STAGES.map((s, i) => (
+              <span key={s} className={i === step ? "dot on" : i < step ? "dot done" : "dot"} />
+            ))}
           </div>
+          {stage === "groups" && (
+            <button className="help-dot" onClick={() => setHelp(true)} aria-label="How to find groups">
+              ?
+            </button>
+          )}
+        </div>
+
+        {stage === "business" && (
+          <>
+            <h2>Where can we find your business?</h2>
+            <p className="muted">We read these to work out your trade and your suburbs. It saves you the typing.</p>
+            <label className="lbl">Your website <span className="req">*</span></label>
+            <input placeholder="https://mybusiness.com.au" value={website} onChange={(e) => setWebsite(e.target.value)} autoFocus />
+            <label className="lbl">Your Google listing (if you have one)</label>
+            <input placeholder="https://maps.google.com/maps/place/..." value={gbpUrl} onChange={(e) => setGbpUrl(e.target.value)} />
+            <p className="tiny">Open your business on Google Maps and copy the address bar.</p>
+          </>
         )}
-        {current.key === "brief" && (
-          <div>
-            <textarea rows={4} placeholder="Someone in Perth asking who cleans solar panels, or saying their panels are dirty or their solar output has dropped." value={brief} onChange={(e) => setBrief(e.target.value)} autoFocus />
-            <p className="tiny">Tell us what to skip too. For example: people selling panels, or businesses advertising their own service.</p>
-          </div>
-        )}
-        {current.key === "groups" && (
-          <div>
-            <div className="row gap">
-              <input placeholder="facebook.com/groups/... or the group name" value={groupInput} onChange={(e) => setGroupInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} autoFocus />
-              <button className="btn ghost" onClick={addGroup}>Add</button>
-            </div>
-            {groupList.length > 0 && (
-              <div className="chips">
-                {groupList.map((g) => (
-                  <span key={g} className="chip">{g}<button onClick={() => setGroupList(groupList.filter((x) => x !== g))}>&times;</button></span>
-                ))}
-              </div>
+
+        {stage === "trade" && (
+          <>
+            <h2>What is your trade?</h2>
+            <p className="muted">This helps us pick out the posts meant for you.</p>
+            {note && <p className="warn-line">{note}</p>}
+            <label className="lbl">Your trade <span className="req">*</span></label>
+            <select value={trade} onChange={(e) => setTrade(e.target.value)}>
+              <option value="">Pick your trade</option>
+              {TRADES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+              <option value={OTHER_TRADE}>{OTHER_TRADE}</option>
+            </select>
+            {trade === OTHER_TRADE && (
+              <>
+                <label className="lbl">Tell us your trade</label>
+                <input placeholder="Blind and curtain fitting" value={tradeOther} onChange={(e) => setTradeOther(e.target.value)} autoFocus />
+              </>
             )}
-            <p className="tiny">Open the group on Facebook and copy the address. Links start watching straight away. A name alone means we set it up for you on your welcome call.</p>
-          </div>
+            <p className="tiny">We picked this from your website. Change it if we got it wrong.</p>
+          </>
+        )}
+
+        {stage === "suburbs" && (
+          <>
+            <h2>Where do you work?</h2>
+            <p className="muted">Pick the suburbs you drive to. We only send you jobs from these areas.</p>
+            <SuburbPicker state={state} chosen={suburbs} onChange={setSuburbs} onSay={say} />
+          </>
+        )}
+
+        {stage === "jobs" && (
+          <>
+            <h2>What jobs do you want?</h2>
+            <p className="muted">
+              {chosenTrade ? `You are ${aOrAn(chosenTrade)}. ` : ""}
+              We wrote a first draft. Change it so it sounds like your work.
+            </p>
+            {thinking ? (
+              <div className="think">
+                <span className="spinner" />
+                <span>Working out your best jobs</span>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  rows={8}
+                  placeholder="Home electrical jobs. Emergency call outs, switchboard repairs, new power points. Skip solar and new builds."
+                  value={brief}
+                  onChange={(e) => setBrief(e.target.value)}
+                />
+                <div className="count-row">
+                  <p className="tiny">Say what you want and what to skip. This is what we look for.</p>
+                  <span className={brief.trim().length > 500 ? "counter over" : "counter"}>
+                    {brief.trim().length} / 500
+                  </span>
+                </div>
+                <button className="ai-btn small" onClick={askForBrief}>
+                  <span className="ai-face">{I.spark} Write it again</span>
+                </button>
+              </>
+            )}
+          </>
+        )}
+
+        {stage === "groups" && (
+          <>
+            <h2>Which Facebook groups should we watch?</h2>
+            <p className="muted">We read these groups day and night and tell you when a job comes up.</p>
+            <GroupAdder onAdd={addGroup} />
+            <GroupTable rows={groupList} onChange={setGroupList} onSay={say} />
+            <p className="tiny">
+              {groupList.length === 0
+                ? "Add the local groups you are already in. Most tradies watch 5 or more."
+                : `${groupList.length} of 10 groups added.${groupList.length < 5 ? " Most tradies watch 5 or more." : ""}`}
+            </p>
+          </>
+        )}
+
+        {stage === "review" && (
+          <>
+            <h2>All set. Have a quick look.</h2>
+            <p className="muted">Change anything later in Settings.</p>
+            <div className="review">
+              <div className="kv"><span>Trade</span><strong>{chosenTrade || "not set"}</strong></div>
+              <div className="kv"><span>Suburbs</span><strong>{suburbs.join(", ") || "not set"}</strong></div>
+              <div className="kv"><span>Groups</span><strong>{groupList.length} to watch</strong></div>
+            </div>
+            <label className="lbl">The jobs you want</label>
+            <p className="review-brief">{brief}</p>
+            {note && <p className="error">{note}</p>}
+          </>
         )}
 
         <div className="row spread">
-          {step > 0 ? <button className="btn ghost" onClick={() => setStep(step - 1)}>Back</button> : <span className="tiny">{email}</span>}
-          {step < steps.length - 1 ? (
-            <button className="btn primary" disabled={!current.valid} onClick={() => setStep(step + 1)}>Next</button>
+          {step > 0 ? (
+            <button className="btn ghost" onClick={() => setStage(STAGES[step - 1])}>Back</button>
           ) : (
-            <button className="btn primary" disabled={busy} onClick={finish}>{busy ? "Saving" : "Finish setup"}</button>
+            <span className="tiny">{me.user!.email}</span>
+          )}
+          {stage === "business" ? (
+            <button className="btn primary" disabled={!canGo.business || scanning} onClick={scan}>Continue</button>
+          ) : stage === "review" ? (
+            <button className="btn primary" disabled={busy} onClick={finish}>{busy ? "Saving" : "Start watching"}</button>
+          ) : (
+            <button className="btn primary" disabled={!canGo[stage] || thinking} onClick={goNext}>Continue</button>
           )}
         </div>
+
+        {toast && <div className="toast">{I.tick} {toast}</div>}
+        {help && <GroupHelp onClose={() => setHelp(false)} />}
+      </div>
+    </div>
+  );
+}
+
+/** Search and pick suburbs. Anything they type is allowed, list or not. */
+function SuburbPicker({ state, chosen, onChange, onSay }: {
+  state: string;
+  chosen: string[];
+  onChange: (next: string[]) => void;
+  onSay: (message: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const all = useMemo(() => suburbsFor(state), [state]);
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return all
+      .filter((s) => s.toLowerCase().includes(q) && !chosen.includes(s))
+      .slice(0, 8);
+  }, [query, all, chosen]);
+
+  function add(name: string) {
+    const clean = name.trim();
+    if (!clean) return;
+    if (chosen.some((s) => s.toLowerCase() === clean.toLowerCase())) {
+      onSay("That suburb is already on your list");
+      setQuery("");
+      return;
+    }
+    if (chosen.length >= 20) {
+      onSay("20 suburbs is the most we can watch");
+      return;
+    }
+    onChange([...chosen, clean]);
+    setQuery("");
+  }
+
+  return (
+    <div className="picker">
+      <input
+        placeholder="Type a suburb, for example Fremantle"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          add(matches[0] ?? query);
+        }}
+        autoFocus
+      />
+      {matches.length > 0 && (
+        <div className="picker-list">
+          {matches.map((s) => (
+            <button key={s} className="picker-opt" onClick={() => add(s)}>{s}</button>
+          ))}
+        </div>
+      )}
+      {query.trim() && matches.length === 0 && (
+        <div className="picker-list">
+          <button className="picker-opt" onClick={() => add(query)}>
+            Add &ldquo;{query.trim()}&rdquo;
+          </button>
+        </div>
+      )}
+      {chosen.length > 0 && (
+        <div className="chips">
+          {chosen.map((s) => (
+            <span key={s} className="chip pop">
+              {s}
+              <button onClick={() => onChange(chosen.filter((x) => x !== s))} aria-label={`Remove ${s}`}>&times;</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="tiny">
+        {chosen.length === 0
+          ? "Pick at least one suburb."
+          : `${chosen.length} picked. Add more to catch more jobs.`}
+      </p>
+    </div>
+  );
+}
+
+/** The add box, with a live tick or cross so nobody pastes the wrong thing. */
+function GroupAdder({ onAdd }: { onAdd: (raw: string) => boolean }) {
+  const [value, setValue] = useState("");
+  const typed = value.trim();
+  const good = Boolean(groupSlug(typed));
+  const bad = typed.length > 0 && !good;
+
+  function submit() {
+    if (!good) return;
+    if (onAdd(typed)) setValue("");
+  }
+
+  return (
+    <div className="adder">
+      <label className="lbl">Full Facebook group link <span className="req">*</span></label>
+      <div className="adder-row">
+        <div className={bad ? "adder-input bad" : good ? "adder-input good" : "adder-input"}>
+          <input
+            placeholder="https://facebook.com/groups/123456789/"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+          {good && <span className="mark ok">{I.tick}</span>}
+          {bad && <span className="mark no">&times;</span>}
+        </div>
+        <button className="btn primary" disabled={!good} onClick={submit}>Add group</button>
+      </div>
+      {bad && (
+        <p className="error">
+          Paste the whole link. It has to look like facebook.com/groups/123456789/
+        </p>
+      )}
+    </div>
+  );
+}
+
+function GroupTable({ rows, onChange, onSay }: {
+  rows: WizardGroup[];
+  onChange: (next: WizardGroup[]) => void;
+  onSay: (message: string) => void;
+}) {
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+
+  if (rows.length === 0) {
+    return (
+      <div className="empty tight">
+        <p><strong>No groups yet.</strong></p>
+        <p className="muted">Add a group and we start watching it the moment you finish.</p>
+      </div>
+    );
+  }
+
+  function saveEdit(index: number) {
+    const parsed = parseGroupInput(draft.trim());
+    if (!parsed?.url) return;
+    if (rows.some((g, i) => i !== index && g.url === parsed.url)) {
+      onSay("This group is already on your list");
+      return;
+    }
+    onChange(rows.map((g, i) => (i === index ? { url: parsed.url!, name: parsed.name } : g)));
+    setEditing(null);
+    onSay("Group updated");
+  }
+
+  return (
+    <div className="table-wrap">
+      <table className="wiz-table">
+        <thead>
+          <tr><th>Group</th><th>Link</th><th aria-label="Actions" /></tr>
+        </thead>
+        <tbody>
+          {rows.map((g, i) => (
+            <tr key={g.url}>
+              {editing === i ? (
+                <td colSpan={3}>
+                  <div className="adder-row">
+                    <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveEdit(i)} autoFocus />
+                    <button className="btn primary" disabled={!groupSlug(draft)} onClick={() => saveEdit(i)}>Save</button>
+                    <button className="btn ghost" onClick={() => setEditing(null)}>Cancel</button>
+                  </div>
+                </td>
+              ) : (
+                <>
+                  <td><strong>{g.name}</strong></td>
+                  <td className="link-cell">{g.url.replace("https://www.facebook.com/groups/", "")}</td>
+                  <td className="act-cell">
+                    <button className="mini" onClick={() => { setEditing(i); setDraft(g.url); }}>Edit</button>
+                    <button
+                      className="mini danger"
+                      onClick={() => {
+                        if (!confirm(`Stop watching ${g.name}?`)) return;
+                        onChange(rows.filter((_, x) => x !== i));
+                        onSay("Group removed");
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Shows a tradie exactly where the link lives, with a drawn address bar. */
+function GroupHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="overlay inner" onClick={onClose}>
+      <div className="modal help-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="help-head">
+          <h2>How to find your local groups</h2>
+          <button className="mini" onClick={onClose}>Close</button>
+        </div>
+
+        <ol className="help-steps">
+          <li>
+            <strong>Search Facebook for groups near you.</strong>
+            <p className="muted">Try your suburb name with these words.</p>
+            <div className="mock search">
+              <span className="mock-ico">{I.eye}</span>
+              <span>Fremantle locals</span>
+            </div>
+            <p className="tiny">Also try: &ldquo;[your suburb] community&rdquo;, &ldquo;[your suburb] buy swap sell&rdquo;, &ldquo;[your area] tradies&rdquo;.</p>
+          </li>
+          <li>
+            <strong>Join the group.</strong>
+            <p className="muted">Press Join on the group page. Wait for the admin to let you in.</p>
+          </li>
+          <li>
+            <strong>Copy the whole link.</strong>
+            <p className="muted">Open the group. Copy everything in the address bar at the top.</p>
+            <div className="mock bar">
+              <span className="mock-lock">{I.shield}</span>
+              <span className="mock-url">https://www.facebook.com/groups/<b>123456789</b>/</span>
+            </div>
+          </li>
+          <li>
+            <strong>Paste it here.</strong>
+            <p className="muted">Paste it in the box and press Add group.</p>
+          </li>
+        </ol>
+
+        <div className="help-warn">
+          <p><span className="no-mark">&times;</span> The group name on its own will not work.</p>
+          <p><span className="yes-mark">{I.tick}</span> Paste the whole link: https://facebook.com/groups/123456789/</p>
+        </div>
+
+        <button className="btn primary wide" onClick={onClose}>Got it</button>
       </div>
     </div>
   );
@@ -1487,6 +1941,86 @@ const CSS = `
 .subview{margin:0;}
 .subhead{margin-bottom:16px;}
 .subhead .muted{font-size:13.5px;}
+
+/* ---- setup wizard ---- */
+.modal-wide{max-width:600px;position:relative;}
+.wiz-top{align-items:center;display:flex;justify-content:space-between;margin-bottom:20px;}
+.wiz-top .steps-dots{margin:0;}
+.help-dot{background:#f6f1e9;border:0;border-radius:99px;color:var(--muted);font-size:13px;font-weight:900;height:26px;transition:background .2s,color .2s;width:26px;}
+.help-dot:hover{background:var(--coral);color:#fff;}
+.req{color:var(--coral-deep);}
+.warn-line{background:#fff3d8;border-radius:10px;color:#8a5a00;font-size:13px;font-weight:600;margin:0 0 14px;padding:10px 12px;}
+
+.spinner{animation:spin .7s linear infinite;border:2.5px solid var(--line);border-radius:99px;border-top-color:var(--coral);display:inline-block;flex:none;height:18px;width:18px;}
+.spinner.big{border-width:3px;height:34px;margin-bottom:16px;width:34px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.scan-veil{align-items:center;animation:dRise .3s var(--ease) both;background:rgba(255,255,255,.96);border-radius:20px;display:flex;flex-direction:column;inset:0;justify-content:center;padding:30px;position:absolute;text-align:center;z-index:5;}
+.scan-veil strong{font-size:16px;}
+.scan-veil .muted{margin:6px 0 0;max-width:34ch;}
+.think{align-items:center;color:var(--muted);display:flex;font-size:14px;font-weight:600;gap:11px;padding:26px 0;}
+
+.count-row{align-items:baseline;display:flex;gap:12px;justify-content:space-between;}
+.counter{color:#98a0b3;flex:none;font-size:12px;font-weight:700;}
+.counter.over{color:var(--coral-deep);}
+.ai-btn.small{font-size:12px;margin-top:12px;min-width:0;padding:8px 14px;}
+
+.picker{position:relative;}
+.picker-list{animation:dRise .2s var(--ease) both;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-soft);display:grid;margin-top:6px;overflow:hidden;}
+.picker-opt{background:none;border:0;color:var(--ink);font-size:14px;padding:10px 14px;text-align:left;transition:background .15s;}
+.picker-opt:hover{background:var(--mint-soft);}
+.chip.pop{animation:dPop .3s var(--ease) both;}
+
+.adder{margin-top:4px;}
+.adder-row{align-items:center;display:flex;gap:9px;}
+.adder-input{flex:1;min-width:0;position:relative;}
+.adder-input input{padding-right:38px;}
+.adder-input.good input{border-color:var(--mint);}
+.adder-input.bad input{border-color:var(--coral-deep);}
+.mark{position:absolute;right:13px;top:50%;transform:translateY(-50%);}
+.mark.ok{color:var(--mint);display:flex;}
+.mark.no{color:var(--coral-deep);font-size:19px;font-weight:800;line-height:1;}
+
+.wiz-table{border-collapse:collapse;font-size:13.5px;margin-top:16px;width:100%;}
+.wiz-table th{border-bottom:1px solid var(--line);color:#8b93a7;font-size:11px;letter-spacing:.05em;padding:8px 10px;text-align:left;text-transform:uppercase;}
+.wiz-table td{border-bottom:1px solid #f6f1e9;padding:11px 10px;vertical-align:middle;}
+.wiz-table .link-cell{color:var(--muted);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wiz-table .act-cell{text-align:right;white-space:nowrap;}
+.mini.danger:hover{color:var(--coral-deep);}
+.empty.tight{padding:22px 0;text-align:center;}
+
+.review{margin:4px 0 6px;}
+.review-brief{background:#faf7f2;border:1px solid var(--line);border-radius:11px;color:#3c465e;font-size:14px;line-height:1.55;margin:0;padding:13px 15px;white-space:pre-wrap;}
+
+.toast{align-items:center;animation:dPop .3s var(--ease) both;background:var(--navy);border-radius:99px;bottom:-56px;box-shadow:0 12px 26px rgba(17,29,54,.3);color:#fff;display:flex;font-size:13px;font-weight:700;gap:7px;left:50%;padding:11px 20px;position:absolute;transform:translateX(-50%);white-space:nowrap;}
+.toast svg{color:var(--mint);}
+
+.overlay.inner{z-index:60;}
+.help-modal{max-height:88vh;max-width:520px;overflow-y:auto;}
+.help-head{align-items:center;display:flex;gap:14px;justify-content:space-between;margin-bottom:6px;}
+.help-head h2{margin:0;}
+.help-steps{counter-reset:h;display:grid;gap:20px;list-style:none;margin:20px 0;padding:0;}
+.help-steps li{padding-left:38px;position:relative;}
+.help-steps li::before{align-items:center;background:var(--coral);border-radius:99px;color:#fff;content:counter(h);counter-increment:h;display:flex;font-size:12px;font-weight:900;height:24px;justify-content:center;left:0;position:absolute;top:-1px;width:24px;}
+.help-steps strong{display:block;font-size:14.5px;}
+.help-steps .muted{margin:4px 0 0;}
+.mock{align-items:center;background:#faf7f2;border:1px solid var(--line);border-radius:9px;display:flex;font-size:12.5px;gap:9px;margin-top:10px;padding:9px 12px;}
+.mock.search{border-radius:99px;color:var(--muted);}
+.mock-ico,.mock-lock{color:#a8b0c0;display:flex;flex:none;}
+.mock-ico svg,.mock-lock svg{height:14px;width:14px;}
+.mock-url{color:var(--muted);font-family:var(--font-geist-mono),monospace;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mock-url b{color:var(--ink);}
+.help-warn{background:#fdece8;border-radius:12px;display:grid;gap:8px;padding:14px 16px;}
+.help-warn p{align-items:flex-start;display:flex;font-size:13px;font-weight:600;gap:8px;line-height:1.45;margin:0;}
+.no-mark{color:var(--coral-deep);flex:none;font-size:16px;font-weight:900;line-height:1.1;}
+.yes-mark{color:var(--mint);display:flex;flex:none;padding-top:2px;}
+
+@media(max-width:640px){
+  .modal-wide{padding:24px 18px;}
+  .adder-row{flex-wrap:wrap;}
+  .adder-input{flex:1 1 100%;}
+  .adder-row .btn{flex:1;}
+  .toast{bottom:auto;top:-52px;}
+}
 
 .funnel-chart{display:grid;gap:14px;padding:4px 0;}
 .fbar-row{align-items:center;display:grid;gap:12px;grid-template-columns:150px 1fr auto;}
