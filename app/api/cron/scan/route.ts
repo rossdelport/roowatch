@@ -3,6 +3,7 @@ import { groupSlug } from "../../../../db/fbgroups";
 
 const SOURCES_PER_TICK = 20;
 const MIN_GAP_MINUTES = 5;
+const BUFFER_MINUTES = 3;
 
 /**
  * One Apify run covers every due group. The run start fee is paid once instead
@@ -14,7 +15,10 @@ const MIN_GAP_MINUTES = 5;
 function windowFor(sources: { lastChecked: number }[]): string {
   const oldest = Math.min(...sources.map((s) => s.lastChecked || 0));
   const minutesSince = oldest ? (Date.now() - oldest) / 60000 : 60;
-  const minutes = Math.ceil(Math.min(Math.max(minutesSince * 2, 15), 360));
+  // Only a small buffer over the real gap. We pay for every post the scraper
+  // returns, so a wide window means paying for the same post again and again.
+  // The buffer covers clock skew and posts Facebook indexes late.
+  const minutes = Math.ceil(Math.min(Math.max(minutesSince + BUFFER_MINUTES, 8), 360));
   return `${minutes} minutes`;
 }
 
