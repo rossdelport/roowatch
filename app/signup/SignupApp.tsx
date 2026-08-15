@@ -57,6 +57,13 @@ export default function SignupApp({ start }: { start: "signup" | "login" }) {
 
   useEffect(() => {
     startPixel();
+    // Our own count, so the Marketing tab can show the signup funnel.
+    fetch("/api/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "view_signup", path: "/signup" }),
+      keepalive: true,
+    }).catch(() => {});
   }, []);
 
   const emailOk = /.+@.+\..+/.test(email.trim());

@@ -1,6 +1,6 @@
 import { desc, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { events, waitlist } from "../../../../db/schema";
+import { events, users, waitlist } from "../../../../db/schema";
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
@@ -120,6 +120,16 @@ export async function POST(request: Request) {
   });
   trades.sort((a, b) => b.signups - a.signups || b.views - a.views);
 
+  // The home page now sends people to /signup, while the ads still land on the
+  // trade reserve pages. Two journeys, so two charts. Accounts are counted from
+  // the users table rather than a browser event, which cannot be lost.
+  const signupViews = step("view_signup");
+  const [accountRow] = (await db
+    .select({ n: sql<number>`count(*)` })
+    .from(users)
+    .where(sql`${users.createdAt} >= datetime(${since}, 'unixepoch')`)) as { n: number }[];
+  const accounts = Number(accountRow?.n ?? 0);
+
   return Response.json({
     ok: true,
     days,
@@ -131,6 +141,10 @@ export async function POST(request: Request) {
       { label: "Saw reserve page", count: reserve, rate: pct(reserve, landing) },
       { label: "Joined waitlist", count: completedSignups, rate: pct(completedSignups, landing) },
       { label: "Saw confirmation", count: done, rate: pct(done, landing) },
+    ],
+    signupFunnel: [
+      { label: "Saw signup page", count: signupViews, rate: 100 },
+      { label: "Created an account", count: accounts, rate: pct(accounts, signupViews) },
     ],
     byDevice,
   });

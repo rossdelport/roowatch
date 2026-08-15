@@ -18,6 +18,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
+    businessName?: string;
     website?: string;
     services?: string;
     location?: string;
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
   }
 
   const patch: Record<string, string> = {};
-  for (const key of ["website", "services", "location", "brief"] as const) {
+  for (const key of ["businessName", "website", "services", "location", "brief"] as const) {
     if (typeof body[key] === "string") patch[key] = body[key]!.trim().slice(0, 600);
   }
   if (Object.keys(patch).length) {

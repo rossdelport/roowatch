@@ -78,6 +78,8 @@ const I = {
   card: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="18" height="18"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>,
   flow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M4 4v6a2 2 0 0 0 2 2h12a2 2 0 0 1 2 2v6"/><circle cx="4" cy="3" r="1.6"/><circle cx="20" cy="21" r="1.6"/></svg>,
   out: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  tick: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>,
+  spark: <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2.5l1.9 5.3 5.3 1.9-5.3 1.9L12 16.9l-1.9-5.3L4.8 9.7l5.3-1.9z"/><path d="M18.5 15l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></svg>,
 };
 
 export default function DashboardApp() {
@@ -95,6 +97,7 @@ export default function DashboardApp() {
   const [uncovered, setUncovered] = useState<string[]>([]);
   const [keys, setKeys] = useState<{ apify: boolean; anthropic: boolean }>({ apify: false, anthropic: false });
   const [funnel, setFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
+  const [signupFunnel, setSignupFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
   const [signups, setSignups] = useState<{ email: string; name: string; phone: string; trade: string; createdAt: string }[]>([]);
   const [tradeStats, setTradeStats] = useState<{ slug: string; views: number; signups: number; rate: number }[]>([]);
 
@@ -169,10 +172,12 @@ export default function DashboardApp() {
       if (fRes.ok) {
         const f = (await fRes.json()) as {
           funnel?: { label: string; count: number; rate: number }[];
+          signupFunnel?: { label: string; count: number; rate: number }[];
           signups?: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
           trades?: { slug: string; views: number; signups: number; rate: number }[];
         };
         setFunnel(f.funnel ?? []);
+        setSignupFunnel(f.signupFunnel ?? []);
         setSignups(f.signups ?? []);
         setTradeStats(f.trades ?? []);
       }
@@ -253,7 +258,7 @@ export default function DashboardApp() {
           {adminTab ? (
             <MarketingView
               active={adminTab} setActive={setAdminTab}
-              funnel={funnel} signups={signups} tradeStats={tradeStats}
+              funnel={funnel} signupFunnel={signupFunnel} signups={signups} tradeStats={tradeStats}
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
@@ -660,48 +665,114 @@ function GroupsTab({ groups, onRefresh }: { groups: Group[]; onRefresh: () => vo
 
 function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
   const [name, setName] = useState(me.user?.name ?? "");
+  const [businessName, setBusinessName] = useState(me.profile?.businessName ?? "");
   const [website, setWebsite] = useState(me.profile?.website ?? "");
   const [services, setServices] = useState(me.profile?.services ?? "");
   const [location, setLocation] = useState(me.profile?.location ?? "");
   const [brief, setBrief] = useState(me.profile?.brief ?? "");
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState<"clean" | "typing" | "saving" | "saved">("clean");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const first = useRef(true);
 
-  async function save() {
-    setBusy(true);
+  // Auto save. A tradie should never lose a change because they missed a
+  // button. We wait until they stop typing so we are not writing every letter.
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    setStatus("typing");
+    const timer = setTimeout(async () => {
+      setStatus("saving");
+      try {
+        await fetch("/api/member/account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, businessName, website, services, location, brief }),
+        });
+        setStatus("saved");
+        onRefresh();
+      } catch {
+        setStatus("typing");
+      }
+    }, 900);
+    return () => clearTimeout(timer);
+    // onRefresh is stable enough here and adding it would re-run on every poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, businessName, website, services, location, brief]);
+
+  // "Saved" is a receipt, not a permanent label. Let it fade.
+  useEffect(() => {
+    if (status !== "saved") return;
+    const timer = setTimeout(() => setStatus("clean"), 2500);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  async function askAi() {
+    setAiBusy(true);
+    setAiError("");
     try {
-      await fetch("/api/member/account", {
+      const res = await fetch("/api/member/brief-suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, website, services, location, brief }),
+        body: JSON.stringify({ businessName, website, services, location }),
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-      onRefresh();
+      const data = (await res.json().catch(() => ({}))) as { brief?: string; error?: string };
+      if (!res.ok || !data.brief) {
+        setAiError(
+          data.error === "not_enough"
+            ? "Fill in your website or what you do first."
+            : "Could not write it just now. Try again in a moment."
+        );
+        return;
+      }
+      setBrief(data.brief);
+    } catch {
+      setAiError("Could not write it just now. Try again in a moment.");
     } finally {
-      setBusy(false);
+      setAiBusy(false);
     }
   }
 
   return (
     <div className="card">
-      <h3>Your business</h3>
-      <label className="lbl">Business name</label>
+      <div className="card-head">
+        <h3>Your business</h3>
+        <SaveState status={status} />
+      </div>
+      <label className="lbl">Your name</label>
       <input value={name} onChange={(e) => setName(e.target.value)} />
+      <label className="lbl">Business name</label>
+      <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
       <label className="lbl">Website</label>
       <input value={website} onChange={(e) => setWebsite(e.target.value)} />
       <label className="lbl">What you do</label>
       <textarea rows={3} value={services} onChange={(e) => setServices(e.target.value)} />
       <label className="lbl">Suburbs you serve</label>
       <input value={location} onChange={(e) => setLocation(e.target.value)} />
-      <label className="lbl">What a good lead sounds like</label>
-      <textarea rows={3} placeholder="Tell me when someone asks for a solar quote or an installer near me." value={brief} onChange={(e) => setBrief(e.target.value)} />
-      <div className="row gap mt">
-        <button className="btn primary" disabled={busy} onClick={save}>{busy ? "Saving" : "Save changes"}</button>
-        {saved && <span className="flash">Saved.</span>}
+
+      <div className="lbl-row">
+        <label className="lbl">What a good lead sounds like</label>
+        <button className="ai-btn" onClick={askAi} disabled={aiBusy}>
+          <span className="ai-face">{I.spark} {aiBusy ? "Writing it" : "Ask AI"}</span>
+        </button>
       </div>
+      <textarea rows={6} placeholder="Tell me when someone asks for a solar quote or an installer near me." value={brief} onChange={(e) => setBrief(e.target.value)} />
+      {aiError ? (
+        <p className="error">{aiError}</p>
+      ) : (
+        <p className="tiny">This is what we look for. The clearer it is, the better your leads. Ask AI reads your website and writes it for you.</p>
+      )}
     </div>
   );
+}
+
+/** Quiet save state. It only speaks up while something is happening. */
+function SaveState({ status }: { status: "clean" | "typing" | "saving" | "saved" }) {
+  if (status === "clean") return null;
+  if (status === "saved") return <span className="save-state ok">{I.tick} Saved</span>;
+  return <span className="save-state">Saving</span>;
 }
 
 function DangerZone() {
@@ -1074,6 +1145,7 @@ function MarketingView(props: {
   active: "members" | "stripe" | "pipeline" | "funnel";
   setActive: (t: "members" | "stripe" | "pipeline" | "funnel") => void;
   funnel: { label: string; count: number; rate: number }[];
+  signupFunnel: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
   tradeStats: { slug: string; views: number; signups: number; rate: number }[];
   members: Member[];
@@ -1102,7 +1174,7 @@ function MarketingView(props: {
         ))}
       </div>
       <div className="subpanel">
-        {props.active === "funnel" && <FunnelView rows={props.funnel} signups={props.signups} trades={props.tradeStats} />}
+        {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
         {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
         {props.active === "stripe" && <PaymentsView rows={props.stripeRows} stripe={props.stripeOn} onRefresh={props.onRefreshStripe} busy={props.adminBusy} />}
@@ -1111,13 +1183,50 @@ function MarketingView(props: {
   );
 }
 
-function FunnelView({ rows, signups, trades }: {
+/** One funnel drawn as bars. Shared by the signup path and the ad path. */
+function Bars({ rows, empty }: {
   rows: { label: string; count: number; rate: number }[];
+  empty: string;
+}) {
+  const top = rows[0]?.count ?? 0;
+  if (top === 0) {
+    return (
+      <div className="empty">
+        <p><strong>Nothing recorded yet.</strong></p>
+        <p className="muted">{empty}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="funnel-chart">
+      {rows.map((r, i) => {
+        const prev = i > 0 ? rows[i - 1].count : r.count;
+        const stepDrop = i > 0 && prev > 0 ? Math.round(((prev - r.count) / prev) * 100) : 0;
+        const width = Math.max((r.count / top) * 100, r.count > 0 ? 3 : 0);
+        return (
+          <div className="fbar-row" key={r.label} title={`${r.label}: ${r.count} (${r.rate}% of top)`}>
+            <span className="fbar-label">{r.label}</span>
+            <div className="fbar-track">
+              <div className="fbar-fill" style={{ width: `${width}%` }}>
+                <span className="fbar-count">{r.count}</span>
+              </div>
+              <span className="fbar-rate">{r.rate}%</span>
+            </div>
+            {i > 0 && stepDrop > 0 && <span className="fbar-drop">&minus;{stepDrop}%</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FunnelView({ rows, signupRows, signups, trades }: {
+  rows: { label: string; count: number; rate: number }[];
+  signupRows: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
   trades: { slug: string; views: number; signups: number; rate: number }[];
 }) {
   const activeTrades = trades.filter((t) => t.views > 0 || t.signups > 0);
-  const top = rows[0]?.count ?? 0;
   const when = (t: string) =>
     new Date(t.replace(" ", "T") + "Z").toLocaleString("en-AU", {
       timeZone: "Australia/Perth", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
@@ -1128,33 +1237,14 @@ function FunnelView({ rows, signups, trades }: {
         <div><p className="muted">Last 7 days. Where visitors drop out.</p></div>
       </header>
       <div className="card">
-        <h3>Funnel</h3>
-        {top === 0 ? (
-          <div className="empty">
-            <p><strong>No visits recorded yet.</strong></p>
-            <p className="muted">Tracking starts from now. Send some ad traffic and this fills in.</p>
-          </div>
-        ) : (
-          <div className="funnel-chart">
-            {rows.map((r, i) => {
-              const prev = i > 0 ? rows[i - 1].count : r.count;
-              const stepDrop = i > 0 && prev > 0 ? Math.round(((prev - r.count) / prev) * 100) : 0;
-              const width = top > 0 ? Math.max((r.count / top) * 100, r.count > 0 ? 3 : 0) : 0;
-              return (
-                <div className="fbar-row" key={r.label} title={`${r.label}: ${r.count} (${r.rate}% of top)`}>
-                  <span className="fbar-label">{r.label}</span>
-                  <div className="fbar-track">
-                    <div className="fbar-fill" style={{ width: `${width}%` }}>
-                      <span className="fbar-count">{r.count}</span>
-                    </div>
-                    <span className="fbar-rate">{r.rate}%</span>
-                  </div>
-                  {i > 0 && stepDrop > 0 && <span className="fbar-drop">&minus;{stepDrop}%</span>}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <h3>Signups from the website</h3>
+        <p className="muted">Every button on the home page goes to the signup page.</p>
+        <Bars rows={signupRows} empty="Tracking starts from now. Send traffic to the home page and this fills in." />
+      </div>
+      <div className="card">
+        <h3>Waitlist funnel from the ads</h3>
+        <p className="muted">Your trade ads land on the reserve pages.</p>
+        <Bars rows={rows} empty="Tracking starts from now. Send some ad traffic and this fills in." />
       </div>
       <div className="card">
         <h3>Which trade is converting</h3>
@@ -1338,6 +1428,23 @@ const CSS = `
 .form-grid{display:grid;gap:10px;grid-template-columns:1fr 1fr;}
 
 .lbl{display:block;font-size:12.5px;font-weight:700;margin:14px 0 6px;}
+.card-head{align-items:center;display:flex;gap:12px;justify-content:space-between;}
+.card-head h3{margin:0;}
+.lbl-row{align-items:flex-end;display:flex;gap:12px;justify-content:space-between;}
+.lbl-row .lbl{margin-bottom:6px;}
+
+.save-state{align-items:center;animation:dRise .25s var(--ease) both;color:var(--muted);display:inline-flex;font-size:12.5px;font-weight:700;gap:5px;}
+.save-state.ok{color:var(--mint);}
+
+.ai-btn{align-items:center;background:linear-gradient(103deg,#6d5bf6 0%,#a24cf0 45%,#f0518f 100%);border:0;border-radius:99px;box-shadow:0 4px 14px rgba(122,79,240,.34);color:#fff;display:inline-flex;flex:none;font-size:12.5px;font-weight:800;justify-content:center;margin-bottom:6px;overflow:hidden;padding:8px 15px;position:relative;transition:transform .18s var(--ease),box-shadow .18s var(--ease),filter .18s;}
+.ai-btn:hover:not(:disabled){box-shadow:0 7px 20px rgba(122,79,240,.42);transform:translateY(-1px);}
+.ai-btn:active:not(:disabled){transform:translateY(1px);}
+.ai-btn:disabled{cursor:default;filter:saturate(.6);opacity:.75;}
+.ai-btn::after{animation:aiShine 3.4s var(--ease) infinite;background:linear-gradient(103deg,transparent 25%,rgba(255,255,255,.6) 50%,transparent 75%);content:"";inset:0;pointer-events:none;position:absolute;}
+.ai-face{align-items:center;display:inline-flex;gap:6px;position:relative;z-index:1;}
+.ai-face svg{flex:none;}
+@keyframes aiShine{0%{transform:translateX(-115%)}55%,100%{transform:translateX(115%)}}
+@media(prefers-reduced-motion:reduce){.ai-btn::after{animation:none;opacity:0;}}
 .card.danger{border-color:#f6d5cd;}
 .btn.danger-btn{background:var(--coral-deep);color:#fff;}
 .btn.mt{margin-top:14px;}

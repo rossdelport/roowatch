@@ -7,6 +7,7 @@ const ALLOWED = new Set([
   "view_reserve",
   "click_pay",
   "view_onlist",
+  "view_signup",
 ]);
 
 export async function POST(request: Request) {
