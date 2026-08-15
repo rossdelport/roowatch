@@ -1430,13 +1430,17 @@ const CSS = `
 .lbl{display:block;font-size:12.5px;font-weight:700;margin:14px 0 6px;}
 .card-head{align-items:center;display:flex;gap:12px;justify-content:space-between;}
 .card-head h3{margin:0;}
-.lbl-row{align-items:flex-end;display:flex;gap:12px;justify-content:space-between;}
-.lbl-row .lbl{margin-bottom:6px;}
+/* The button is taller than the label text. Give the pair its own band and
+   centre them, or the button drags the whole row up into the field above. */
+.lbl-row{align-items:center;display:flex;gap:14px;justify-content:space-between;margin:22px 0 8px;min-height:36px;}
+.lbl-row .lbl{margin:0;}
+/* A label sits 6px above its input. Textareas were adding 10px more. */
+.lbl+textarea,.lbl-row+textarea{margin-top:0;}
 
 .save-state{align-items:center;animation:dRise .25s var(--ease) both;color:var(--muted);display:inline-flex;font-size:12.5px;font-weight:700;gap:5px;}
 .save-state.ok{color:var(--mint);}
 
-.ai-btn{align-items:center;background:linear-gradient(103deg,#6d5bf6 0%,#a24cf0 45%,#f0518f 100%);border:0;border-radius:99px;box-shadow:0 4px 14px rgba(122,79,240,.34);color:#fff;display:inline-flex;flex:none;font-size:12.5px;font-weight:800;justify-content:center;margin-bottom:6px;overflow:hidden;padding:8px 15px;position:relative;transition:transform .18s var(--ease),box-shadow .18s var(--ease),filter .18s;}
+.ai-btn{align-items:center;background:linear-gradient(103deg,#6d5bf6 0%,#a24cf0 45%,#f0518f 100%);border:0;border-radius:99px;box-shadow:0 4px 14px rgba(122,79,240,.34);color:#fff;display:inline-flex;flex:none;font-size:12.5px;font-weight:800;justify-content:center;min-width:104px;overflow:hidden;padding:9px 16px;position:relative;transition:transform .18s var(--ease),box-shadow .18s var(--ease),filter .18s;}
 .ai-btn:hover:not(:disabled){box-shadow:0 7px 20px rgba(122,79,240,.42);transform:translateY(-1px);}
 .ai-btn:active:not(:disabled){transform:translateY(1px);}
 .ai-btn:disabled{cursor:default;filter:saturate(.6);opacity:.75;}
