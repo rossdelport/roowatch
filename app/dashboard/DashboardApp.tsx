@@ -1050,7 +1050,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
         <div className="kv"><span>Groups watched</span><strong>{groups.length} of {plan.groups}</strong></div>
         <div className="kv"><span>Alert speed</span><strong>Under {plan.alertMinutes} minutes</strong></div>
         <div className="kv"><span>Posts checked this month</span><strong>{(me.postsUsed ?? 0).toLocaleString()} of {plan.postsPerMonth.toLocaleString()}</strong></div>
-        <div className="kv"><span>Guarantee</span><strong>1 job in 30 days or we refund you</strong></div>
+        <div className="kv"><span>Guarantee</span><strong>A lead this month or we refund you</strong></div>
         <p className="tiny">Need to change anything? Email ross@roowatch.com.au and we sort it same day.</p>
       </div>
       <div className="card">
