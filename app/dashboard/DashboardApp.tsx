@@ -53,14 +53,31 @@ type Me = {
   hasPassword?: boolean;
   plan?: Plan;
 };
+type UserStats = {
+  mrr: number; trialMrr: number; total: number; paying: number;
+  trialing: number; onboarded: number;
+  byPlan: { key: string; name: string; count: number }[];
+};
+type HistoryPoint = { day: string; users: number; mrr: number };
 type Member = {
   id: string;
   email: string;
   name: string;
+  avatar?: string;
   createdAt: string;
   onboarded: boolean;
   plan: string;
+  planName: string;
   planGroups: number;
+  planPrice: number;
+  postsPerMonth: number;
+  postsUsed: number;
+  subscriptionStatus: string;
+  stripeCustomerId: string;
+  businessName: string;
+  trade: string;
+  state: string;
+  phone: string;
   website: string;
   services: string;
   location: string;
@@ -94,12 +111,15 @@ const I = {
 export default function DashboardApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState("overview");
-  const [adminTab, setAdminTab] = useState<null | "members" | "stripe" | "pipeline" | "funnel">(null);
+  const [adminTab, setAdminTab] = useState<null | "users" | "members" | "stripe" | "pipeline" | "funnel">(null);
   const [adminPass, setAdminPass] = useState("");
   const [adminPrompt, setAdminPrompt] = useState(false);
   const [adminError, setAdminError] = useState("");
   const [adminBusy, setAdminBusy] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
+  const [userStats, setUserStats] = useState<UserStats | null>(null);
+  const [history, setHistory] = useState<HistoryPoint[]>([]);
+  const [adminFlash, setAdminFlash] = useState("");
   const [stripeRows, setStripeRows] = useState<StripeRow[]>([]);
   const [stripeOn, setStripeOn] = useState(true);
   const [sources, setSources] = useState<Source[]>([]);
@@ -137,7 +157,7 @@ export default function DashboardApp() {
     refresh();
   }
 
-  async function unlockAdmin(target: "members" | "stripe" | "pipeline" | "funnel") {
+  async function unlockAdmin(target: "users" | "members" | "stripe" | "pipeline" | "funnel") {
     setAdminBusy(true);
     setAdminError("");
     try {
@@ -161,8 +181,13 @@ export default function DashboardApp() {
         setAdminError("Server is not set up yet.");
         return;
       }
-      const m = (await mRes.json()) as { members?: Member[] };
+      const m = (await mRes.json()) as {
+        members?: Member[]; stats?: UserStats; history?: HistoryPoint[]; flash?: string;
+      };
       setMembers(m.members ?? []);
+      setUserStats(m.stats ?? null);
+      setHistory(m.history ?? []);
+      if (m.flash) setAdminFlash(m.flash);
       if (sRes.ok) {
         const s = (await sRes.json()) as { rows?: StripeRow[]; stripe?: boolean };
         setStripeRows(s.rows ?? []);
@@ -216,7 +241,7 @@ export default function DashboardApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...payload, password: adminPass }),
     });
-    await unlockAdmin(adminTab ?? "members");
+    await unlockAdmin(adminTab ?? "users");
     return res.ok;
   }
 
@@ -249,7 +274,7 @@ export default function DashboardApp() {
           </nav>
           <div className="side-bottom">
             {me.isAdmin && (
-              <button className={adminTab ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("funnel") : setAdminPrompt(true))}>{I.flow} Marketing</button>
+              <button className={adminTab ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("users") : setAdminPrompt(true))}>{I.flow} Marketing</button>
             )}
             <button className={tab === "settings" && !adminTab ? "on" : ""} onClick={() => { setTab("settings"); setAdminTab(null); }}>{I.gear} Settings</button>
             <div className="side-user">
@@ -268,6 +293,7 @@ export default function DashboardApp() {
             <MarketingView
               active={adminTab} setActive={setAdminTab}
               funnel={funnel} signupFunnel={signupFunnel} signups={signups} tradeStats={tradeStats}
+              userStats={userStats} history={history} flash={adminFlash}
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
@@ -288,7 +314,7 @@ export default function DashboardApp() {
               {adminError && <p className="error">{adminError}</p>}
               <div className="row gap">
                 <button className="btn ghost" onClick={() => { setAdminPrompt(false); setAdminError(""); }}>Cancel</button>
-                <button className="btn primary" onClick={() => unlockAdmin("members")} disabled={adminBusy}>{adminBusy ? "Checking" : "Unlock"}</button>
+                <button className="btn primary" onClick={() => unlockAdmin("users")} disabled={adminBusy}>{adminBusy ? "Checking" : "Unlock"}</button>
               </div>
             </div>
           </div>
@@ -1299,6 +1325,258 @@ function AlertRow({ alert }: { alert: Alert }) {
   );
 }
 
+/**
+ * Every user, what they are worth, and everything Ross can do to them.
+ * Admin only, behind the master password like the rest of the Marketing tab.
+ */
+function UsersView({ members, stats, history, flash, onAction }: {
+  members: Member[];
+  stats: UserStats | null;
+  history: HistoryPoint[];
+  flash: string;
+  onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const open = members.find((m) => m.id === openId) ?? null;
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return members;
+    return members.filter((m) =>
+      [m.email, m.name, m.businessName, m.trade, m.state, m.planName]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [members, query]);
+
+  return (
+    <div className="subview">
+      <header className="subhead">
+        <div><p className="muted">Everyone who has an account, and what they are worth.</p></div>
+      </header>
+
+      {flash && <p className="flash mb">{flash}</p>}
+
+      <div className="tiles">
+        <div className="tile tile-accent">
+          <span className="tile-num">${(stats?.mrr ?? 0).toLocaleString()}</span>
+          <span className="tile-label">MRR</span>
+        </div>
+        <div className="tile">
+          <span className="tile-num">${(stats?.trialMrr ?? 0).toLocaleString()}</span>
+          <span className="tile-label">On trial, not paying yet</span>
+        </div>
+        <div className="tile">
+          <span className="tile-num">{stats?.total ?? 0}</span>
+          <span className="tile-label">Accounts</span>
+        </div>
+        <div className="tile">
+          <span className="tile-num">{stats?.onboarded ?? 0}</span>
+          <span className="tile-label">Finished setup</span>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Users and MRR, last 30 days</h3>
+        <Growth history={history} />
+        <p className="tiny">
+          Everyone counts from the day they signed up, at the plan they are on today. Plan
+          changes are not kept as history, so an upgrade looks like it was always there.
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h3>Everyone</h3>
+          <input className="user-search" placeholder="Search name, email, trade" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {shown.length === 0 ? (
+          <div className="empty tight"><p className="muted">Nobody matches that.</p></div>
+        ) : (
+          <div className="user-grid">
+            {shown.map((m) => (
+              <button key={m.id} className="user-card" onClick={() => setOpenId(m.id)}>
+                <div className="user-card-top">
+                  <Avatar avatar={m.avatar} name={m.businessName || m.name || m.email} />
+                  <div className="user-card-who">
+                    <strong>{m.businessName || m.name || m.email}</strong>
+                    <span>{m.email}</span>
+                  </div>
+                </div>
+                <div className="user-card-meta">
+                  <span className={`plan-tag plan-${m.plan}`}>{m.planName}</span>
+                  <StatusChip status={m.subscriptionStatus} />
+                </div>
+                <div className="user-card-foot">
+                  <span>{m.trade || "no trade set"}</span>
+                  <span>{m.groups.length} groups &middot; {m.alertCount} leads</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {open && <UserModal member={open} onClose={() => setOpenId(null)} onAction={onAction} />}
+    </div>
+  );
+}
+
+function StatusChip({ status }: { status: string }) {
+  if (!status) return <span className="chip-status pending">No subscription</span>;
+  const good = status === "active" || status === "trialing";
+  return (
+    <span className={good ? "chip-status ok" : "chip-status bad"}>
+      {status === "trialing" ? "On trial" : status === "active" ? "Paying" : status}
+    </span>
+  );
+}
+
+/** Two lines on one grid: accounts and MRR. Drawn by hand, no chart library. */
+function Growth({ history }: { history: HistoryPoint[] }) {
+  if (history.length < 2) {
+    return <div className="empty tight"><p className="muted">Not enough days yet.</p></div>;
+  }
+  const W = 640;
+  const H = 170;
+  const maxUsers = Math.max(1, ...history.map((h) => h.users));
+  const maxMrr = Math.max(1, ...history.map((h) => h.mrr));
+  const x = (i: number) => (i / (history.length - 1)) * W;
+  const line = (pick: (h: HistoryPoint) => number, max: number) =>
+    history.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${(H - (pick(h) / max) * H).toFixed(1)}`).join(" ");
+
+  const last = history[history.length - 1];
+  return (
+    <div className="growth">
+      <svg viewBox={`0 0 ${W} ${H}`} className="growth-svg" preserveAspectRatio="none" aria-hidden="true">
+        <path d={`${line((h) => h.users, maxUsers)} L${W},${H} L0,${H} Z`} className="growth-fill" />
+        <path d={line((h) => h.users, maxUsers)} className="growth-users" />
+        <path d={line((h) => h.mrr, maxMrr)} className="growth-mrr" />
+      </svg>
+      <div className="growth-key">
+        <span><i className="key-users" /> Accounts, now {last.users}</span>
+        <span><i className="key-mrr" /> MRR, now ${last.mrr.toLocaleString()}</span>
+        <span className="tiny">{history[0].day} to {last.day}</span>
+      </div>
+    </div>
+  );
+}
+
+function UserModal({ member, onClose, onAction }: {
+  member: Member;
+  onClose: () => void;
+  onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [name, setName] = useState(member.name);
+  const [businessName, setBusinessName] = useState(member.businessName);
+  const [brief, setBrief] = useState(member.brief);
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const dirty =
+    name !== member.name || businessName !== member.businessName || brief !== member.brief;
+
+  async function call(payload: Record<string, unknown>) {
+    setBusy(true);
+    try {
+      await onAction("/api/admin/members", { userId: member.id, ...payload });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal user-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="help-head">
+          <div className="user-card-top">
+            <Avatar avatar={member.avatar} name={member.businessName || member.name || member.email} />
+            <div className="user-card-who">
+              <strong>{member.businessName || member.name || member.email}</strong>
+              <span>{member.email}</span>
+            </div>
+          </div>
+          <button className="mini" onClick={onClose}>Close</button>
+        </div>
+
+        <div className="kv"><span>Plan</span><strong>{member.planName}, ${member.planPrice} a month</strong></div>
+        <div className="kv"><span>Subscription</span><strong><StatusChip status={member.subscriptionStatus} /></strong></div>
+        <div className="kv"><span>Phone</span><strong>{member.phone ? <a href={`tel:${member.phone}`}>{member.phone}</a> : "not given"}</strong></div>
+        <div className="kv"><span>Trade</span><strong>{member.trade || "not set"}</strong></div>
+        <div className="kv"><span>Where</span><strong>{member.location || member.state || "not set"}</strong></div>
+        <div className="kv"><span>Website</span><strong>{member.website || "not given"}</strong></div>
+        <div className="kv"><span>Groups</span><strong>{member.groups.length} of {member.planGroups}</strong></div>
+        <div className="kv"><span>Leads sent</span><strong>{member.alertCount}</strong></div>
+        <div className="kv"><span>Posts read this month</span><strong>{member.postsUsed.toLocaleString()} of {member.postsPerMonth.toLocaleString()}</strong></div>
+        <div className="kv"><span>Joined</span><strong>{(member.createdAt || "").slice(0, 10)}</strong></div>
+
+        <h3 className="mt">Move them to a plan</h3>
+        <div className="plan-switch left">
+          {PLAN_KEYS.map((k) => (
+            <button
+              key={k}
+              className={member.plan === k ? "plan-pick on" : "plan-pick"}
+              disabled={busy}
+              onClick={() => call({ action: "plan", plan: k })}
+            >
+              {PLANS[k].name} &middot; {PLANS[k].groups}g
+            </button>
+          ))}
+        </div>
+
+        <h3 className="mt">Fix their details</h3>
+        <label className="lbl">Their name</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <label className="lbl">Business name</label>
+        <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+        <label className="lbl">What a good lead sounds like</label>
+        <textarea rows={4} value={brief} onChange={(e) => setBrief(e.target.value)} />
+        <button
+          className="btn primary mt"
+          disabled={busy || !dirty}
+          onClick={() => call({ action: "update", name, businessName, brief })}
+        >
+          {busy ? "Saving" : "Save changes"}
+        </button>
+
+        <h3 className="mt">Send them an email</h3>
+        <label className="lbl">Subject</label>
+        <input placeholder="A note from RooWatch" value={subject} onChange={(e) => setSubject(e.target.value)} />
+        <label className="lbl">Message</label>
+        <textarea rows={4} placeholder="G'day, just checking how the leads are going." value={message} onChange={(e) => setMessage(e.target.value)} />
+        <button
+          className="btn primary mt"
+          disabled={busy || message.trim().length < 3}
+          onClick={async () => { await call({ action: "message", subject, message }); setMessage(""); setSubject(""); }}
+        >
+          {busy ? "Sending" : `Email ${member.email}`}
+        </button>
+
+        <div className="card danger mt">
+          <h3>Delete this account</h3>
+          <p className="muted">
+            Removes their account, groups and leads. It also cancels any live Stripe
+            subscription, so they stop being charged. This cannot be undone.
+          </p>
+          <button
+            className="btn danger-btn"
+            disabled={busy}
+            onClick={async () => {
+              if (!confirm(`Delete ${member.email}, all their data, and cancel their Stripe subscription?`)) return;
+              await call({ action: "delete" });
+              onClose();
+            }}
+          >
+            Delete and cancel billing
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MembersView({ members, onAction }: { members: Member[]; onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean> }) {
   const [open, setOpen] = useState<string | null>(null);
   const [groupName, setGroupName] = useState("");
@@ -1633,8 +1911,11 @@ function shrinkImage(file: File): Promise<string> {
 }
 
 function MarketingView(props: {
-  active: "members" | "stripe" | "pipeline" | "funnel";
-  setActive: (t: "members" | "stripe" | "pipeline" | "funnel") => void;
+  active: "users" | "members" | "stripe" | "pipeline" | "funnel";
+  setActive: (t: "users" | "members" | "stripe" | "pipeline" | "funnel") => void;
+  userStats: UserStats | null;
+  history: HistoryPoint[];
+  flash: string;
   funnel: { label: string; count: number; rate: number }[];
   signupFunnel: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
@@ -1645,7 +1926,8 @@ function MarketingView(props: {
   onScan: (id: number) => Promise<{ ok: boolean; matches?: number; posts?: number; error?: string }>;
   stripeRows: StripeRow[]; stripeOn: boolean; onRefreshStripe: () => void; adminBusy: boolean;
 }) {
-  const tabs: { key: "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
+  const tabs: { key: "users" | "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
+    { key: "users", label: "Users" },
     { key: "funnel", label: "Ad funnel" },
     { key: "members", label: "Members" },
     { key: "pipeline", label: "Pipeline" },
@@ -1666,6 +1948,7 @@ function MarketingView(props: {
       </div>
       <div className="subpanel">
         {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} />}
+        {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
         {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
         {props.active === "stripe" && <PaymentsView rows={props.stripeRows} stripe={props.stripeOn} onRefresh={props.onRefreshStripe} busy={props.adminBusy} />}
@@ -1983,6 +2266,38 @@ const CSS = `
 .subview{margin:0;}
 .subhead{margin-bottom:16px;}
 .subhead .muted{font-size:13.5px;}
+
+/* ---- users tab ---- */
+.mb{margin-bottom:14px;}
+.user-search{max-width:260px;}
+.user-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));margin-top:16px;}
+.user-card{background:#fff;border:1px solid var(--line);border-radius:14px;display:grid;gap:11px;padding:15px;text-align:left;transition:border-color .18s var(--ease),box-shadow .18s var(--ease),transform .18s var(--ease);}
+.user-card:hover{border-color:var(--coral);box-shadow:var(--shadow-soft);transform:translateY(-2px);}
+.user-card-top{align-items:center;display:flex;gap:11px;min-width:0;}
+.user-card-who{display:grid;line-height:1.3;min-width:0;}
+.user-card-who strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.user-card-who span{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.user-card-meta{display:flex;flex-wrap:wrap;gap:7px;}
+.user-card-foot{color:var(--muted);display:flex;font-size:12px;gap:10px;justify-content:space-between;}
+.plan-tag{border-radius:99px;font-size:11px;font-weight:800;padding:4px 10px;}
+.plan-local{background:#eef1f6;color:#4a5468;}
+.plan-growth{background:var(--mint-soft);color:#14724f;}
+.plan-scale{background:#efe4ff;color:#5b3a9c;}
+.chip-status.bad{background:#fdece8;color:var(--coral-deep);}
+
+.growth{margin:6px 0 0;}
+.growth-svg{display:block;height:170px;width:100%;}
+.growth-fill{fill:rgba(255,106,77,.1);stroke:none;}
+.growth-users{fill:none;stroke:var(--coral);stroke-width:2.5;vector-effect:non-scaling-stroke;}
+.growth-mrr{fill:none;stroke:var(--mint);stroke-dasharray:5 4;stroke-width:2.5;vector-effect:non-scaling-stroke;}
+.growth-key{align-items:center;color:var(--muted);display:flex;flex-wrap:wrap;font-size:12.5px;font-weight:700;gap:16px;margin-top:10px;}
+.growth-key i{border-radius:2px;display:inline-block;height:3px;margin-right:6px;vertical-align:middle;width:16px;}
+.key-users{background:var(--coral);}
+.key-mrr{background:var(--mint);}
+
+.user-modal{max-height:88vh;max-width:520px;overflow-y:auto;}
+.user-modal .card.danger{margin-top:22px;}
+.plan-switch.left{justify-content:flex-start;margin-top:8px;}
 
 /* ---- setup wizard ---- */
 .modal-wide{max-width:600px;position:relative;}

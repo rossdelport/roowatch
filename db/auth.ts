@@ -57,8 +57,11 @@ export async function endSession(request: Request) {
   }
 }
 
+/** Ross, on either of the addresses he actually logs in with. */
+const ADMIN_EMAILS = new Set(["ross@roowatch.com.au", "rossdelport1998@gmail.com"]);
+
 export function isAdminEmail(email: string) {
-  return email.trim().toLowerCase() === "ross@roowatch.com.au";
+  return ADMIN_EMAILS.has(email.trim().toLowerCase());
 }
 
 export async function sendEmail(
