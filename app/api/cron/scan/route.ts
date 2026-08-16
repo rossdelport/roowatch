@@ -25,18 +25,46 @@ import { scanJobs, sources } from "../../../../db/schema";
 /** Groups we will ask for in one collection. Bright Data has no run fee, so
  *  this is only about keeping one collection quick enough to be useful. */
 const SOURCES_PER_TICK = 120;
-const MIN_GAP_MINUTES = 5;
+/**
+ * Do not look at a group again until this long after the last look.
+ *
+ * This sits below the 5 minute cron interval on purpose. A collection takes 30
+ * to 140 seconds, so lastChecked lands a minute or two after the tick that
+ * asked for it. At 5 minutes the very next tick saw a gap of only 3 or 4
+ * minutes, called the group not due, and skipped it. Groups drifted into
+ * alternating batches and each one was only read every 8 or 9 minutes.
+ *
+ * The cron interval is the real floor here, so a lower number cannot cause
+ * scanning more often than every 5 minutes. It only stops a group missing its
+ * turn. Under Bright Data this is free: a check that finds nothing costs
+ * nothing.
+ */
+const MIN_GAP_MINUTES = 1;
 const BUFFER_MINUTES = 1;
 /**
- * Wait this long inside the triggering tick before giving up and letting the
- * next tick collect. Collecting inline saves the member a whole five minutes.
- * Real collections have taken 56s, 98s, 123s and 158s, so the wait sits above
- * the common case while leaving over two minutes of headroom before the next
- * tick. Overlapping is harmless anyway: a tick that finds an outstanding job
- * collects it instead of triggering another.
+ * The narrowest look-back we will ever ask for.
+ *
+ * This is the money dial, not the cron interval. We are billed per post
+ * delivered, so a post sitting inside the window gets bought again on every
+ * scan that still covers it. Buying the same post twice is the price of never
+ * missing one.
+ *
+ *   duplicate factor = window minutes / minutes between scans
+ *
+ * At a 5 minute cadence with a 6 minute floor that was 1.2x. Dropping to a 1
+ * minute cadence without moving this floor would have made it 6x. At 3 minutes
+ * it is 3x, which is the cost of the faster promise. seen_posts still stops any
+ * member being alerted twice.
  */
-const INLINE_WAIT_MS = 170_000;
-const POLL_EVERY_MS = 8_000;
+const MIN_WINDOW_MINUTES = 3;
+/**
+ * Wait this long inside the triggering tick before handing the job to the next
+ * tick. Most collections finish in 24 to 50 seconds, so this catches the common
+ * case. There is no point waiting much longer now that another tick arrives
+ * every minute to pick the job up.
+ */
+const INLINE_WAIT_MS = 55_000;
+const POLL_EVERY_MS = 5_000;
 /** A collection still running after this is treated as dead and dropped. */
 const JOB_STALE_MINUTES = 20;
 
@@ -44,14 +72,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * How far back to ask. A little wider than the real gap so a skipped tick
- * cannot lose a post. seen_posts stops the overlap from alerting twice, and we
- * are not charged twice because Bright Data bills per post delivered and the
- * duplicate never reaches a member.
+ * cannot lose a post, and never narrower than MIN_WINDOW_MINUTES so a post
+ * Facebook indexes slightly late still gets caught. seen_posts stops the
+ * overlap from ever alerting a member twice.
  */
 function sinceFor(rows: { lastChecked: number }[]): Date {
   const oldest = Math.min(...rows.map((s) => s.lastChecked || 0));
   const minutesSince = oldest ? (Date.now() - oldest) / 60000 : 60;
-  const minutes = Math.min(Math.max(minutesSince + BUFFER_MINUTES, 6), 360);
+  const minutes = Math.min(
+    Math.max(minutesSince + BUFFER_MINUTES, MIN_WINDOW_MINUTES),
+    360
+  );
   return new Date(Date.now() - minutes * 60_000);
 }
 
