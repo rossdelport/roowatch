@@ -5,12 +5,14 @@ import Link from "next/link";
 import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
 import { OTHER_TRADE, TRADES } from "../../db/trades";
+import { PLAN_KEYS, PLANS, type Plan } from "../../db/plans";
 
 type User = { id: string; email: string; name: string };
 type Profile = {
   businessName: string;
   trade: string;
   state: string;
+  plan: string;
   website: string;
   gbpUrl: string;
   services: string;
@@ -49,6 +51,7 @@ type Me = {
   avatar?: string;
   postsUsed?: number;
   hasPassword?: boolean;
+  plan?: Plan;
 };
 type Member = {
   id: string;
@@ -56,6 +59,8 @@ type Member = {
   name: string;
   createdAt: string;
   onboarded: boolean;
+  plan: string;
+  planGroups: number;
   website: string;
   services: string;
   location: string;
@@ -351,6 +356,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const [help, setHelp] = useState(false);
 
   const chosenTrade = trade === OTHER_TRADE ? tradeOther.trim() : trade;
+  const planGroups = me.plan?.groups ?? 10;
   const step = STAGES.indexOf(stage);
 
   function say(message: string) {
@@ -442,8 +448,8 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
       say("This group is already on your list");
       return false;
     }
-    if (groupList.length >= 10) {
-      say("Your plan covers 10 groups");
+    if (groupList.length >= planGroups) {
+      say(`Your plan covers ${planGroups} groups`);
       return false;
     }
     setGroupList([...groupList, { url: parsed.url, name: parsed.name }]);
@@ -597,7 +603,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
             <p className="tiny">
               {groupList.length === 0
                 ? "Add the local groups you are already in. Most tradies watch 5 or more."
-                : `${groupList.length} of 10 groups added.${groupList.length < 5 ? " Most tradies watch 5 or more." : ""}`}
+                : `${groupList.length} of ${planGroups} groups added.${groupList.length < 5 ? " Most tradies watch 5 or more." : ""}`}
             </p>
           </>
         )}
@@ -950,6 +956,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
   const groups = me.groups ?? [];
   const alerts = me.alerts ?? [];
   const user = me.user!;
+  const plan = me.plan ?? PLANS.local;
 
   async function pickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -996,7 +1003,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
   }
 
   if (tab === "groups") {
-    return <GroupsTab groups={groups} onRefresh={onRefresh} />;
+    return <GroupsTab groups={groups} limit={plan.groups} onRefresh={onRefresh} />;
   }
 
   if (tab === "alerts") {
@@ -1039,7 +1046,9 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
       </div>
       <div className="card">
         <h3>Your plan</h3>
-        <div className="kv"><span>Plan</span><strong>Monthly. 10 groups watched.</strong></div>
+        <div className="kv"><span>Plan</span><strong>{plan.name}. ${plan.priceAud} a month.</strong></div>
+        <div className="kv"><span>Groups watched</span><strong>{groups.length} of {plan.groups}</strong></div>
+        <div className="kv"><span>Alert speed</span><strong>Under {plan.alertMinutes} minutes</strong></div>
         <div className="kv"><span>Posts checked this month</span><strong>{(me.postsUsed ?? 0).toLocaleString()} of 10,000</strong></div>
         <div className="kv"><span>Guarantee</span><strong>1 job in 30 days or we refund you</strong></div>
         <p className="tiny">Need to change anything? Email ross@roowatch.com.au and we sort it same day.</p>
@@ -1053,11 +1062,11 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
   );
 }
 
-function GroupsTab({ groups, onRefresh }: { groups: Group[]; onRefresh: () => void }) {
+function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: number; onRefresh: () => void }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const LIMIT = 10;
+  const LIMIT = limit;
 
   async function call(payload: Record<string, unknown>) {
     setBusy(true);
@@ -1360,13 +1369,28 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
           <div className="member-head" onClick={() => { setOpen(open === m.id ? null : m.id); setAlertGroup(m.groups[0]?.name ?? ""); }}>
             <div>
               <strong>{m.name || m.email}</strong>
-              <span className="tiny block">{m.email} · {m.groups.length} groups · {m.alertCount} leads sent</span>
+              <span className="tiny block">{m.email} · {PLANS[(m.plan as keyof typeof PLANS)]?.name ?? "Local"} · {m.groups.length} of {m.planGroups} groups · {m.alertCount} leads sent</span>
             </div>
             <span className={m.onboarded ? "chip-status ok" : "chip-status pending"}>{m.onboarded ? "Onboarded" : "Not finished"}</span>
           </div>
 
           {open === m.id && (
             <div className="member-body">
+              <div className="kv">
+                <span>Plan</span>
+                <span className="plan-switch">
+                  {PLAN_KEYS.map((k) => (
+                    <button
+                      key={k}
+                      className={m.plan === k ? "plan-pick on" : "plan-pick"}
+                      disabled={busy}
+                      onClick={() => onAction("/api/admin/members", { action: "plan", userId: m.id, plan: k })}
+                    >
+                      {PLANS[k].name} · {PLANS[k].groups}
+                    </button>
+                  ))}
+                </span>
+              </div>
               <div className="kv"><span>Website</span><strong>{m.website || "-"}</strong></div>
               <div className="kv"><span>Area</span><strong>{m.location || "-"}</strong></div>
               <div className="kv"><span>Services</span><strong>{m.services || "-"}</strong></div>
@@ -1912,6 +1936,11 @@ const CSS = `
 .source-row:first-of-type{border-top:0;}
 .tiny.err{color:var(--coral-deep);}
 .member-head{align-items:center;cursor:pointer;display:flex;gap:14px;justify-content:space-between;}
+.plan-switch{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;}
+.plan-pick{background:#faf7f2;border:1px solid var(--line);border-radius:99px;color:var(--muted);font-size:12px;font-weight:700;padding:6px 12px;transition:background .18s var(--ease),color .18s,border-color .18s;}
+.plan-pick:hover:not(:disabled){border-color:var(--coral);color:var(--ink);}
+.plan-pick.on{background:var(--coral);border-color:var(--coral);color:#fff;}
+.plan-pick:disabled{cursor:default;opacity:.6;}
 .member-body{animation:dRise .35s var(--ease) both;border-top:1px solid #f4efe7;margin-top:16px;padding-top:6px;}
 .table-wrap{overflow-x:auto;}
 .admin table{border-collapse:collapse;font-size:13.5px;width:100%;}

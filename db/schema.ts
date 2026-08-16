@@ -29,6 +29,7 @@ export const profiles = sqliteTable("profiles", {
   businessName: text("business_name").notNull().default(""),
   trade: text("trade").notNull().default(""),
   state: text("state").notNull().default(""),
+  plan: text("plan").notNull().default("local"),
   website: text("website").notNull().default(""),
   gbpUrl: text("gbp_url").notNull().default(""),
   services: text("services").notNull().default(""),

@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { requireAdmin } from "../../../../db/admin";
 import { sendEmail } from "../../../../db/auth";
+import { PLANS, planFor, type PlanKey } from "../../../../db/plans";
 import {
   alerts,
   groups,
@@ -14,10 +15,11 @@ import {
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     password?: string;
-    action?: "list" | "create" | "delete";
+    action?: "list" | "create" | "delete" | "plan";
     email?: string;
     name?: string;
     userId?: string;
+    plan?: string;
   };
   const denied = await requireAdmin(body);
   if (denied) return denied;
@@ -54,6 +56,28 @@ export async function POST(request: Request) {
     );
   }
 
+  // Move a member between plans. This is what changes how many groups they
+  // may watch, so it is the one lever that has to work the day they upgrade.
+  if (body.action === "plan" && body.userId) {
+    const key = String(body.plan ?? "").toLowerCase();
+    if (!(key in PLANS)) {
+      return Response.json({ error: "bad_plan" }, { status: 400 });
+    }
+    const [profile] = await db
+      .select({ userId: profiles.userId })
+      .from(profiles)
+      .where(eq(profiles.userId, body.userId))
+      .limit(1);
+    if (profile) {
+      await db
+        .update(profiles)
+        .set({ plan: key as PlanKey })
+        .where(eq(profiles.userId, body.userId));
+    } else {
+      await db.insert(profiles).values({ userId: body.userId, plan: key as PlanKey });
+    }
+  }
+
   if (body.action === "delete" && body.userId) {
     const uid = body.userId;
     await db.delete(alerts).where(eq(alerts.userId, uid));
@@ -77,6 +101,8 @@ export async function POST(request: Request) {
       name: u.name,
       createdAt: u.createdAt,
       onboarded: Boolean(profile?.onboardedAt),
+      plan: planFor(profile?.plan).key,
+      planGroups: planFor(profile?.plan).groups,
       website: profile?.website ?? "",
       services: profile?.services ?? "",
       location: profile?.location ?? "",

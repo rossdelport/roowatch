@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { currentUser, isAdminEmail } from "../../../db/auth";
+import { planFor } from "../../../db/plans";
 import { alerts, groups, profiles } from "../../../db/schema";
 
 export async function GET(request: Request) {
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
     avatar: user.avatar || undefined,
     hasPassword: Boolean(user.passwordHash),
     isAdmin: isAdminEmail(user.email),
+    plan: planFor(profile?.plan),
     profile: profile ?? null,
     postsUsed:
       profile && profile.usageMonth === new Date().toISOString().slice(0, 7)

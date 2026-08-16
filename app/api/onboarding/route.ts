@@ -3,8 +3,7 @@ import { getDb } from "../../../db";
 import { currentUser, sendEmail } from "../../../db/auth";
 import { groups, profiles, sources } from "../../../db/schema";
 import { parseGroupInput } from "../../../db/fbgroups";
-
-const GROUP_LIMIT = 10;
+import { groupLimit } from "../../../db/plans";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -87,7 +86,8 @@ export async function POST(request: Request) {
   const newRequested = uniqueRequested.filter(
     (g) => !existingNames.has(g.name.trim().toLowerCase())
   );
-  const groupSlots = Math.max(0, GROUP_LIMIT - existingGroups.length);
+  const limit = groupLimit(existing?.plan);
+  const groupSlots = Math.max(0, limit - existingGroups.length);
   const parsed = [...existingLinks, ...newRequested.slice(0, groupSlots)];
   const skippedGroups = newRequested.length - Math.min(newRequested.length, groupSlots);
 

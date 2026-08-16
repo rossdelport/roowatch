@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `plan` text DEFAULT 'local' NOT NULL;

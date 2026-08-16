@@ -1,9 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
-import { groups } from "../../../../db/schema";
-
-const PLAN_LIMIT = 10;
+import { groupLimit } from "../../../../db/plans";
+import { groups, profiles } from "../../../../db/schema";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -20,9 +19,16 @@ export async function POST(request: Request) {
     const name = (body.name ?? "").trim().slice(0, 120);
     if (!name) return Response.json({ error: "bad_name" }, { status: 400 });
 
+    const [profile] = await db
+      .select({ plan: profiles.plan })
+      .from(profiles)
+      .where(eq(profiles.userId, user.id))
+      .limit(1);
+    const limit = groupLimit(profile?.plan);
+
     const mine = await db.select().from(groups).where(eq(groups.userId, user.id));
-    if (mine.length >= PLAN_LIMIT) {
-      return Response.json({ error: "plan_limit" }, { status: 400 });
+    if (mine.length >= limit) {
+      return Response.json({ error: "plan_limit", limit }, { status: 400 });
     }
     if (mine.some((g) => g.name.toLowerCase() === name.toLowerCase())) {
       return Response.json({ error: "duplicate" }, { status: 400 });
