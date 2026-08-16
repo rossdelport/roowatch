@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { clearedCookie, currentUser, sendEmail } from "../../../../db/auth";
 import { hashPassword, passwordProblem, verifyPassword } from "../../../../db/password";
+import { toE164 } from "../../../../db/sms";
 import {
   alerts,
   groups,
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
     password?: string;
     currentPassword?: string;
     smsEnabled?: boolean;
+    alertPhone?: string;
   };
   const db = getDb();
 
@@ -59,6 +61,20 @@ export async function POST(request: Request) {
     await db
       .update(profiles)
       .set({ smsEnabled: body.smsEnabled ? 1 : 0 })
+      .where(eq(profiles.userId, user.id));
+  }
+
+  // The mobile is what a text alert is sent to, so a typo means silence
+  // rather than an error. Reject anything that is not a real Australian
+  // number instead of storing it and wondering later.
+  if (typeof body.alertPhone === "string") {
+    const raw = body.alertPhone.trim();
+    if (raw && !toE164(raw)) {
+      return Response.json({ error: "bad_phone" }, { status: 400 });
+    }
+    await db
+      .update(profiles)
+      .set({ alertPhone: raw.slice(0, 40) })
       .where(eq(profiles.userId, user.id));
   }
 

@@ -1399,6 +1399,7 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
   const [website, setWebsite] = useState(me.profile?.website ?? "");
   const [services, setServices] = useState(me.profile?.services ?? "");
   const [location, setLocation] = useState(me.profile?.location ?? "");
+  const [phone, setPhone] = useState(me.profile?.alertPhone ?? "");
   const [brief, setBrief] = useState(me.profile?.brief ?? "");
   const [status, setStatus] = useState<"clean" | "typing" | "saving" | "saved">("clean");
   const [aiBusy, setAiBusy] = useState(false);
@@ -1419,7 +1420,7 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
         await fetch("/api/member/account", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, businessName, website, services, location, brief }),
+          body: JSON.stringify({ name, businessName, website, services, location, brief, alertPhone: phone }),
         });
         setStatus("saved");
         onRefresh();
@@ -1430,7 +1431,7 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
     return () => clearTimeout(timer);
     // onRefresh is stable enough here and adding it would re-run on every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, businessName, website, services, location, brief]);
+  }, [name, businessName, website, services, location, phone, brief]);
 
   // "Saved" is a receipt, not a permanent label. Let it fade.
   useEffect(() => {
@@ -1481,6 +1482,9 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
       <textarea rows={3} value={services} onChange={(e) => setServices(e.target.value)} />
       <label className="lbl">Suburbs you serve</label>
       <input value={location} onChange={(e) => setLocation(e.target.value)} />
+      <label className="lbl">Mobile</label>
+      <input type="tel" placeholder="0400 000 000" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <p className="tiny">We text your leads here. Australian mobiles only.</p>
 
       <div className="lbl-row">
         <label className="lbl">What a good lead sounds like</label>
