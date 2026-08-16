@@ -17,6 +17,13 @@ export type Plan = {
    * 1,000 posts costs about $1.50 USD to fetch and about $0.65 USD to read.
    */
   postsPerMonth: number;
+  /**
+   * Text messages we will send this member each month. Same idea as the post
+   * cap: a hard ceiling on what one member can cost. About $0.072 AUD each, so
+   * Local tops out near $22 AUD of texts. Past the cap they still get every
+   * lead by email, they just stop getting texts.
+   */
+  smsPerMonth: number;
   alertMinutes: number;
   priceAud: number;
   stripePriceId: string;
@@ -31,6 +38,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     name: "Local",
     groups: 10,
     postsPerMonth: 10_000,
+    smsPerMonth: 300,
     alertMinutes: 5,
     priceAud: 297,
     stripePriceId: "price_1U4sCe9HOJbWqVToqrNBDaIp",
@@ -41,6 +49,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     name: "Growth",
     groups: 25,
     postsPerMonth: 25_000,
+    smsPerMonth: 750,
     alertMinutes: 5,
     priceAud: 597,
     stripePriceId: "price_1U4sCg9HOJbWqVToRKrBxw6W",
@@ -51,6 +60,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     name: "Scale",
     groups: 100,
     postsPerMonth: 100_000,
+    smsPerMonth: 3_000,
     alertMinutes: 3,
     priceAud: 1997,
     stripePriceId: "price_1U4sCh9HOJbWqVToU4GpQFTO",
@@ -74,6 +84,11 @@ export function groupLimit(value: string | null | undefined): number {
 /** How many posts we will read for this member in one month. */
 export function postLimit(value: string | null | undefined): number {
   return planFor(value).postsPerMonth;
+}
+
+/** How many texts we will send this member in one month. */
+export function smsLimit(value: string | null | undefined): number {
+  return planFor(value).smsPerMonth;
 }
 
 export const PLAN_KEYS = Object.keys(PLANS) as PlanKey[];

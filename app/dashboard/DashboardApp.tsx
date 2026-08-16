@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
@@ -18,6 +19,8 @@ type Profile = {
   services: string;
   location: string;
   brief: string;
+  alertPhone: string;
+  smsEnabled: number;
   onboardedAt: string | null;
 } | null;
 
@@ -50,7 +53,9 @@ type Me = {
   alerts?: Alert[];
   avatar?: string;
   postsUsed?: number;
+  smsUsed?: number;
   hasPassword?: boolean;
+  impersonating?: boolean;
   plan?: Plan;
 };
 type UserStats = {
@@ -261,6 +266,19 @@ export default function DashboardApp() {
   return (
     <div className="dash">
       <style>{CSS}</style>
+      {me.impersonating && (
+        <div className="ghost-bar">
+          <span>You are signed in as <strong>{me.user.email}</strong>. Anything you change is theirs.</span>
+          <button
+            onClick={async () => {
+              await fetch("/api/admin/impersonate", { method: "DELETE" });
+              window.location.href = "/dashboard";
+            }}
+          >
+            Back to my account
+          </button>
+        </div>
+      )}
       <div className="shell">
         <aside className="side">
           <Link className="brand" href="/dashboard">
@@ -293,7 +311,7 @@ export default function DashboardApp() {
             <MarketingView
               active={adminTab} setActive={setAdminTab}
               funnel={funnel} signupFunnel={signupFunnel} signups={signups} tradeStats={tradeStats}
-              userStats={userStats} history={history} flash={adminFlash}
+              userStats={userStats} history={history} flash={adminFlash} adminPassword={adminPass}
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
@@ -320,8 +338,29 @@ export default function DashboardApp() {
           </div>
         )}
       </div>
+
+      {/* Where modals are rendered. See Portal below for why. */}
+      <div id="roo-modals" />
     </div>
   );
+}
+
+/**
+ * Renders a modal outside the page content.
+ *
+ * `.page` and `.subpanel` both animate `transform`, and `animation-fill-mode:
+ * both` keeps that transform applied after the animation finishes. A
+ * transformed ancestor becomes the containing block for anything
+ * `position: fixed` inside it, so a full screen overlay was being clipped to
+ * the 920px content column instead of covering the window.
+ *
+ * The host sits inside `.dash`, not on `document.body`, so the CSS variables
+ * and every `.dash input` style still reach the modal.
+ */
+function Portal({ children }: { children: React.ReactNode }) {
+  if (typeof document === "undefined") return null;
+  const host = document.getElementById("roo-modals");
+  return host ? createPortal(children, host) : <>{children}</>;
 }
 
 function Avatar({ avatar, name }: { avatar?: string; name: string }) {
@@ -876,6 +915,7 @@ function GroupTable({ rows, onChange, onSay }: {
 /** Shows a tradie exactly where the link lives, with a drawn address bar. */
 function GroupHelp({ onClose }: { onClose: () => void }) {
   return (
+    <Portal>
     <div className="overlay inner" onClick={onClose}>
       <div className="modal help-modal" onClick={(e) => e.stopPropagation()}>
         <div className="help-head">
@@ -918,6 +958,67 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
 
         <button className="btn primary wide" onClick={onClose}>Got it</button>
       </div>
+    </div>
+    </Portal>
+  );
+}
+
+/** Email always goes. Texts are the member's choice. */
+function LeadDelivery({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
+  const plan = me.plan ?? PLANS.local;
+  const phone = me.profile?.alertPhone ?? "";
+  const [texts, setTexts] = useState(Boolean(me.profile?.smsEnabled));
+  const [busy, setBusy] = useState(false);
+
+  async function toggle() {
+    const next = !texts;
+    setTexts(next);
+    setBusy(true);
+    try {
+      await fetch("/api/member/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ smsEnabled: next }),
+      });
+      onRefresh();
+    } catch {
+      setTexts(!next);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>Where your leads go</h3>
+      <div className="group-row">
+        <span className="group-name">Email ({me.user!.email})</span>
+        <span className="chip-status ok">Always on</span>
+      </div>
+      <div className="group-row">
+        <span className="group-name">
+          Text message {phone ? `(${phone})` : ""}
+          {!phone && <span className="tiny block">Add your mobile above to turn this on.</span>}
+        </span>
+        <button
+          className={texts && phone ? "switch on" : "switch"}
+          disabled={busy || !phone}
+          aria-pressed={texts && Boolean(phone)}
+          onClick={toggle}
+        >
+          <i />
+        </button>
+      </div>
+      {texts && phone && (
+        <div className="kv">
+          <span>Texts this month</span>
+          <strong>{(me.smsUsed ?? 0).toLocaleString()} of {plan.smsPerMonth.toLocaleString()}</strong>
+        </div>
+      )}
+      <p className="tiny">
+        Every lead is emailed to you, always. A text is the quick nudge so you see it while
+        you are on the tools. Past your monthly texts you still get every lead by email.
+      </p>
     </div>
   );
 }
@@ -1077,12 +1178,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
       </div>
       <ProfileForm me={me} onRefresh={onRefresh} />
       <PasswordCard hasPassword={Boolean(me.hasPassword)} onRefresh={onRefresh} />
-      <div className="card">
-        <h3>Where your leads go</h3>
-        <div className="group-row"><span className="group-name">Email ({user.email})</span><span className="chip-status ok">On</span></div>
-        <div className="group-row"><span className="group-name">Text message</span><span className="chip-status pending">Coming soon</span></div>
-        <p className="tiny">Want leads sent somewhere else? Email ross@roowatch.com.au and we will set it up.</p>
-      </div>
+      <LeadDelivery me={me} onRefresh={onRefresh} />
       <div className="card">
         <h3>Your plan</h3>
         <div className="kv"><span>Plan</span><strong>{plan.name}. ${plan.priceAud} a month.</strong></div>
@@ -1329,12 +1425,13 @@ function AlertRow({ alert }: { alert: Alert }) {
  * Every user, what they are worth, and everything Ross can do to them.
  * Admin only, behind the master password like the rest of the Marketing tab.
  */
-function UsersView({ members, stats, history, flash, onAction }: {
+function UsersView({ members, stats, history, flash, onAction, adminPassword }: {
   members: Member[];
   stats: UserStats | null;
   history: HistoryPoint[];
   flash: string;
   onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+  adminPassword: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -1419,7 +1516,7 @@ function UsersView({ members, stats, history, flash, onAction }: {
         )}
       </div>
 
-      {open && <UserModal member={open} onClose={() => setOpenId(null)} onAction={onAction} />}
+      {open && <UserModal member={open} onClose={() => setOpenId(null)} onAction={onAction} adminPassword={adminPassword} />}
     </div>
   );
 }
@@ -1464,10 +1561,11 @@ function Growth({ history }: { history: HistoryPoint[] }) {
   );
 }
 
-function UserModal({ member, onClose, onAction }: {
+function UserModal({ member, onClose, onAction, adminPassword }: {
   member: Member;
   onClose: () => void;
   onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+  adminPassword: string;
 }) {
   const [name, setName] = useState(member.name);
   const [businessName, setBusinessName] = useState(member.businessName);
@@ -1488,6 +1586,7 @@ function UserModal({ member, onClose, onAction }: {
   }
 
   return (
+    <Portal>
     <div className="overlay" onClick={onClose}>
       <div className="modal user-modal" onClick={(e) => e.stopPropagation()}>
         <div className="help-head">
@@ -1554,6 +1653,29 @@ function UserModal({ member, onClose, onAction }: {
           {busy ? "Sending" : `Email ${member.email}`}
         </button>
 
+        <h3 className="mt">See what they see</h3>
+        <p className="muted">
+          Signs you in as them so you can add or remove their groups, or show them an
+          upsell from inside their own dashboard. A banner brings you back.
+        </p>
+        <button
+          className="btn ghost"
+          disabled={busy}
+          onClick={async () => {
+            if (!confirm(`Sign in as ${member.email}? You can switch back at any time.`)) return;
+            setBusy(true);
+            const res = await fetch("/api/admin/impersonate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ userId: member.id, password: adminPassword }),
+            });
+            if (res.ok) window.location.href = "/dashboard";
+            else { setBusy(false); alert("Could not sign in as them."); }
+          }}
+        >
+          Sign in as {member.name || member.email}
+        </button>
+
         <div className="card danger mt">
           <h3>Delete this account</h3>
           <p className="muted">
@@ -1574,6 +1696,7 @@ function UserModal({ member, onClose, onAction }: {
         </div>
       </div>
     </div>
+    </Portal>
   );
 }
 
@@ -1675,7 +1798,11 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
                       key={k}
                       className={m.plan === k ? "plan-pick on" : "plan-pick"}
                       disabled={busy}
-                      onClick={() => onAction("/api/admin/members", { action: "plan", userId: m.id, plan: k })}
+                      onClick={() => {
+                        if (m.plan === k) return;
+                        if (!confirm(`Move ${m.email} to ${PLANS[k].name}? This changes their limits straight away.`)) return;
+                        onAction("/api/admin/members", { action: "plan", userId: m.id, plan: k });
+                      }}
                     >
                       {PLANS[k].name} · {PLANS[k].groups}g · {(PLANS[k].postsPerMonth/1000)}k
                     </button>
@@ -1916,6 +2043,7 @@ function MarketingView(props: {
   userStats: UserStats | null;
   history: HistoryPoint[];
   flash: string;
+  adminPassword: string;
   funnel: { label: string; count: number; rate: number }[];
   signupFunnel: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
@@ -1948,7 +2076,7 @@ function MarketingView(props: {
       </div>
       <div className="subpanel">
         {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} />}
-        {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} />}
+        {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} adminPassword={props.adminPassword} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
         {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
         {props.active === "stripe" && <PaymentsView rows={props.stripeRows} stripe={props.stripeOn} onRefresh={props.onRefreshStripe} busy={props.adminBusy} />}
@@ -2266,6 +2394,15 @@ const CSS = `
 .subview{margin:0;}
 .subhead{margin-bottom:16px;}
 .subhead .muted{font-size:13.5px;}
+
+.ghost-bar{align-items:center;background:#111d36;color:#fff;display:flex;flex-wrap:wrap;font-size:13.5px;gap:12px;justify-content:center;padding:11px 18px;position:sticky;text-align:center;top:0;z-index:60;}
+.ghost-bar strong{color:var(--coral);}
+.ghost-bar button{background:#fff;border:0;border-radius:99px;color:#111d36;font-size:12.5px;font-weight:800;padding:7px 14px;}
+.switch{background:#dfe3ea;border:0;border-radius:99px;flex:none;height:26px;padding:3px;transition:background .2s var(--ease);width:46px;}
+.switch i{background:#fff;border-radius:99px;box-shadow:0 1px 3px rgba(0,0,0,.2);display:block;height:20px;transition:transform .2s var(--ease);width:20px;}
+.switch.on{background:var(--mint);}
+.switch.on i{transform:translateX(20px);}
+.switch:disabled{cursor:default;opacity:.45;}
 
 /* ---- users tab ---- */
 .mb{margin-bottom:14px;}

@@ -1,6 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { currentUser, isAdminEmail } from "../../../db/auth";
+import { ADMIN_RETURN_COOKIE, currentUser, isAdminEmail, readCookie } from "../../../db/auth";
 import { planFor } from "../../../db/plans";
 import { alerts, groups, profiles } from "../../../db/schema";
 
@@ -33,7 +33,12 @@ export async function GET(request: Request) {
     avatar: user.avatar || undefined,
     hasPassword: Boolean(user.passwordHash),
     isAdmin: isAdminEmail(user.email),
+    impersonating: Boolean(readCookie(request, ADMIN_RETURN_COOKIE)),
     plan: planFor(profile?.plan),
+    smsUsed:
+      profile && profile.smsMonth === new Date().toISOString().slice(0, 7)
+        ? profile.smsUsed
+        : 0,
     profile: profile ?? null,
     postsUsed:
       profile && profile.usageMonth === new Date().toISOString().slice(0, 7)

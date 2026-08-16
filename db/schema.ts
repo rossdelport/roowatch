@@ -38,6 +38,8 @@ export const profiles = sqliteTable("profiles", {
   alertPhone: text("alert_phone").notNull().default(""),
   postsUsed: integer("posts_used").notNull().default(0),
   usageMonth: text("usage_month").notNull().default(""),
+  smsUsed: integer("sms_used").notNull().default(0),
+  smsMonth: text("sms_month").notNull().default(""),
   smsEnabled: integer("sms_enabled").notNull().default(0),
   emailEnabled: integer("email_enabled").notNull().default(1),
   onboardedAt: text("onboarded_at"),
@@ -100,7 +102,11 @@ export const alerts = sqliteTable("alerts", {
   postUrl: text("post_url").notNull().default(""),
   reason: text("reason").notNull().default(""),
   postKey: text("post_key").notNull().default(""),
+  /** Short code behind roowatch.com.au/l/xxxxxx. A raw Facebook permalink is
+   *  about 70 characters and would push a text past one billable segment. */
+  shortCode: text("short_code").notNull().default(""),
   emailSent: integer("email_sent").notNull().default(0),
+  smsSent: integer("sms_sent").notNull().default(0),
   sentAt: text("sent_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
   userPostKeyUnique: uniqueIndex("alerts_user_post_key_unique")

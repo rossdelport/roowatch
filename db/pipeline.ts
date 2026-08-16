@@ -2,7 +2,8 @@ import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { sendEmail } from "./auth";
 import { groupSlug, postPermalink } from "./fbgroups";
-import { postLimit } from "./plans";
+import { postLimit, smsLimit } from "./plans";
+import { newShortCode, sendSms, smsBody, smsProvider } from "./sms";
 import { alerts, groups, profiles, seenPosts, sources, users } from "./schema";
 
 export type FetchedPost = {
@@ -242,6 +243,45 @@ export async function fetchPosts(sourceUrl: string): Promise<FetchedPost[]> {
     .filter((p) => p.id && p.text.length > 10);
 }
 
+/**
+ * Text the member, if they want texts and have not used up their allowance.
+ *
+ * Email is the record and always goes out. A text is only the nudge that gets
+ * a tradie off a roof and onto their phone, so it must never be the reason an
+ * alert fails: every failure here is swallowed.
+ */
+async function maybeText(
+  alert: { id: number; smsSent: number; shortCode: string },
+  profile: { userId: string; alertPhone: string; smsEnabled: number; plan: string; smsUsed: number; smsMonth: string },
+  post: FetchedPost,
+  groupName: string
+) {
+  if (alert.smsSent === 1) return;
+  if (!profile.smsEnabled || !profile.alertPhone) return;
+  if (!smsProvider()) return;
+
+  const month = new Date().toISOString().slice(0, 7);
+  const used = profile.smsMonth === month ? profile.smsUsed : 0;
+  if (used >= smsLimit(profile.plan)) return;
+
+  const db = getDb();
+  try {
+    const body = smsBody(post.text || `new lead in ${groupName}`, alert.shortCode);
+    const result = await sendSms(profile.alertPhone, body);
+    if (!result.ok) return;
+
+    // Count it and mark it before anything else can fail, so a retry of this
+    // alert can never text the same member about the same post twice.
+    await db.update(alerts).set({ smsSent: 1 }).where(eq(alerts.id, alert.id));
+    await db
+      .update(profiles)
+      .set({ smsUsed: used + 1, smsMonth: month })
+      .where(eq(profiles.userId, profile.userId));
+  } catch {
+    // The email still goes. A texting outage is not a lost lead.
+  }
+}
+
 /** Decide whether a post is a lead for one member. Claude first, keywords as fallback. */
 export async function classifyPost(
   post: FetchedPost,
@@ -396,7 +436,12 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
             // fails, the next scan retries the email without creating another
             // alert in the member's dashboard.
             let [alert] = await db
-              .select({ id: alerts.id, emailSent: alerts.emailSent })
+              .select({
+                id: alerts.id,
+                emailSent: alerts.emailSent,
+                smsSent: alerts.smsSent,
+                shortCode: alerts.shortCode,
+              })
               .from(alerts)
               .where(and(eq(alerts.userId, userId), eq(alerts.postKey, postKey)))
               .limit(1);
@@ -410,15 +455,22 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
                   postUrl: post.url,
                   reason: verdict.reason,
                   postKey,
+                  shortCode: newShortCode(),
                 })
                 .onConflictDoNothing();
               [alert] = await db
-                .select({ id: alerts.id, emailSent: alerts.emailSent })
+                .select({
+                  id: alerts.id,
+                  emailSent: alerts.emailSent,
+                  smsSent: alerts.smsSent,
+                  shortCode: alerts.shortCode,
+                })
                 .from(alerts)
                 .where(and(eq(alerts.userId, userId), eq(alerts.postKey, postKey)))
                 .limit(1);
             }
             if (!alert) throw new Error("alert_not_persisted");
+            await maybeText(alert, profile, post, source.groupName);
             if (alert.emailSent === 1) continue;
 
             const emailed = await sendEmail(

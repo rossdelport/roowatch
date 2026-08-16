@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     brief?: string;
     password?: string;
     currentPassword?: string;
+    smsEnabled?: boolean;
   };
   const db = getDb();
 
@@ -50,6 +51,15 @@ export async function POST(request: Request) {
       .update(users)
       .set({ name: body.name.trim().slice(0, 80) })
       .where(eq(users.id, user.id));
+  }
+
+  // Texts are opt out. Email is not a choice: it is the record of the lead and
+  // the thing the refund guarantee is measured against.
+  if (typeof body.smsEnabled === "boolean") {
+    await db
+      .update(profiles)
+      .set({ smsEnabled: body.smsEnabled ? 1 : 0 })
+      .where(eq(profiles.userId, user.id));
   }
 
   const patch: Record<string, string> = {};

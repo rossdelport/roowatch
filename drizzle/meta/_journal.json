@@ -120,6 +120,13 @@
       "when": 1786863005153,
       "tag": "0016_dashing_shard",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1786873958437,
+      "tag": "0017_yellow_spirit",
+      "breakpoints": true
     }
   ]
 }

@@ -16,6 +16,44 @@ export function toE164(raw: string): string | null {
 
 type SmsResult = { ok: boolean; provider: string; error?: string };
 
+/** Base36, no vowels, so a code can never spell something unfortunate. */
+const CODE_ALPHABET = "0123456789bcdfghjklmnpqrstvwxyz";
+
+export function newShortCode(length = 6): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+}
+
+/**
+ * One text, one billable segment.
+ *
+ * A segment is 160 characters, but only while every character is in the GSM 7
+ * bit alphabet. A single smart quote or emoji flips the whole message to UCS-2
+ * and the limit drops to 70, which silently doubles or triples the bill. So we
+ * strip to plain ASCII first and then hard cap the length.
+ *
+ * The link has to be ours and short. A Facebook permalink is about 70
+ * characters and would eat half the message on its own.
+ */
+const SEGMENT = 160;
+
+export function smsBody(postText: string, shortCode: string): string {
+  const link = `https://roowatch.com.au/l/${shortCode}`;
+  const prefix = "RooWatch lead: ";
+  const room = SEGMENT - prefix.length - link.length - 2; // 2 for ". " before the link
+
+  const clean = String(postText ?? "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const snippet = clean.length > room ? `${clean.slice(0, room - 3).trimEnd()}...` : clean;
+  return `${prefix}${snippet}. ${link}`.slice(0, SEGMENT);
+}
+
 async function sendViaTwilio(to: string, body: string): Promise<SmsResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID!;
   const token = process.env.TWILIO_AUTH_TOKEN!;
