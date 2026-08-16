@@ -60,6 +60,9 @@ export async function POST(request: Request) {
     trade,
     state,
     alertPhone: phone,
+    // They gave us a mobile at signup, so use it. Text alerts are the point of
+    // the product for someone up a ladder. Settings has the off switch.
+    smsEnabled: 1,
     location: state,
   });
 

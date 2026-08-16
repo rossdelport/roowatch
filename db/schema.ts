@@ -40,6 +40,12 @@ export const profiles = sqliteTable("profiles", {
   usageMonth: text("usage_month").notNull().default(""),
   smsUsed: integer("sms_used").notNull().default(0),
   smsMonth: text("sms_month").notNull().default(""),
+  /**
+   * Texts are switched on at signup, in app/api/auth/signup/route.ts, using the
+   * mobile they gave. The column default stays 0 on purpose: changing it makes
+   * SQLite rebuild the whole profiles table, and the signup route sets the
+   * value explicitly anyway.
+   */
   smsEnabled: integer("sms_enabled").notNull().default(0),
   emailEnabled: integer("email_enabled").notNull().default(1),
   onboardedAt: text("onboarded_at"),
