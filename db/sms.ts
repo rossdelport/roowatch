@@ -50,8 +50,15 @@ export function smsBody(postText: string, shortCode: string): string {
     .replace(/\s+/g, " ")
     .trim();
 
-  const snippet = clean.length > room ? `${clean.slice(0, room - 3).trimEnd()}...` : clean;
-  return `${prefix}${snippet}. ${link}`.slice(0, SEGMENT);
+  if (!clean) return `${prefix.replace(": ", ": see the post. ")}${link}`.slice(0, SEGMENT);
+
+  const cut = clean.length > room;
+  // Trim trailing filler, but never a question or exclamation mark. "Anyone
+  // know a sparky?" reads completely differently as "Anyone know a sparky."
+  const body = (cut ? clean.slice(0, room - 3) : clean).replace(/[\s.,;:-]+$/, "");
+  const ends = /[?!]$/.test(body);
+  const snippet = cut ? `${body}...` : ends ? body : `${body}.`;
+  return `${prefix}${snippet} ${link}`.slice(0, SEGMENT);
 }
 
 async function sendViaTwilio(to: string, body: string): Promise<SmsResult> {
