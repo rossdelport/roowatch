@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { currentUser, sendEmail } from "../../../db/auth";
 import { groups, profiles, sources } from "../../../db/schema";
-import { parseGroupInput } from "../../../db/fbgroups";
+import { groupSlug, parseGroupInput } from "../../../db/fbgroups";
 import { groupLimit } from "../../../db/plans";
 
 export async function POST(request: Request) {
@@ -94,6 +94,12 @@ export async function POST(request: Request) {
   const wanted: string[] = [];
   let watchingNow = 0;
 
+  // Matched by slug, not the raw url string. A pasted link can differ from
+  // what is already stored by a trailing slash or similar and still be the
+  // exact same group. Matching on the raw string missed that and created a
+  // second source scanning the same group twice.
+  const allSources = await db.select({ id: sources.id, url: sources.url, active: sources.active }).from(sources);
+
   for (const g of parsed) {
     wanted.push(g.url ? `${g.name} (${g.url})` : g.name);
 
@@ -109,11 +115,8 @@ export async function POST(request: Request) {
       continue;
     }
 
-    const [source] = await db
-      .select({ id: sources.id, active: sources.active })
-      .from(sources)
-      .where(eq(sources.url, g.url))
-      .limit(1);
+    const slug = groupSlug(g.url);
+    const source = allSources.find((s) => groupSlug(s.url) === slug);
 
     let sourceId = source?.id;
     if (sourceId && !source.active) {
@@ -130,6 +133,9 @@ export async function POST(request: Request) {
         .values({ groupName: g.name, url: g.url })
         .returning({ id: sources.id });
       sourceId = created?.id;
+      // So a second group later in this same request that resolves to the
+      // same slug reuses it too, instead of racing another insert.
+      if (sourceId) allSources.push({ id: sourceId, url: g.url ?? "", active: 1 });
     }
 
     if (existingGroup) {
