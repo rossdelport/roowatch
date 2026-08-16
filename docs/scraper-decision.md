@@ -1,10 +1,11 @@
 # Scraper decision: Apify out, Bright Data in
 
-**Status: decided, not yet built.**
-**Date: 16 August 2026.**
+**Status: DONE and live.**
+**Decided and shipped 16 August 2026.**
 
-This is the most important open piece of work in the repo. The scanner is
-currently **paused** because the old scraper loses money on every customer.
+All scraping now runs through Bright Data. The scanner is live again. The Apify
+code is still in `db/pipeline.ts` but nothing calls it; delete it once Bright
+Data has run clean for a few days.
 
 Everything below is measured against real bills and real API responses. Where a
 number is an estimate it says so.
@@ -261,24 +262,53 @@ Keep that limit. It is load-bearing now.
 
 ---
 
-## What is left to build
+## How the scanner works now
 
-1. Add `BRIGHTDATA_API_KEY` as a Worker secret.
-2. Write a Bright Data fetch in [db/pipeline.ts](../db/pipeline.ts) alongside
-   the Apify one. Same `FetchedPost[]` shape so nothing downstream changes.
-3. Trigger and poll inside one cron invocation. Waiting on `fetch` is I/O, not
-   CPU, so a 2 minute poll is fine in a Worker.
-4. Map `post_id`, `content`, `url`, `date_posted`, `user_username_raw` onto
-   `FetchedPost`.
-5. Store `group_members` on the `groups` or `sources` table and show it in the
+Bright Data is asynchronous, so one pass is two steps that may land in different
+cron ticks.
+
+```
+tick A   trigger a collection for every due group
+         write the snapshot id into scan_jobs
+         wait up to 170 seconds in case it finishes now
+tick B   an outstanding job exists, so collect it instead of triggering
+         read the posts, alert, move sources.lastChecked
+```
+
+**The `scan_jobs` row is the important part.** It is what stops a later tick
+triggering a second collection for the same groups while the first is still
+running. That would be paying twice.
+
+**`sources.lastChecked` only moves once posts are processed.** So an abandoned
+collection costs us the records it fetched but can never lose a post: the next
+trigger simply asks for a wider window.
+
+A job still running after 20 minutes is treated as dead and dropped.
+
+### Proof it works
+
+First live run, 16 August 2026:
+
+| | |
+|---|---|
+| Triggered | 04:30:23, all 4 groups, one snapshot |
+| Duration | 123 seconds |
+| Collected | 04:35:18 to 04:35:27 |
+| Billed records | **2** |
+| Free error rows | 3 groups with nothing new |
+| Cost | **$0.003 USD** |
+
+The identical scan on Apify cost **$0.021**, because it charged for all four
+groups whether or not they had anything.
+
+## Still to do
+
+1. Delete the Apify path from [db/pipeline.ts](../db/pipeline.ts) once this has
+   run clean for a few days, along with `APIFY_TOKEN`.
+2. Store `group_members` (Bright Data returns it free) and show it in the setup
    wizard's groups table.
-6. Simplify or delete the `GROUPS_PER_RUN` chunking in
-   [app/api/cron/scan/route.ts](../app/api/cron/scan/route.ts). It exists only
-   to spread Apify run fees, which no longer apply.
-7. Reactivate the sources (see [operations.md](operations.md)).
-8. Measure duration at 10 and 25 groups before selling Growth or Scale.
-
-Keep the Apify path in the code until Bright Data has run clean for a few days.
+3. Measure collection duration at 10 and 25 groups before selling Growth or
+   Scale. Only 4 groups have ever been tested.
 
 ## Buying decisions
 

@@ -7,14 +7,24 @@ Worker name: `roowatch`. Database: `roowatch-db`
 
 ---
 
-## The scanner is currently paused
+## The scanner
 
-**As of 16 August 2026 every row in `sources` has `active = 0`.** This was
-deliberate, to stop Apify costs while we move to Bright Data. See
-[scraper-decision.md](scraper-decision.md).
+**Live, running on Bright Data since 16 August 2026.** See
+[scraper-decision.md](scraper-decision.md) for why we moved off Apify.
 
-The cron still fires every 5 minutes. It finds no active sources, returns early,
-and never calls the scraper. Zero cost.
+It runs in two phases across cron ticks. To see what phase it is in:
+
+```bash
+npx wrangler d1 execute roowatch-db --remote --command="SELECT * FROM scan_jobs;"
+```
+
+A row means a collection is in flight. No row means the next tick will trigger
+one. A row older than 20 minutes gets dropped automatically.
+
+### Pausing it
+
+Setting sources inactive stops all spend. The cron still wakes, finds nothing
+due, and returns before calling anything.
 
 ### Turn it back on
 
@@ -94,19 +104,6 @@ npx wrangler d1 execute roowatch-db --remote --command="
 
 ## Checking what it costs
 
-### Apify
-
-```bash
-curl -s "https://api.apify.com/v2/actor-runs?token=$APIFY_TOKEN&limit=20&desc=1" \
-  | python3 -c "import sys,json
-for r in json.load(sys.stdin)['data']['items']:
-    print(r['startedAt'][:19], r.get('chargedEventCounts'), r.get('usageTotalUsd'))"
-```
-
-The billing chart in the Apify dashboard defaults to **Cumulative**. Switch it
-to **Absolute** or you will misread a running total as a daily spend. This
-caused a false alarm once.
-
 ### Bright Data
 
 ```bash
@@ -135,8 +132,10 @@ npx wrangler secret put NEW_SECRET_NAME --name roowatch
 ```
 
 Values cannot be read back. Current secrets: `ADMIN_PASSWORD`,
-`ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `CRON_SECRET`, `RESEND_API_KEY`,
-`STRIPE_SECRET_KEY`. Bright Data will need `BRIGHTDATA_API_KEY`.
+`ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRIGHTDATA_API_KEY`, `CRON_SECRET`,
+`RESEND_API_KEY`, `STRIPE_SECRET_KEY`.
+
+`APIFY_TOKEN` is dead weight now. Remove it when the Apify code goes.
 
 ---
 
@@ -161,6 +160,15 @@ npx wrangler d1 execute roowatch-db --remote \
 
 Valid values: `local`, `growth`, `scale`. Anything else falls back to `local`
 via `planFor()` in [db/plans.ts](../db/plans.ts).
+
+Each plan carries a monthly post allowance, which is also the most that member
+can ever cost us:
+
+| Plan | Groups | Posts a month | Worst case cost AUD | Price AUD |
+|---|---|---|---|---|
+| Local | 10 | 10,000 | about $31 | $297 |
+| Growth | 25 | 25,000 | about $78 | $597 |
+| Scale | 100 | 100,000 | about $311 | $1,997 |
 
 ---
 
@@ -223,7 +231,6 @@ Signup and onboarding notifications go to both `ross@roowatch.com.au` and
 
 ## Known open items
 
-- Move the scraper to Bright Data. See [scraper-decision.md](scraper-decision.md).
 - `trustedtradiesperth` has never returned a post on either provider. Probably
   private or dead. Check it on Facebook and remove it if so.
 - Measure Bright Data collection time at 10 and 25 groups before selling Growth

@@ -27,9 +27,15 @@ import { scanJobs, sources } from "../../../../db/schema";
 const SOURCES_PER_TICK = 120;
 const MIN_GAP_MINUTES = 5;
 const BUFFER_MINUTES = 1;
-/** Wait this long inside the triggering tick before giving up and letting the
- *  next tick collect. Four groups finished in about 100 seconds in testing. */
-const INLINE_WAIT_MS = 110_000;
+/**
+ * Wait this long inside the triggering tick before giving up and letting the
+ * next tick collect. Collecting inline saves the member a whole five minutes.
+ * Real collections have taken 56s, 98s, 123s and 158s, so the wait sits above
+ * the common case while leaving over two minutes of headroom before the next
+ * tick. Overlapping is harmless anyway: a tick that finds an outstanding job
+ * collects it instead of triggering another.
+ */
+const INLINE_WAIT_MS = 170_000;
 const POLL_EVERY_MS = 8_000;
 /** A collection still running after this is treated as dead and dropped. */
 const JOB_STALE_MINUTES = 20;
