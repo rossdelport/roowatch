@@ -80,6 +80,26 @@ When you write anything in the lead path, ask: **if this silently did nothing,
 would anyone find out?** If the answer is no, add a counter, an error field or a
 log line.
 
+## The Stripe webhook
+
+[app/api/webhooks/stripe/route.ts](app/api/webhooks/stripe/route.ts), live since
+16 August 2026. Stripe calls it on `checkout.session.completed`,
+`customer.subscription.updated` and `customer.subscription.deleted`. It sets
+`profiles.plan` and `profiles.subscriptionStatus`, and on a lapsed payment it
+sets that member's `groups.status` to `"paused"` and emails both the member
+and Ross.
+
+Two things to keep in mind if you touch it:
+
+- **A source is shared.** Two members can watch the same public Facebook
+  group, so pausing a member never touches `sources.active` unless they were
+  the last one watching it. Deactivating a shared source on someone else's
+  cancellation would silently cut off a paying customer.
+- **Side effects happen before the `subscriptionStatus` write, not after.**
+  If a step throws, Stripe retries the whole event and the old status is still
+  on the row, so the retry runs the pause or reactivate again instead of
+  skipping it. Do not reorder this without preserving that property.
+
 ## Testing
 
 There is a small suite (`npm test`) that renders the public pages. It will not
@@ -104,12 +124,16 @@ Set as Worker secrets, not in the repo. List them with:
 npx wrangler secret list --name roowatch
 ```
 
-Current: `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `CRON_SECRET`,
-`RESEND_API_KEY`, `STRIPE_SECRET_KEY`.
+Current: `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRIGHTDATA_API_KEY`,
+`CRON_SECRET`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`. `STRIPE_WEBHOOK_SECRET`
+is needed too, see the Stripe webhook section above.
 
-Bright Data will need `BRIGHTDATA_API_KEY` when the swap happens.
-
-You cannot read a secret's value back. If you need one, ask Ross.
+You cannot read a secret's value back through `wrangler secret list`, it only
+shows names. A key typed into `.dev.vars` (gitignored, never committed) is
+different: whoever put it there can obviously still see it in that file, and
+from there it can be used for local API calls or pushed to Cloudflare with
+`wrangler secret put`. If you need a value that lives only as a Worker secret
+and nowhere else, ask Ross.
 
 ## Conventions
 
@@ -135,8 +159,6 @@ password is the `ADMIN_PASSWORD` secret. Admin endpoints live under
 
 Do not "fix" these without asking:
 
-- **No automated plan enforcement from Stripe.** A member's plan is set by hand
-  in the admin panel. There is no webhook yet.
 - **No password reset flow.** The magic link is the reset path.
 - **No rate limit on login.** Flagged to Ross, he has not asked for it.
 - **No SMS.** [db/sms.ts](db/sms.ts) exists and works but is unused.

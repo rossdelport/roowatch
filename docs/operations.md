@@ -131,11 +131,38 @@ npx wrangler secret list --name roowatch
 npx wrangler secret put NEW_SECRET_NAME --name roowatch
 ```
 
-Values cannot be read back. Current secrets: `ADMIN_PASSWORD`,
-`ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRIGHTDATA_API_KEY`, `CRON_SECRET`,
-`RESEND_API_KEY`, `STRIPE_SECRET_KEY`.
+Values cannot be read back this way, it only lists names. Current secrets:
+`ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRIGHTDATA_API_KEY`,
+`CRON_SECRET`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, and once the webhook is
+registered, `STRIPE_WEBHOOK_SECRET`.
 
 `APIFY_TOKEN` is dead weight now. Remove it when the Apify code goes.
+
+### Registering the Stripe webhook
+
+One time setup, after the webhook route is deployed and live at
+`roowatch.com.au/api/webhooks/stripe`, not before, Stripe validates the URL
+when the webhook is created:
+
+```bash
+export $(grep -v '^#' .dev.vars | xargs)
+curl "https://api.stripe.com/v1/webhook_endpoints" -u "$STRIPE_SECRET_KEY:" \
+  -d "url=https://roowatch.com.au/api/webhooks/stripe" \
+  -d "enabled_events[]=checkout.session.completed" \
+  -d "enabled_events[]=customer.subscription.updated" \
+  -d "enabled_events[]=customer.subscription.deleted"
+```
+
+The response includes a `secret` field, starting `whsec_`. That is
+`STRIPE_WEBHOOK_SECRET`:
+
+```bash
+npx wrangler secret put STRIPE_WEBHOOK_SECRET --name roowatch
+```
+
+The secret is only shown once, at creation. If it is lost, delete the
+endpoint (`DELETE /v1/webhook_endpoints/{id}`) and create it again rather
+than guessing.
 
 ---
 
@@ -197,7 +224,10 @@ npx wrangler d1 execute roowatch-db --remote --command="SELECT id, group_name, u
 
 ## Stripe
 
-Three live products with monthly AUD prices and payment links.
+Three live products with monthly AUD prices and payment links. Since 16 August
+2026 every link carries a **7 day free trial**, card required upfront
+(`payment_method_collection: always`), and redirects to `/dashboard` after
+checkout. Links and trial settings live in [db/plans.ts](../db/plans.ts).
 
 | Plan | Price id | Payment link |
 |---|---|---|
@@ -205,8 +235,39 @@ Three live products with monthly AUD prices and payment links.
 | Growth $597 | `price_1U4sCg9HOJbWqVToRKrBxw6W` | `buy.stripe.com/00w5kx4LnbE6dJm6vBgUM02` |
 | Scale $1,997 | `price_1U4sCh9HOJbWqVToU4GpQFTO` | `buy.stripe.com/6oUfZb5PreQifRu4ntgUM03` |
 
-There is **no webhook**. Payment does not automatically set a member's plan.
-Ross sets it by hand in the admin panel after someone pays.
+Signup already redirects a new member straight to the right link, tagged with
+`?plan=` from the marketing site. The account itself is created and fully
+active before the trial or the card ever comes into it, since signup has never
+been payment-gated. See [pipeline.ts](../db/pipeline.ts) and
+[SignupApp.tsx](../app/signup/SignupApp.tsx).
+
+**There is now a webhook.** [app/api/webhooks/stripe/route.ts](../app/api/webhooks/stripe/route.ts),
+live since 16 August 2026. On `checkout.session.completed` it sets
+`profiles.plan` and `profiles.stripeCustomerId` from the checkout, no more
+setting a plan by hand. On `customer.subscription.updated` or `.deleted`, a
+lapsed payment (`canceled`, `unpaid`, `incomplete_expired`) pauses that
+member's groups and emails them a Stripe Billing Portal link to fix it, plus
+a heads up to Ross. Recovering pays reactivates them automatically. See the
+"Stripe webhook" section of [AGENTS.md](../AGENTS.md) before changing it, the
+ordering of the DB write matters for safe retries.
+
+The Billing Portal configuration that link depends on
+(`billing_portal/configurations`) only allows updating the payment method and
+viewing invoices. Self serve cancel and plan switching are off on purpose.
+
+To change the trial length or any Payment Link setting from the CLI, put a
+live secret key in `.dev.vars` (gitignored, never committed) as
+`STRIPE_SECRET_KEY=sk_live_...`, then call the Payment Links API directly,
+for example:
+
+```bash
+export $(grep -v '^#' .dev.vars | xargs)
+curl "https://api.stripe.com/v1/payment_links/PLINK_ID" -u "$STRIPE_SECRET_KEY:" \
+  -d "subscription_data[trial_period_days]=7"
+```
+
+Updating `trial_period_days` on an existing link only affects checkouts
+created after the change. It does not touch anyone already mid-trial.
 
 ---
 

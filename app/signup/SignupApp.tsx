@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { PLANS, type PlanKey } from "../../db/plans";
 import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
 
 const PIXEL_ID = "4105570149577363";
@@ -40,7 +41,7 @@ function startPixel() {
   fbq("track", "PageView");
 }
 
-export default function SignupApp({ start }: { start: "signup" | "login" }) {
+export default function SignupApp({ start, plan }: { start: "signup" | "login"; plan: PlanKey }) {
   const [mode, setMode] = useState<"signup" | "login">(start);
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -122,6 +123,11 @@ export default function SignupApp({ start }: { start: "signup" | "login" }) {
 
       if (mode === "signup") {
         pixel()?.("track", "CompleteRegistration", { content_name: "RooWatch account" });
+        const link = new URL(PLANS[plan].stripePaymentLink);
+        link.searchParams.set("prefilled_email", email.trim());
+        link.searchParams.set("client_reference_id", email.trim());
+        window.location.href = link.toString();
+        return;
       }
       window.location.href = "/dashboard";
     } catch {
@@ -196,7 +202,7 @@ export default function SignupApp({ start }: { start: "signup" | "login" }) {
             {mode === "signup" ? (
               <>
                 <h1>Start getting leads</h1>
-                <p className="sub">It takes one minute. No card needed today.</p>
+                <p className="sub">It takes one minute. You won&apos;t be charged for 7 days.</p>
 
                 <div className="pair">
                   <Field label="Your name">

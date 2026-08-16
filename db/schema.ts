@@ -41,6 +41,11 @@ export const profiles = sqliteTable("profiles", {
   smsEnabled: integer("sms_enabled").notNull().default(0),
   emailEnabled: integer("email_enabled").notNull().default(1),
   onboardedAt: text("onboarded_at"),
+  /** Set by the Stripe webhook. Empty until a checkout completes. */
+  stripeCustomerId: text("stripe_customer_id").notNull().default(""),
+  /** Mirrors the Stripe subscription status: trialing, active, past_due,
+   *  unpaid, canceled. Empty until a checkout completes. */
+  subscriptionStatus: text("subscription_status").notNull().default(""),
 });
 
 export const sources = sqliteTable("sources", {

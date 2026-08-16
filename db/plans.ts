@@ -20,6 +20,9 @@ export type Plan = {
   alertMinutes: number;
   priceAud: number;
   stripePriceId: string;
+  /** Stripe Payment Link a new signup is sent to. Must have a 7 day trial
+   *  configured on it in the Stripe Dashboard, card required upfront. */
+  stripePaymentLink: string;
 };
 
 export const PLANS: Record<PlanKey, Plan> = {
@@ -31,6 +34,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     alertMinutes: 5,
     priceAud: 297,
     stripePriceId: "price_1U4sCe9HOJbWqVToqrNBDaIp",
+    stripePaymentLink: "https://buy.stripe.com/3cI9AN2Df9vYgVyg6bgUM01",
   },
   growth: {
     key: "growth",
@@ -40,6 +44,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     alertMinutes: 5,
     priceAud: 597,
     stripePriceId: "price_1U4sCg9HOJbWqVToRKrBxw6W",
+    stripePaymentLink: "https://buy.stripe.com/00w5kx4LnbE6dJm6vBgUM02",
   },
   scale: {
     key: "scale",
@@ -49,6 +54,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     alertMinutes: 3,
     priceAud: 1997,
     stripePriceId: "price_1U4sCh9HOJbWqVToU4GpQFTO",
+    stripePaymentLink: "https://buy.stripe.com/6oUfZb5PreQifRu4ntgUM03",
   },
 };
 
