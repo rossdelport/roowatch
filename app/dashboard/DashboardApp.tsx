@@ -1131,6 +1131,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
           <div className="tile"><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></div>
           <div className="tile"><span className="tile-num">{alerts.length}</span><span className="tile-label">Leads sent to you</span></div>
           <div className="tile"><span className="tile-num">{alerts.filter((a) => now - new Date(a.sentAt + "Z").getTime() < 7 * 864e5).length}</span><span className="tile-label">Leads this week</span></div>
+          <div className="tile"><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></div>
           <div className="tile tile-accent"><span className="tile-num">&lt;60 sec</span><span className="tile-label">Alert speed</span></div>
         </div>
         <div className="card">
@@ -1138,7 +1139,14 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
           {alerts.length === 0 ? (
             <div className="empty">
               <p><strong>No leads yet.</strong> That is normal on day one.</p>
-              <p className="muted">We are setting up your watchlist. Your first lead usually lands within 48 hours.</p>
+              {(me.postsUsed ?? 0) > 0 ? (
+                <p className="muted">
+                  We have read <strong>{(me.postsUsed ?? 0).toLocaleString()}</strong> posts in your
+                  groups this month. None of them matched what you asked for yet. We are still watching.
+                </p>
+              ) : (
+                <p className="muted">We are setting up your watchlist. Your first lead usually lands within 48 hours.</p>
+              )}
             </div>
           ) : (
             alerts.slice(0, 5).map((a) => <AlertRow key={a.id} alert={a} />)
@@ -1591,117 +1599,184 @@ function UserModal({ member, onClose, onAction, adminPassword }: {
     }
   }
 
+  const postPct = member.postsPerMonth
+    ? Math.min(100, (member.postsUsed / member.postsPerMonth) * 100)
+    : 0;
+
   return (
     <Portal>
-    <div className="overlay" onClick={onClose}>
-      <div className="modal user-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="help-head">
-          <div className="user-card-top">
-            <Avatar avatar={member.avatar} name={member.businessName || member.name || member.email} />
-            <div className="user-card-who">
-              <strong>{member.businessName || member.name || member.email}</strong>
-              <span>{member.email}</span>
+      <div className="overlay" onClick={onClose}>
+        <div className="modal user-modal" onClick={(e) => e.stopPropagation()}>
+          <header className="um-head">
+            <div className="user-card-top">
+              <Avatar avatar={member.avatar} name={member.businessName || member.name || member.email} />
+              <div className="user-card-who">
+                <strong>{member.businessName || member.name || member.email}</strong>
+                <span>{member.email}</span>
+              </div>
             </div>
+            <button className="um-close" onClick={onClose} aria-label="Close">&times;</button>
+          </header>
+
+          <div className="um-body">
+            <section className="um-section">
+              <div className="um-badges">
+                <span className={`plan-tag plan-${member.plan}`}>{member.planName} &middot; ${member.planPrice}/mo</span>
+                <StatusChip status={member.subscriptionStatus} />
+                <span className="chip-status pending">{member.onboarded ? "Set up" : "Setup not finished"}</span>
+              </div>
+
+              <div className="um-stats">
+                <div className="um-stat">
+                  <strong>{member.groups.length}<small> / {member.planGroups}</small></strong>
+                  <span>Groups</span>
+                </div>
+                <div className="um-stat">
+                  <strong>{member.alertCount}</strong>
+                  <span>Leads sent</span>
+                </div>
+                <div className="um-stat">
+                  <strong>{member.postsUsed.toLocaleString()}<small> / {(member.postsPerMonth / 1000)}k</small></strong>
+                  <span>Posts read</span>
+                  <div className="um-bar"><i style={{ width: `${postPct}%` }} /></div>
+                </div>
+              </div>
+            </section>
+
+            <section className="um-section">
+              <h4 className="um-label">Contact</h4>
+              <div className="kv"><span>Phone</span><strong>{member.phone ? <a href={`tel:${member.phone}`}>{member.phone}</a> : "not given"}</strong></div>
+              <div className="kv"><span>Trade</span><strong>{member.trade || "not set"}</strong></div>
+              <div className="kv"><span>Where</span><strong>{member.location || member.state || "not set"}</strong></div>
+              <div className="kv"><span>Website</span><strong>{member.website || "not given"}</strong></div>
+              <div className="kv"><span>Joined</span><strong>{(member.createdAt || "").slice(0, 10)}</strong></div>
+            </section>
+
+            <section className="um-section">
+              <h4 className="um-label">Plan</h4>
+              <p className="um-note">Moves their Stripe subscription at the same time.</p>
+              <div className="plan-switch left">
+                {PLAN_KEYS.map((k) => (
+                  <button
+                    key={k}
+                    className={member.plan === k ? "plan-pick on" : "plan-pick"}
+                    disabled={busy}
+                    onClick={() => {
+                      if (member.plan === k) return;
+                      const now = PLANS[member.plan as keyof typeof PLANS];
+                      if (!confirm(
+                        `Move ${member.businessName || member.email} from ${now?.name ?? member.plan} to ${PLANS[k].name}?\n\n` +
+                        `Groups: ${now?.groups ?? "?"} to ${PLANS[k].groups}\n` +
+                        `Price: $${now?.priceAud ?? "?"} to $${PLANS[k].priceAud} a month\n\n` +
+                        `Their Stripe subscription moves to the new price at the same time. ` +
+                        `The difference goes on their next invoice, their card is not charged now. ` +
+                        `A trial keeps running.`
+                      )) return;
+                      call({ action: "plan", plan: k });
+                    }}
+                  >
+                    {PLANS[k].name} &middot; {PLANS[k].groups}g
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="um-section">
+              <h4 className="um-label">Their details</h4>
+              <div className="form-grid">
+                <label className="field">
+                  <span className="field-label">Their name</span>
+                  <input value={name} onChange={(e) => setName(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span className="field-label">Business name</span>
+                  <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+                </label>
+              </div>
+              <label className="field">
+                <span className="field-label">What a good lead sounds like</span>
+                <textarea rows={7} value={brief} onChange={(e) => setBrief(e.target.value)} />
+              </label>
+              <div className="um-actions">
+                <button
+                  className="btn primary"
+                  disabled={busy || !dirty}
+                  onClick={() => call({ action: "update", name, businessName, brief })}
+                >
+                  {busy ? "Saving" : "Save changes"}
+                </button>
+                {dirty && <span className="tiny">Unsaved changes</span>}
+              </div>
+            </section>
+
+            <section className="um-section">
+              <h4 className="um-label">Send them an email</h4>
+              <label className="field">
+                <span className="field-label">Subject</span>
+                <input placeholder="A note from RooWatch" value={subject} onChange={(e) => setSubject(e.target.value)} />
+              </label>
+              <label className="field">
+                <span className="field-label">Message</span>
+                <textarea rows={4} placeholder="G'day, just checking how the leads are going." value={message} onChange={(e) => setMessage(e.target.value)} />
+              </label>
+              <div className="um-actions">
+                <button
+                  className="btn primary"
+                  disabled={busy || message.trim().length < 3}
+                  onClick={async () => { await call({ action: "message", subject, message }); setMessage(""); setSubject(""); }}
+                >
+                  {busy ? "Sending" : "Send email"}
+                </button>
+                <span className="tiny">Goes to {member.email}</span>
+              </div>
+            </section>
+
+            <section className="um-section">
+              <h4 className="um-label">See what they see</h4>
+              <p className="um-note">
+                Signs you in as them so you can fix their groups or show an upsell from inside
+                their own dashboard. A banner brings you back.
+              </p>
+              <button
+                className="btn ghost"
+                disabled={busy}
+                onClick={async () => {
+                  if (!confirm(`Sign in as ${member.email}? You can switch back at any time.`)) return;
+                  setBusy(true);
+                  const res = await fetch("/api/admin/impersonate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userId: member.id, password: adminPassword }),
+                  });
+                  if (res.ok) window.location.href = "/dashboard";
+                  else { setBusy(false); alert("Could not sign in as them."); }
+                }}
+              >
+                Sign in as {member.name || member.email}
+              </button>
+            </section>
+
+            <section className="um-section um-danger">
+              <h4 className="um-label">Delete this account</h4>
+              <p className="um-note">
+                Removes their account, groups and leads, and cancels any live Stripe
+                subscription so they stop being charged. This cannot be undone.
+              </p>
+              <button
+                className="btn danger-btn"
+                disabled={busy}
+                onClick={async () => {
+                  if (!confirm(`Delete ${member.email}, all their data, and cancel their Stripe subscription?`)) return;
+                  await call({ action: "delete" });
+                  onClose();
+                }}
+              >
+                Delete and cancel billing
+              </button>
+            </section>
           </div>
-          <button className="mini" onClick={onClose}>Close</button>
-        </div>
-
-        <div className="kv"><span>Plan</span><strong>{member.planName}, ${member.planPrice} a month</strong></div>
-        <div className="kv"><span>Subscription</span><strong><StatusChip status={member.subscriptionStatus} /></strong></div>
-        <div className="kv"><span>Phone</span><strong>{member.phone ? <a href={`tel:${member.phone}`}>{member.phone}</a> : "not given"}</strong></div>
-        <div className="kv"><span>Trade</span><strong>{member.trade || "not set"}</strong></div>
-        <div className="kv"><span>Where</span><strong>{member.location || member.state || "not set"}</strong></div>
-        <div className="kv"><span>Website</span><strong>{member.website || "not given"}</strong></div>
-        <div className="kv"><span>Groups</span><strong>{member.groups.length} of {member.planGroups}</strong></div>
-        <div className="kv"><span>Leads sent</span><strong>{member.alertCount}</strong></div>
-        <div className="kv"><span>Posts read this month</span><strong>{member.postsUsed.toLocaleString()} of {member.postsPerMonth.toLocaleString()}</strong></div>
-        <div className="kv"><span>Joined</span><strong>{(member.createdAt || "").slice(0, 10)}</strong></div>
-
-        <h3 className="mt">Move them to a plan</h3>
-        <div className="plan-switch left">
-          {PLAN_KEYS.map((k) => (
-            <button
-              key={k}
-              className={member.plan === k ? "plan-pick on" : "plan-pick"}
-              disabled={busy}
-              onClick={() => call({ action: "plan", plan: k })}
-            >
-              {PLANS[k].name} &middot; {PLANS[k].groups}g
-            </button>
-          ))}
-        </div>
-
-        <h3 className="mt">Fix their details</h3>
-        <label className="lbl">Their name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-        <label className="lbl">Business name</label>
-        <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
-        <label className="lbl">What a good lead sounds like</label>
-        <textarea rows={4} value={brief} onChange={(e) => setBrief(e.target.value)} />
-        <button
-          className="btn primary mt"
-          disabled={busy || !dirty}
-          onClick={() => call({ action: "update", name, businessName, brief })}
-        >
-          {busy ? "Saving" : "Save changes"}
-        </button>
-
-        <h3 className="mt">Send them an email</h3>
-        <label className="lbl">Subject</label>
-        <input placeholder="A note from RooWatch" value={subject} onChange={(e) => setSubject(e.target.value)} />
-        <label className="lbl">Message</label>
-        <textarea rows={4} placeholder="G'day, just checking how the leads are going." value={message} onChange={(e) => setMessage(e.target.value)} />
-        <button
-          className="btn primary mt"
-          disabled={busy || message.trim().length < 3}
-          onClick={async () => { await call({ action: "message", subject, message }); setMessage(""); setSubject(""); }}
-        >
-          {busy ? "Sending" : `Email ${member.email}`}
-        </button>
-
-        <h3 className="mt">See what they see</h3>
-        <p className="muted">
-          Signs you in as them so you can add or remove their groups, or show them an
-          upsell from inside their own dashboard. A banner brings you back.
-        </p>
-        <button
-          className="btn ghost"
-          disabled={busy}
-          onClick={async () => {
-            if (!confirm(`Sign in as ${member.email}? You can switch back at any time.`)) return;
-            setBusy(true);
-            const res = await fetch("/api/admin/impersonate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ userId: member.id, password: adminPassword }),
-            });
-            if (res.ok) window.location.href = "/dashboard";
-            else { setBusy(false); alert("Could not sign in as them."); }
-          }}
-        >
-          Sign in as {member.name || member.email}
-        </button>
-
-        <div className="card danger mt">
-          <h3>Delete this account</h3>
-          <p className="muted">
-            Removes their account, groups and leads. It also cancels any live Stripe
-            subscription, so they stop being charged. This cannot be undone.
-          </p>
-          <button
-            className="btn danger-btn"
-            disabled={busy}
-            onClick={async () => {
-              if (!confirm(`Delete ${member.email}, all their data, and cancel their Stripe subscription?`)) return;
-              await call({ action: "delete" });
-              onClose();
-            }}
-          >
-            Delete and cancel billing
-          </button>
         </div>
       </div>
-    </div>
     </Portal>
   );
 }
@@ -2250,7 +2325,7 @@ const CSS = `
 .live{align-items:center;color:var(--mint);display:inline-flex;font-size:13px;font-weight:700;gap:7px;white-space:nowrap;}
 .live i{animation:dPulse 1.6s ease-in-out infinite;background:var(--mint);border-radius:99px;display:inline-block;height:8px;width:8px;}
 
-.tiles{display:grid;gap:14px;grid-template-columns:repeat(4,1fr);margin-bottom:18px;}
+.tiles{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:18px;}
 .tile{animation:dRise .5s var(--ease) both;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-soft);display:grid;gap:4px;padding:18px 20px;transition:transform .25s var(--ease),box-shadow .25s var(--ease);}
 .tile:hover{box-shadow:var(--shadow);transform:translateY(-3px);}
 .tile:nth-child(2){animation-delay:.05s}.tile:nth-child(3){animation-delay:.1s}.tile:nth-child(4){animation-delay:.15s}
@@ -2438,9 +2513,38 @@ const CSS = `
 .key-users{background:var(--coral);}
 .key-mrr{background:var(--mint);}
 
-.user-modal{max-height:88vh;max-width:520px;overflow-y:auto;}
-.user-modal .card.danger{margin-top:22px;}
 .plan-switch.left{justify-content:flex-start;margin-top:8px;}
+
+/* ---- one user, up close ---- */
+.user-modal{display:flex;flex-direction:column;max-height:88vh;max-width:560px;overflow:hidden;padding:0;}
+.um-head{align-items:center;background:#fff;border-bottom:1px solid var(--line);display:flex;gap:14px;justify-content:space-between;padding:20px 24px;position:sticky;top:0;z-index:2;}
+.um-close{background:#f6f1e9;border:0;border-radius:99px;color:var(--muted);font-size:20px;height:32px;line-height:1;transition:background .18s,color .18s;width:32px;}
+.um-close:hover{background:var(--coral);color:#fff;}
+.um-body{overflow-y:auto;padding:0 24px 24px;}
+.um-section{border-top:1px solid #f4efe7;padding:20px 0;}
+.um-section:first-child{border-top:0;padding-top:18px;}
+.um-label{color:#8b93a7;font-size:11px;font-weight:800;letter-spacing:.07em;margin:0 0 12px;text-transform:uppercase;}
+.um-note{color:var(--muted);font-size:13px;line-height:1.5;margin:-6px 0 14px;}
+.um-badges{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+
+.um-stats{display:grid;gap:10px;grid-template-columns:repeat(3,1fr);}
+.um-stat{background:#faf7f2;border:1px solid var(--line);border-radius:12px;display:grid;gap:2px;padding:12px 14px;}
+.um-stat strong{font-size:21px;letter-spacing:-.02em;}
+.um-stat small{color:#98a0b3;font-size:12px;font-weight:600;}
+.um-stat span{color:var(--muted);font-size:11.5px;font-weight:600;}
+.um-bar{background:#ece5da;border-radius:99px;height:4px;margin-top:6px;overflow:hidden;}
+.um-bar i{background:var(--mint);display:block;height:100%;}
+
+.um-section .kv:first-of-type{border-top:0;}
+.um-section .field{margin-bottom:14px;}
+.um-actions{align-items:center;display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;}
+.um-danger{background:#fffaf9;border-radius:14px;margin-top:8px;padding:18px;}
+.um-danger .um-label{color:var(--coral-deep);}
+@media(max-width:560px){
+  .um-stats{grid-template-columns:1fr;}
+  .um-body{padding:0 18px 18px;}
+  .um-head{padding:16px 18px;}
+}
 
 /* ---- setup wizard ---- */
 .modal-wide{max-width:600px;position:relative;}
