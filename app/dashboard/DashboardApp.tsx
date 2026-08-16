@@ -347,6 +347,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const [brief, setBrief] = useState(known?.brief ?? "");
   const [groupList, setGroupList] = useState<WizardGroup[]>([]);
 
+  const [logo, setLogo] = useState("");
   const [scanning, setScanning] = useState(false);
   const [thinking, setThinking] = useState(false);
   const briefTried = useRef(false);
@@ -384,9 +385,11 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         trade?: string;
         suburbs?: string[];
         services?: string;
+        logo?: string;
         note?: string;
         error?: string;
       };
+      if (data.logo) setLogo(data.logo);
       if (data.businessName && !businessName) setBusinessName(data.businessName);
       if (data.services && !services) setServices(data.services);
       if (data.trade) setTrade(data.trade);
@@ -501,6 +504,16 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
             <span className="spinner big" />
             <strong>Getting your business info</strong>
             <p className="muted">We are reading your website. This takes a few seconds.</p>
+          </div>
+        )}
+
+        {logo && (
+          <div className="wiz-brand">
+            {/* Their own logo, hotlinked from their site. If it will not load we
+                drop it rather than show a broken image on their first screen. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="wiz-logo" src={logo} alt="" onError={() => setLogo("")} />
+            <span>{businessName || "Your business"}</span>
           </div>
         )}
 
@@ -985,7 +998,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
           <div className="tile"><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></div>
           <div className="tile"><span className="tile-num">{alerts.length}</span><span className="tile-label">Leads sent to you</span></div>
           <div className="tile"><span className="tile-num">{alerts.filter((a) => now - new Date(a.sentAt + "Z").getTime() < 7 * 864e5).length}</span><span className="tile-label">Leads this week</span></div>
-          <div className="tile tile-accent"><span className="tile-num">&lt;5 min</span><span className="tile-label">Alert speed</span></div>
+          <div className="tile tile-accent"><span className="tile-num">&lt;60 sec</span><span className="tile-label">Alert speed</span></div>
         </div>
         <div className="card">
           <h3>Latest leads</h3>
@@ -1048,7 +1061,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
         <h3>Your plan</h3>
         <div className="kv"><span>Plan</span><strong>{plan.name}. ${plan.priceAud} a month.</strong></div>
         <div className="kv"><span>Groups watched</span><strong>{groups.length} of {plan.groups}</strong></div>
-        <div className="kv"><span>Alert speed</span><strong>Under {plan.alertMinutes} minutes</strong></div>
+        <div className="kv"><span>Alert speed</span><strong>Under 60 seconds</strong></div>
         <div className="kv"><span>Posts checked this month</span><strong>{(me.postsUsed ?? 0).toLocaleString()} of {plan.postsPerMonth.toLocaleString()}</strong></div>
         <div className="kv"><span>Guarantee</span><strong>A lead this month or we refund you</strong></div>
         <p className="tiny">Need to change anything? Email ross@roowatch.com.au and we sort it same day.</p>
@@ -1973,6 +1986,9 @@ const CSS = `
 
 /* ---- setup wizard ---- */
 .modal-wide{max-width:600px;position:relative;}
+.wiz-brand{align-items:center;animation:dPop .4s var(--ease) both;display:flex;gap:11px;margin-bottom:18px;}
+.wiz-logo{background:#fff;border:1px solid var(--line);border-radius:10px;flex:none;height:38px;object-fit:contain;padding:3px;width:38px;}
+.wiz-brand span{color:var(--muted);font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .wiz-top{align-items:center;display:flex;justify-content:space-between;margin-bottom:20px;}
 .wiz-top .steps-dots{margin:0;}
 .help-dot{background:#f6f1e9;border:0;border-radius:99px;color:var(--muted);font-size:13px;font-weight:900;height:26px;transition:background .2s,color .2s;width:26px;}

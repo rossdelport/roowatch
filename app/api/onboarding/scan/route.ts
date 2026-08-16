@@ -1,10 +1,10 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
-import { profiles } from "../../../../db/schema";
+import { profiles, users } from "../../../../db/schema";
 import { canonicalSuburb } from "../../../../db/suburbs";
 import { TRADES } from "../../../../db/trades";
-import { nameFromMapsUrl, normaliseUrl, readWebsite } from "../../../../db/website";
+import { nameFromMapsUrl, normaliseUrl, readSite } from "../../../../db/website";
 
 /**
  * Step one of setup. Reads the member's website and, when a Google key is set,
@@ -17,6 +17,7 @@ type Scan = {
   trade: string;
   suburbs: string[];
   services: string;
+  logo: string;
   websiteRead: boolean;
   googleRead: boolean;
   note: string;
@@ -161,8 +162,24 @@ export async function POST(request: Request) {
   const state = profile?.state ?? "";
 
   // Both reads run at once. Neither one is allowed to hold up the other.
-  const [text, google] = await Promise.all([readWebsite(website), readGoogle(gbpUrl)]);
+  const [site, google] = await Promise.all([readSite(website), readGoogle(gbpUrl)]);
+  const text = site.text;
   const ai = await readWithClaude(text);
+
+  // Their own logo becomes their picture, so the dashboard looks like theirs
+  // from the first screen. Only when they have not set one, so a member who
+  // uploaded a photo never has it overwritten by a later re-scan.
+  if (site.logo) {
+    const db = getDb();
+    const [current] = await db
+      .select({ avatar: users.avatar })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+    if (current && !current.avatar) {
+      await db.update(users).set({ avatar: site.logo }).where(eq(users.id, user.id));
+    }
+  }
 
   const known = (TRADES as readonly string[]).includes(ai?.trade ?? "") ? ai!.trade : "";
   const trade =
@@ -189,6 +206,7 @@ export async function POST(request: Request) {
     trade: (TRADES as readonly string[]).includes(trade) ? trade : "",
     suburbs,
     services: ai?.services ?? "",
+    logo: site.logo,
     websiteRead: Boolean(text),
     googleRead: Boolean(google),
     note: notes.join(" "),

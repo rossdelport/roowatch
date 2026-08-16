@@ -167,7 +167,7 @@ export default function SignupApp({ start, plan }: { start: "signup" | "login"; 
             <h2>More local jobs, sent to your phone.</h2>
             <ul className="proof">
               <li>We watch your local Facebook groups all day and all night.</li>
-              <li>You get an alert in about 5 minutes.</li>
+              <li>You get an alert in under 60 seconds.</li>
               <li>You reply first, so you win the job.</li>
             </ul>
           </div>
