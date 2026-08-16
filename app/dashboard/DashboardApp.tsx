@@ -1160,23 +1160,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
     return <GroupsTab groups={groups} limit={plan.groups} onRefresh={onRefresh} />;
   }
 
-  if (tab === "alerts") {
-    return (
-      <div className="page">
-        <header className="page-head">
-          <div><h1>Leads</h1><p className="muted">Every lead we have sent you, newest first.</p></div>
-          {alerts.length > 0 && <span className="live"><i /> {alerts.length} so far</span>}
-        </header>
-        <div className="card">
-          {alerts.length === 0 ? (
-            <div className="empty"><p><strong>No leads yet.</strong></p><p className="muted">When someone posts a job that matches your brief, it lands here and in your inbox.</p></div>
-          ) : (
-            alerts.map((a) => <AlertRow key={a.id} alert={a} />)
-          )}
-        </div>
-      </div>
-    );
-  }
+  if (tab === "alerts") return <LeadsPage me={me} />;
 
   return (
     <div className="page">
@@ -1207,6 +1191,140 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
         <button className="btn ghost" onClick={onLogout}>Log out</button>
       </div>
       <DangerZone />
+    </div>
+  );
+}
+
+type ReadPost = {
+  id: string;
+  seenAt: number;
+  text: string;
+  url: string;
+  author: string;
+  groupName: string;
+};
+
+/**
+ * Leads, and everything we read to find them.
+ *
+ * The Posts tab exists so a member with no leads yet can see the machine
+ * working. Without it, "nothing matched" and "it is broken" look identical.
+ */
+function LeadsPage({ me }: { me: Me }) {
+  const [view, setView] = useState<"leads" | "posts">("leads");
+  const [posts, setPosts] = useState<ReadPost[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const alerts = me.alerts ?? [];
+
+  useEffect(() => {
+    if (view !== "posts" || posts) return;
+    let live = true;
+    fetch("/api/member/posts")
+      .then((r) => r.json())
+      .then((d: { posts?: ReadPost[]; total?: number }) => {
+        if (!live) return;
+        setPosts(d.posts ?? []);
+        setTotal(d.total ?? 0);
+      })
+      .catch(() => live && setPosts([]));
+    return () => { live = false; };
+  }, [view, posts]);
+
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <h1>Leads</h1>
+          <p className="muted">
+            {view === "leads"
+              ? "Every lead we have sent you, newest first."
+              : "Every post we read in your groups. We keep 14 days."}
+          </p>
+        </div>
+        {view === "leads" && alerts.length > 0 && <span className="live"><i /> {alerts.length} so far</span>}
+        {view === "posts" && total > 0 && <span className="live"><i /> {total.toLocaleString()} read</span>}
+      </header>
+
+      <div className="subtabs" role="tablist">
+        <button role="tab" aria-selected={view === "leads"} className={view === "leads" ? "subtab on" : "subtab"} onClick={() => setView("leads")}>
+          Leads{alerts.length > 0 ? ` (${alerts.length})` : ""}
+        </button>
+        <button role="tab" aria-selected={view === "posts"} className={view === "posts" ? "subtab on" : "subtab"} onClick={() => setView("posts")}>
+          Posts we read
+        </button>
+      </div>
+
+      {view === "leads" ? (
+        <div className="card">
+          {alerts.length === 0 ? (
+            <div className="empty">
+              <p><strong>No leads yet.</strong></p>
+              <p className="muted">When someone posts a job that matches your brief, it lands here and in your inbox.</p>
+              {(me.postsUsed ?? 0) > 0 && (
+                <button className="btn ghost mt" onClick={() => setView("posts")}>
+                  See the {(me.postsUsed ?? 0).toLocaleString()} posts we read
+                </button>
+              )}
+            </div>
+          ) : (
+            alerts.map((a) => <AlertRow key={a.id} alert={a} />)
+          )}
+        </div>
+      ) : (
+        <PostsRead posts={posts} />
+      )}
+    </div>
+  );
+}
+
+function PostsRead({ posts }: { posts: ReadPost[] | null }) {
+  // Pinned once, the way MemberView does it. Reading the clock during render
+  // makes the component impure and the output non-deterministic.
+  const [now] = useState(() => Date.now());
+  if (posts === null) {
+    return <div className="card"><div className="empty"><span className="spinner" /></div></div>;
+  }
+  if (!posts.length) {
+    return (
+      <div className="card">
+        <div className="empty">
+          <p><strong>Nothing read yet.</strong></p>
+          <p className="muted">Once your groups are being watched, every post we check turns up here.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const when = (ms: number) => {
+    const mins = Math.max(0, Math.round((now - ms) / 60000));
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
+    return `${Math.round(mins / 1440)}d ago`;
+  };
+
+  return (
+    <div className="card">
+      <div className="read-list">
+        {posts.map((p) => (
+          <article className="read-row" key={p.id}>
+            <div className="read-meta">
+              <span className="read-group">{p.groupName}</span>
+              <span className="read-when">{when(p.seenAt)}</span>
+            </div>
+            <p className="read-text">{p.text || "This post had no text we could read."}</p>
+            <div className="read-foot">
+              <span className="read-author">{p.author || "Someone"}</span>
+              {p.url && (
+                <a className="read-link" href={p.url} target="_blank" rel="noreferrer noopener">
+                  See post
+                </a>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+      <p className="tiny">We keep 14 days of posts. Anything older is deleted.</p>
     </div>
   );
 }
@@ -2514,6 +2632,19 @@ const CSS = `
 .key-mrr{background:var(--mint);}
 
 .plan-switch.left{justify-content:flex-start;margin-top:8px;}
+
+/* ---- posts we read ---- */
+.read-list{display:grid;gap:12px;}
+.read-row{background:#faf7f2;border:1px solid var(--line);border-left:3px solid var(--line);border-radius:12px;padding:14px 16px;transition:border-left-color .18s var(--ease),background .18s;}
+.read-row:hover{background:#fff;border-left-color:var(--coral);}
+.read-meta{align-items:center;display:flex;gap:10px;justify-content:space-between;margin-bottom:7px;}
+.read-group{background:#fff;border:1px solid var(--line);border-radius:99px;color:#55607a;font-size:11.5px;font-weight:700;padding:3px 10px;}
+.read-when{color:#98a0b3;flex:none;font-size:12px;font-weight:600;}
+.read-text{color:#3c465e;font-size:14px;line-height:1.55;margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;}
+.read-foot{align-items:center;display:flex;gap:12px;justify-content:space-between;margin-top:10px;}
+.read-author{color:var(--muted);font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.read-link{border:1px solid var(--line);border-radius:99px;color:var(--ink);flex:none;font-size:12.5px;font-weight:700;padding:6px 13px;text-decoration:none;transition:background .18s,border-color .18s,color .18s;}
+.read-link:hover{background:var(--ink);border-color:var(--ink);color:#fff;}
 
 /* ---- one user, up close ---- */
 .user-modal{display:flex;flex-direction:column;max-height:88vh;max-width:560px;overflow:hidden;padding:0;}

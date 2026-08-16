@@ -511,7 +511,14 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
         if (postOk) {
           await db
             .insert(seenPosts)
-            .values({ id: postKey, sourceId: source.id, seenAt: Date.now() })
+            .values({
+              id: postKey,
+              sourceId: source.id,
+              seenAt: Date.now(),
+              text: post.text.slice(0, 600),
+              url: post.url,
+              author: post.author.slice(0, 120),
+            })
             .onConflictDoNothing();
         }
       }

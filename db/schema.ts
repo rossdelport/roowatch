@@ -79,10 +79,20 @@ export const scanJobs = sqliteTable("scan_jobs", {
   status: text("status").notNull().default("running"),
 });
 
+/**
+ * Every post we have read, for 14 days.
+ *
+ * Its first job is dedup: it answers "have I paid for this one already?".
+ * It also backs the Posts tab, so a member with no leads yet can see the
+ * machine working and judge for themselves that nothing matched.
+ */
 export const seenPosts = sqliteTable("seen_posts", {
   id: text("id").primaryKey(),
   sourceId: integer("source_id").notNull(),
   seenAt: integer("seen_at").notNull(),
+  text: text("text").notNull().default(""),
+  url: text("url").notNull().default(""),
+  author: text("author").notNull().default(""),
 });
 
 export const groups = sqliteTable("groups", {
