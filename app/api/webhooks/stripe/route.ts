@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { sendEmail } from "../../../../db/auth";
-import { PLAN_KEYS, type PlanKey } from "../../../../db/plans";
+import { PLANS, PLAN_KEYS, type PlanKey } from "../../../../db/plans";
 import { groups, profiles, sources, users } from "../../../../db/schema";
 
 /**
@@ -133,11 +133,45 @@ async function reactivateMember(userId: string) {
 type CheckoutSession = {
   mode?: string;
   customer?: string;
+  subscription?: string;
   client_reference_id?: string;
   customer_email?: string;
   customer_details?: { email?: string };
   metadata?: { plan?: string };
 };
+
+/**
+ * Which plan did they actually buy?
+ *
+ * We set `metadata.plan` on each Payment Link, but Stripe does not clearly
+ * document that Payment Link metadata is copied onto the Checkout Session, and
+ * no real checkout has ever run to prove it either way. If that metadata is
+ * missing we would silently leave a $597 Growth customer on Local's 10 group
+ * limit, with no error anywhere.
+ *
+ * So the price id is the real source of truth. It is on the subscription they
+ * just bought and it maps exactly to one plan. Metadata is only a shortcut that
+ * saves an API call when it happens to be there.
+ */
+async function planFromSession(session: CheckoutSession): Promise<PlanKey | undefined> {
+  const fromMetadata = session.metadata?.plan;
+  if (PLAN_KEYS.includes(fromMetadata as PlanKey)) return fromMetadata as PlanKey;
+
+  const subscriptionId = String(session.subscription || "");
+  if (!subscriptionId) return undefined;
+
+  try {
+    const subscription = (await stripeApi(`subscriptions/${subscriptionId}`)) as {
+      items?: { data?: { price?: { id?: string } }[] };
+    };
+    const priceId = subscription.items?.data?.[0]?.price?.id ?? "";
+    return PLAN_KEYS.find((key) => PLANS[key].stripePriceId === priceId);
+  } catch {
+    // Leave the plan alone rather than guess. Ross can set it by hand from the
+    // Marketing tab, and the payment itself is already recorded.
+    return undefined;
+  }
+}
 
 async function handleCheckoutCompleted(session: CheckoutSession) {
   if (session.mode !== "subscription") return;
@@ -153,8 +187,7 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
   const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
   if (!user) return;
 
-  const planKey = session.metadata?.plan;
-  const plan = PLAN_KEYS.includes(planKey as PlanKey) ? (planKey as PlanKey) : undefined;
+  const plan = await planFromSession(session);
 
   await db
     .update(profiles)
