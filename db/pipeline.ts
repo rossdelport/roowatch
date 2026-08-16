@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { sendEmail } from "./auth";
 import { groupSlug, postPermalink } from "./fbgroups";
+import { postLimit } from "./plans";
 import { alerts, groups, profiles, seenPosts, sources, users } from "./schema";
 
 export type FetchedPost = {
@@ -13,8 +14,6 @@ export type FetchedPost = {
 };
 
 const SEEN_TTL_DAYS = 14;
-/** Fair use: posts we will read for one member each month. */
-const POSTS_PER_MONTH = Number(process.env.POSTS_PER_MONTH || 10000);
 /**
  * resultsLimit is a cap for the whole run, not for each group. With one flat
  * number a busy group starves the quiet ones, so the cap grows with the group
@@ -22,6 +21,122 @@ const POSTS_PER_MONTH = Number(process.env.POSTS_PER_MONTH || 10000);
  * onlyPostsNewerThan is what keeps that number small.
  */
 const POSTS_PER_GROUP_CAP = 25;
+
+/* ---------------------------------------------------------------- Bright Data
+ *
+ * Bright Data replaced Apify because Apify billed a full post price for every
+ * group it looked at, even when there was nothing new. Bright Data charges only
+ * for posts it actually delivers, so a quiet check is free. See
+ * docs/scraper-decision.md for the measurements.
+ *
+ * The API is asynchronous: trigger a collection, get a snapshot id, come back
+ * for the rows. The cron owns that dance, see app/api/cron/scan/route.ts.
+ */
+
+const BD_DATASET = "gd_lz11l67o2cb3r0lkj3"; // Facebook - Posts by group URL
+const BD_API = "https://api.brightdata.com/datasets/v3";
+
+function bdHeaders() {
+  const key = process.env.BRIGHTDATA_API_KEY;
+  if (!key) throw new Error("brightdata_not_configured");
+  return { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+}
+
+/** Kick off one collection covering every group. Returns the snapshot id. */
+export async function bdTrigger(sourceUrls: string[], since: Date): Promise<string> {
+  const body = sourceUrls.map((url) => ({
+    url,
+    start_date: since.toISOString().replace(/\.\d+Z$/, ".000Z"),
+    end_date: "",
+    user_to_not_include: "",
+  }));
+
+  const res = await fetch(
+    `${BD_API}/trigger?dataset_id=${BD_DATASET}&include_errors=true&limit_per_input=${POSTS_PER_GROUP_CAP}`,
+    { method: "POST", headers: bdHeaders(), body: JSON.stringify(body) }
+  );
+  if (!res.ok) throw new Error(`brightdata_trigger_${res.status}`);
+
+  const data = (await res.json()) as { snapshot_id?: string };
+  if (!data.snapshot_id) throw new Error("brightdata_no_snapshot");
+  return data.snapshot_id;
+}
+
+export type BdProgress = { status: string; records: number; errors: number };
+
+export async function bdProgress(snapshotId: string): Promise<BdProgress> {
+  const res = await fetch(`${BD_API}/progress/${snapshotId}`, { headers: bdHeaders() });
+  if (!res.ok) throw new Error(`brightdata_progress_${res.status}`);
+  const d = (await res.json()) as Partial<BdProgress>;
+  return {
+    status: String(d.status ?? "unknown"),
+    records: Number(d.records ?? 0),
+    errors: Number(d.errors ?? 0),
+  };
+}
+
+/**
+ * Read a finished snapshot and bucket the posts by group slug.
+ *
+ * Rows without a post_id are the "no posts found for this period" notices.
+ * They are free and carry no data, so they are dropped.
+ */
+export async function bdCollect(
+  snapshotId: string,
+  sourceUrls: string[]
+): Promise<Map<string, FetchedPost[]>> {
+  const res = await fetch(`${BD_API}/snapshot/${snapshotId}?format=json`, {
+    headers: bdHeaders(),
+  });
+  if (!res.ok) throw new Error(`brightdata_snapshot_${res.status}`);
+
+  const raw = (await res.text()).trim();
+  let rows: Record<string, unknown>[] = [];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      rows = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      // Bright Data can answer with newline delimited JSON.
+      rows = raw
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          try {
+            return JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean) as Record<string, unknown>[];
+    }
+  }
+
+  const out = new Map<string, FetchedPost[]>();
+  for (const url of sourceUrls) out.set(groupSlug(url), []);
+
+  for (const row of rows) {
+    const id = String(row.post_id ?? "").trim();
+    if (!id) continue; // an empty period notice, not a post
+
+    const text = String(row.content ?? "").trim();
+    if (text.length <= 10) continue;
+
+    const url = String(row.url ?? "");
+    const from = String(row.group_url ?? row.input_url ?? url);
+    const bucket = out.get(groupSlug(from)) ?? out.get(groupSlug(url));
+    if (!bucket) continue;
+
+    bucket.push({
+      id,
+      text,
+      url,
+      author: String(row.user_username_raw ?? ""),
+      postedAt: String(row.date_posted ?? ""),
+    });
+  }
+  return out;
+}
 
 /** Pull recent posts for one group through the Apify actor. */
 /**
@@ -257,9 +372,11 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
 
           // Fair use. Reading a post costs money, so a member who is far past
           // their monthly allowance stops being charged for until next month.
+          // The allowance comes from their plan, so this doubles as the cap on
+          // what any one member can ever cost us.
           const month = new Date().toISOString().slice(0, 7);
           const used = profile.usageMonth === month ? profile.postsUsed : 0;
-          if (used >= POSTS_PER_MONTH) continue;
+          if (used >= postLimit(profile.plan)) continue;
           await db
             .update(profiles)
             .set({ postsUsed: used + 1, usageMonth: month })

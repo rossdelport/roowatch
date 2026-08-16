@@ -55,6 +55,23 @@ export const sources = sqliteTable("sources", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+/**
+ * One in-flight Bright Data snapshot.
+ *
+ * Bright Data is asynchronous: you trigger a collection, then come back for the
+ * results. A collection can outlive the cron tick that started it, so we write
+ * the snapshot id down. Without this row a later tick would trigger a second
+ * collection for the same groups and we would pay twice.
+ */
+export const scanJobs = sqliteTable("scan_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  snapshotId: text("snapshot_id").notNull(),
+  /** JSON array of source ids this snapshot covers. */
+  sourceIds: text("source_ids").notNull(),
+  startedAt: integer("started_at").notNull(),
+  status: text("status").notNull().default("running"),
+});
+
 export const seenPosts = sqliteTable("seen_posts", {
   id: text("id").primaryKey(),
   sourceId: integer("source_id").notNull(),
