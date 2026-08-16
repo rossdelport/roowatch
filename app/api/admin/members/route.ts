@@ -49,6 +49,69 @@ async function cancelStripe(customerId: string): Promise<string> {
   }
 }
 
+type SwitchResult = { ok: boolean; detail: string; hadSubscription: boolean };
+
+/**
+ * Move the member's live Stripe subscription onto the new plan's price.
+ *
+ * Proration is left on Stripe's default, so an upgrade puts the difference on
+ * their next invoice rather than charging the card on the spot. A member still
+ * inside their trial keeps it: swapping a price does not end a trial.
+ *
+ * A member with no subscription is a normal case, not a failure. Ross comps
+ * people and creates accounts by hand.
+ */
+async function switchStripePlan(customerId: string, priceId: string): Promise<SwitchResult> {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return { ok: true, detail: "Stripe is not configured", hadSubscription: false };
+  if (!customerId) return { ok: true, detail: "no Stripe customer", hadSubscription: false };
+
+  const auth = { Authorization: `Bearer ${key}` };
+  try {
+    const listRes = await fetch(
+      `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=20`,
+      { headers: auth }
+    );
+    if (!listRes.ok) {
+      return { ok: false, detail: `Stripe would not answer (${listRes.status})`, hadSubscription: true };
+    }
+
+    const list = (await listRes.json()) as {
+      data?: { id: string; status: string; items?: { data?: { id: string; price?: { id?: string } }[] } }[];
+    };
+    const live = (list.data ?? []).find(
+      (sub) => sub.status === "active" || sub.status === "trialing" || sub.status === "past_due"
+    );
+    if (!live) return { ok: true, detail: "no live subscription", hadSubscription: false };
+
+    const item = live.items?.data?.[0];
+    if (!item?.id) {
+      return { ok: false, detail: "subscription has no line to change", hadSubscription: true };
+    }
+    if (item.price?.id === priceId) {
+      return { ok: true, detail: "Stripe was already on that price", hadSubscription: true };
+    }
+
+    const form = new URLSearchParams({
+      "items[0][id]": item.id,
+      "items[0][price]": priceId,
+      proration_behavior: "create_prorations",
+    });
+    const updateRes = await fetch(`https://api.stripe.com/v1/subscriptions/${live.id}`, {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    });
+    if (!updateRes.ok) {
+      const detail = (await updateRes.text().catch(() => "")).slice(0, 160);
+      return { ok: false, detail: `Stripe refused: ${detail}`, hadSubscription: true };
+    }
+    return { ok: true, detail: "Stripe subscription moved too", hadSubscription: true };
+  } catch {
+    return { ok: false, detail: "Stripe unreachable", hadSubscription: true };
+  }
+}
+
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     password?: string;
@@ -99,18 +162,30 @@ export async function POST(request: Request) {
     flash = `Created ${email}.`;
   }
 
-  // Move a member between plans. This is what changes how many groups they
-  // may watch, so it is the one lever that has to work the day they upgrade.
+  // Move a member between plans, in RooWatch and in Stripe together.
   if (body.action === "plan" && body.userId) {
     const key = String(body.plan ?? "").toLowerCase();
     if (!(key in PLANS)) {
       return Response.json({ error: "bad_plan" }, { status: 400 });
     }
+    const plan = PLANS[key as PlanKey];
     const [profile] = await db
-      .select({ userId: profiles.userId })
+      .select({ userId: profiles.userId, stripeCustomerId: profiles.stripeCustomerId })
       .from(profiles)
       .where(eq(profiles.userId, body.userId))
       .limit(1);
+
+    // Billing first. If Stripe will not move, nothing moves. Otherwise a
+    // member could sit on Scale limits while still being charged for Local,
+    // and nothing on screen would show it.
+    const switched = await switchStripePlan(profile?.stripeCustomerId ?? "", plan.stripePriceId);
+    if (!switched.ok) {
+      return Response.json(
+        { error: "stripe_failed", message: `Nothing changed. ${switched.detail}.` },
+        { status: 502 }
+      );
+    }
+
     if (profile) {
       await db
         .update(profiles)
@@ -119,7 +194,7 @@ export async function POST(request: Request) {
     } else {
       await db.insert(profiles).values({ userId: body.userId, plan: key as PlanKey });
     }
-    flash = `Moved to ${PLANS[key as PlanKey].name}.`;
+    flash = `Moved to ${plan.name}. ${switched.detail}.`;
   }
 
   /** Edit the few fields worth changing by hand. Anything absent is left alone. */

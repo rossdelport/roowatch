@@ -195,7 +195,11 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
     .where(eq(profiles.userId, user.id));
 }
 
-type Subscription = { customer?: string; status?: string };
+type Subscription = {
+  customer?: string;
+  status?: string;
+  items?: { data?: { price?: { id?: string } }[] };
+};
 
 async function handleSubscriptionChange(subscription: Subscription) {
   const customerId = String(subscription.customer || "");
@@ -217,6 +221,17 @@ async function handleSubscriptionChange(subscription: Subscription) {
     }
   }
   if (!row) return;
+
+  // The price is the truth about which plan they are on. Following it here
+  // means a plan swap made anywhere, the admin panel or the Stripe dashboard,
+  // ends up on the member's profile without anyone syncing it by hand.
+  const priceId = subscription.items?.data?.[0]?.price?.id ?? "";
+  const fromPrice = priceId
+    ? PLAN_KEYS.find((key) => PLANS[key].stripePriceId === priceId)
+    : undefined;
+  if (fromPrice) {
+    await db.update(profiles).set({ plan: fromPrice }).where(eq(profiles.userId, row.userId));
+  }
 
   const wasLapsed = LAPSED.has(row.prevStatus);
   const nowLapsed = LAPSED.has(newStatus);

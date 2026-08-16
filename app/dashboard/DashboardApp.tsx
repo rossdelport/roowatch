@@ -246,6 +246,12 @@ export default function DashboardApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...payload, password: adminPass }),
     });
+    // A refused plan change means Stripe would not move and nothing changed.
+    // Saying so out loud beats a silent no-op that looks like it worked.
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+      setAdminFlash(d.message || `That did not work (${d.error || res.status}).`);
+    }
     await unlockAdmin(adminTab ?? "users");
     return res.ok;
   }
@@ -1800,7 +1806,7 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
                       disabled={busy}
                       onClick={() => {
                         if (m.plan === k) return;
-                        if (!confirm(`Move ${m.email} to ${PLANS[k].name}? This changes their limits straight away.`)) return;
+                        if (!confirm(`Move ${m.email} to ${PLANS[k].name}? This moves their Stripe subscription too.`)) return;
                         onAction("/api/admin/members", { action: "plan", userId: m.id, plan: k });
                       }}
                     >
