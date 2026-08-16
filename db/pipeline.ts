@@ -15,6 +15,13 @@ export type FetchedPost = {
 const SEEN_TTL_DAYS = 14;
 /** Fair use: posts we will read for one member each month. */
 const POSTS_PER_MONTH = Number(process.env.POSTS_PER_MONTH || 10000);
+/**
+ * resultsLimit is a cap for the whole run, not for each group. With one flat
+ * number a busy group starves the quiet ones, so the cap grows with the group
+ * count. It only stops a runaway catch up. We still pay per post returned, and
+ * onlyPostsNewerThan is what keeps that number small.
+ */
+const POSTS_PER_GROUP_CAP = 25;
 
 /** Pull recent posts for one group through the Apify actor. */
 /**
@@ -39,7 +46,7 @@ export async function fetchPostsBatch(
         startUrls: sourceUrls.map((url) => ({ url })),
         onlyPostsNewerThan: newerThan,
         viewOption: "CHRONOLOGICAL",
-        resultsLimit: 200,
+        resultsLimit: Math.max(100, sourceUrls.length * POSTS_PER_GROUP_CAP),
       }),
     }
   );
