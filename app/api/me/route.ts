@@ -1,8 +1,8 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ADMIN_RETURN_COOKIE, currentUser, isAdminEmail, readCookie } from "../../../db/auth";
 import { planFor } from "../../../db/plans";
-import { alerts, groups, profiles } from "../../../db/schema";
+import { alerts, groups, profiles, sources } from "../../../db/schema";
 
 export async function GET(request: Request) {
   const user = await currentUser(request);
@@ -15,9 +15,21 @@ export async function GET(request: Request) {
     .where(eq(profiles.userId, user.id))
     .limit(1);
 
+  // Left join, because a group added by name alone has no source yet and must
+  // still appear in the list. Matching mirrors processSource: id when set,
+  // name when not.
   const myGroups = await db
-    .select()
+    .select({
+      id: groups.id,
+      name: groups.name,
+      status: groups.status,
+      url: sql<string>`coalesce(${sources.url}, '')`,
+    })
     .from(groups)
+    .leftJoin(
+      sources,
+      sql`(${groups.sourceId} = ${sources.id} OR (${groups.sourceId} IS NULL AND lower(${groups.name}) = lower(${sources.groupName})))`
+    )
     .where(eq(groups.userId, user.id))
     .orderBy(groups.id);
 

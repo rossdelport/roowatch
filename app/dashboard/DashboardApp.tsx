@@ -35,7 +35,7 @@ type Source = {
   lastError: string;
   watchers: number;
 };
-type Group = { id: number; name: string; status: string };
+type Group = { id: number; name: string; status: string; url?: string };
 type Alert = {
   id: number;
   groupName: string;
@@ -110,6 +110,8 @@ const I = {
   flow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M4 4v6a2 2 0 0 0 2 2h12a2 2 0 0 1 2 2v6"/><circle cx="4" cy="3" r="1.6"/><circle cx="20" cy="21" r="1.6"/></svg>,
   out: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   tick: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>,
+  dots: <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>,
+  bin: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>,
   spark: <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2.5l1.9 5.3 5.3 1.9-5.3 1.9L12 16.9l-1.9-5.3L4.8 9.7l5.3-1.9z"/><path d="M18.5 15l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></svg>,
 };
 
@@ -1329,6 +1331,72 @@ function PostsRead({ posts }: { posts: ReadPost[] | null }) {
   );
 }
 
+/**
+ * The three dots on a group row.
+ *
+ * Remove used to sit right there in the open, one stray tap from deleting a
+ * group. It is now behind the menu, next to a way to open the group on
+ * Facebook, so a member can go and look before deciding.
+ */
+function GroupMenu({ group, busy, onRemove }: {
+  group: Group;
+  busy: boolean;
+  onRemove: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const shut = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", shut);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", shut);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  return (
+    <span className="dots-wrap" ref={box}>
+      <button
+        className={open ? "dots on" : "dots"}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Options for ${group.name}`}
+        onClick={() => setOpen(!open)}
+      >
+        {I.dots}
+      </button>
+      {open && (
+        <span className="dots-menu" role="menu">
+          {group.url ? (
+            <a className="dots-item" role="menuitem" href={group.url} target="_blank" rel="noreferrer noopener" onClick={() => setOpen(false)}>
+              {I.out} Visit group on Facebook
+            </a>
+          ) : (
+            <span className="dots-item off">Still connecting this group</span>
+          )}
+          <button
+            className="dots-item danger"
+            role="menuitem"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false);
+              if (confirm(`Stop watching ${group.name}? You will not get leads from it any more.`)) onRemove();
+            }}
+          >
+            {I.bin} Remove
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: number; onRefresh: () => void }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1376,8 +1444,12 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
             <div className="group-row" key={g.id}>
               <span className="group-name">{g.name}</span>
               <span className="row gap">
-                    <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
-                <button className="mini" disabled={busy} onClick={() => call({ action: "remove", groupId: g.id })}>Remove</button>
+                <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
+                <GroupMenu
+                  group={g}
+                  busy={busy}
+                  onRemove={() => call({ action: "remove", groupId: g.id })}
+                />
               </span>
             </div>
           ))
@@ -2636,6 +2708,17 @@ const CSS = `
 .key-mrr{background:var(--mint);}
 
 .plan-switch.left{justify-content:flex-start;margin-top:8px;}
+
+.dots-wrap{display:inline-flex;position:relative;}
+.dots{align-items:center;background:none;border:0;border-radius:8px;color:#a8b0c0;display:inline-flex;height:30px;justify-content:center;transition:background .18s,color .18s;width:30px;}
+.dots:hover,.dots.on{background:#f2eee7;color:var(--ink);}
+.dots-menu{animation:dPop .16s var(--ease) both;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 16px 36px rgba(23,32,56,.16);display:grid;min-width:212px;overflow:hidden;padding:5px;position:absolute;right:0;top:34px;z-index:20;}
+.dots-item{align-items:center;background:none;border:0;border-radius:8px;color:var(--ink);display:flex;font-size:13.5px;font-weight:600;gap:9px;padding:9px 11px;text-align:left;text-decoration:none;transition:background .15s;white-space:nowrap;width:100%;}
+.dots-item:hover{background:#faf7f2;}
+.dots-item.danger{color:var(--coral-deep);}
+.dots-item.danger:hover{background:#fdece8;}
+.dots-item.off{color:#a8b0c0;cursor:default;font-weight:500;}
+.dots-item svg{flex:none;opacity:.7;}
 
 /* ---- posts we read ---- */
 .read-list{display:grid;gap:12px;}
