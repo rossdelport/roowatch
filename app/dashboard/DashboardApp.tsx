@@ -3289,7 +3289,11 @@ function FunnelView({ rows, signupRows, signups, trades, days, onDays, onStatus 
 
 const CSS = `
 .dash { --cream:#fff9f1; --ink:#172038; --muted:#6b7385; --line:#ece5da; --navy:#111d36; --coral:#ff6a4d; --coral-deep:#f04f31; --mint:#2eaa81; --mint-soft:#c9efdb; --shadow:0 30px 70px rgba(23,32,56,.13); --shadow-soft:0 12px 30px rgba(23,32,56,.08); --ease:cubic-bezier(.22,1,.36,1);
-  background:var(--cream); color:var(--ink); font-family:var(--font-inter-tight),"Inter Tight",Arial,sans-serif; min-height:100vh; }
+  background:var(--cream); color:var(--ink); font-family:var(--font-inter-tight),"Inter Tight",Arial,sans-serif;
+  /* A column exactly one window tall. The signed-in-as bar takes its slice
+     off the top and the shell fills whatever is left, so the shell is
+     never pushed part way off the bottom. */
+  display:flex; flex-direction:column; height:100vh; overflow:hidden; }
 .dash *{box-sizing:border-box;font-family:inherit;}
 .dash button{cursor:pointer;}
 .boot{align-items:center;color:var(--muted);display:flex;justify-content:center;min-height:100vh;}
@@ -3301,8 +3305,11 @@ const CSS = `
 .brand-dark{color:var(--ink);}
 .brand-mark{align-items:center;background:var(--coral);border-radius:8px 8px 8px 3px;color:#fff;display:inline-flex;font-size:15px;font-weight:900;height:28px;justify-content:center;transform:rotate(-6deg);width:28px;}
 
-.shell{display:grid;grid-template-columns:250px 1fr;min-height:100vh;}
-.side{background:var(--navy);color:#fff;display:flex;flex-direction:column;height:100vh;padding:24px 16px;position:sticky;top:0;}
+/* The app shell holds still and only the content area scrolls. The page
+   used to scroll as one document, so on a tall view the buttons at the
+   bottom of a panel walked off the screen and had to be chased. */
+.shell{display:grid;flex:1;grid-template-columns:250px 1fr;min-height:0;overflow:hidden;}
+.side{background:var(--navy);color:#fff;display:flex;flex-direction:column;height:100%;min-height:0;overflow-y:auto;padding:24px 16px;}
 .side .brand{padding:4px 10px 22px;}
 .nav{display:grid;gap:4px;margin-top:8px;}
 .nav button,.side-bottom>button{align-items:center;background:none;border:0;border-radius:10px;color:#b8c3d8;display:flex;font-size:14px;font-weight:600;gap:11px;padding:11px 12px;text-align:left;transition:background .2s var(--ease),color .2s var(--ease);width:100%;}
@@ -3319,7 +3326,7 @@ const CSS = `
 .avatar-img{border-radius:99px;height:34px;object-fit:cover;width:34px;}
 .avatar-fallback{align-items:center;background:var(--coral);border-radius:99px;color:#fff;display:inline-flex;flex:none;font-size:12px;font-weight:800;height:34px;justify-content:center;width:34px;}
 
-.main{min-width:0;padding:36px 40px 60px;}
+.main{min-height:0;min-width:0;overflow-y:auto;padding:36px 40px 60px;}
 .page{animation:dRise .45s var(--ease) both;margin:0 auto;max-width:920px;}
 .page-head{align-items:center;display:flex;gap:16px;justify-content:space-between;margin-bottom:24px;}
 .page-head h1{font-size:26px;letter-spacing:-.02em;margin:0 0 4px;}
@@ -3468,8 +3475,14 @@ const CSS = `
 .admin td a{color:var(--coral-deep);text-decoration:none;}
 
 @media(max-width:860px){
-  .shell{grid-template-columns:1fr;}
-  .side{align-items:center;flex-direction:row;flex-wrap:wrap;gap:6px;height:auto;position:static;}
+  /* One narrow column has no room for a fixed shell, so the page scrolls
+     as one again and the sidebar rides along the top. */
+  .dash{display:block;height:auto;overflow:visible;}
+  .shell{grid-template-columns:1fr;min-height:100vh;overflow:visible;}
+  .side{align-items:center;flex-direction:row;flex-wrap:wrap;gap:6px;height:auto;overflow:visible;position:static;}
+  .main{overflow:visible;}
+  .chat-card{height:auto;}
+  .thread-list{max-height:50vh;}
   .side .brand{padding:4px 8px;}
   .nav{display:flex;gap:4px;margin:0 auto;}
   .nav button{padding:9px 10px;}
@@ -3490,7 +3503,7 @@ const CSS = `
 .subhead{margin-bottom:16px;}
 .subhead .muted{font-size:13.5px;}
 
-.ghost-bar{align-items:center;background:#111d36;color:#fff;display:flex;flex-wrap:wrap;font-size:13.5px;gap:12px;justify-content:center;padding:11px 18px;position:sticky;text-align:center;top:0;z-index:60;}
+.ghost-bar{align-items:center;background:#111d36;color:#fff;display:flex;flex:none;flex-wrap:wrap;font-size:13.5px;gap:12px;justify-content:center;padding:11px 18px;text-align:center;z-index:60;}
 .ghost-bar strong{color:var(--coral);}
 .ghost-bar button{background:#fff;border:0;border-radius:99px;color:#111d36;font-size:12.5px;font-weight:800;padding:7px 14px;}
 .switch{background:#dfe3ea;border:0;border-radius:99px;flex:none;height:26px;padding:3px;transition:background .2s var(--ease);width:46px;}
@@ -3603,9 +3616,7 @@ const CSS = `
 .btn.square{border-radius:10px;}
 /* The support tab is a workspace, not a reading column. Let it use the screen. */
 .page.admin.wide{max-width:1440px;}
-.wide .chat-card{min-height:min(72vh,660px);}
 .wide .chat-log{max-height:none;}
-.wide .thread-list{max-height:min(72vh,660px);}
 
 .confetti{inset:0;overflow:hidden;pointer-events:none;position:fixed;z-index:90;}
 .confetti i{animation:fall linear forwards;position:absolute;top:-24px;will-change:transform,opacity;}
@@ -3665,12 +3676,12 @@ const CSS = `
 @media(prefers-reduced-motion:reduce){.rw-panel,.rw-panel.out,.rw-icon-swap,.rw-badge,.bubble-row.pop .bubble{animation:none;}}
 
 /* ---- support chat ---- */
-.chat-card{display:flex;flex-direction:column;min-height:420px;padding:0;}
+/* Sized to the window, so the reply box is always on screen and the
+   messages scroll behind it. */
+.chat-card{display:flex;flex-direction:column;height:calc(100vh - 400px);min-height:340px;padding:0;}
 .chat-head{border-bottom:1px solid var(--line);display:grid;gap:2px;padding:16px 20px;}
-.chat-log{align-content:start;display:grid;gap:12px;flex:1;overflow-y:auto;max-height:52vh;padding:20px;}
-.wide .chat-card{min-height:min(72vh,660px);}
+.chat-log{align-content:start;display:grid;gap:12px;flex:1;min-height:0;overflow-y:auto;padding:20px;}
 .wide .chat-log{max-height:none;}
-.wide .thread-list{max-height:min(72vh,660px);}
 .bubble-row{align-items:flex-start;display:flex;}
 .bubble-row.me{justify-content:flex-end;}
 .bubble{border-radius:14px;max-width:min(78%,460px);padding:10px 14px;width:fit-content;}
@@ -3683,7 +3694,7 @@ const CSS = `
 .chat-send .btn{flex:none;}
 
 .chat-split{align-items:start;display:grid;gap:16px;grid-template-columns:300px 1fr;}
-.thread-list{display:grid;gap:8px;max-height:60vh;overflow-y:auto;}
+.thread-list{align-content:start;display:grid;gap:8px;max-height:calc(100vh - 400px);overflow-y:auto;}
 .thread{background:#fff;border:1px solid var(--line);border-radius:12px;display:grid;gap:4px;padding:12px 14px;text-align:left;transition:border-color .18s var(--ease),box-shadow .18s var(--ease);}
 .thread:hover{border-color:var(--coral);}
 .thread.on{border-color:var(--coral);box-shadow:var(--shadow-soft);}
