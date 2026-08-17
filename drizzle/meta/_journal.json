@@ -141,6 +141,13 @@
       "when": 1786931382032,
       "tag": "0019_aspiring_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1786938658723,
+      "tag": "0020_lonely_sinister_six",
+      "breakpoints": true
     }
   ]
 }

@@ -163,5 +163,7 @@ export const waitlist = sqliteTable("waitlist", {
   name: text("name").notNull().default(""),
   phone: text("phone").notNull().default(""),
   trade: text("trade").notNull().default(""),
+  /** Where Ross has got to with them: new, booked, client or dead. */
+  status: text("status").notNull().default("new"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });

@@ -7,6 +7,7 @@ import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
 import { OTHER_TRADE, TRADES } from "../../db/trades";
 import { PLAN_KEYS, PLANS, type Plan } from "../../db/plans";
+import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
 
 type User = { id: string; email: string; name: string };
 type Profile = {
@@ -145,7 +146,7 @@ export default function DashboardApp() {
   const [keys, setKeys] = useState<{ apify: boolean; anthropic: boolean }>({ apify: false, anthropic: false });
   const [funnel, setFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
   const [signupFunnel, setSignupFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
-  const [signups, setSignups] = useState<{ email: string; name: string; phone: string; trade: string; createdAt: string }[]>([]);
+  const [signups, setSignups] = useState<{ email: string; name: string; phone: string; trade: string; status?: string; createdAt: string }[]>([]);
   const [tradeStats, setTradeStats] = useState<{ slug: string; views: number; signups: number; rate: number }[]>([]);
 
   const refresh = useCallback(async () => {
@@ -229,7 +230,7 @@ export default function DashboardApp() {
         const f = (await fRes.json()) as {
           funnel?: { label: string; count: number; rate: number }[];
           signupFunnel?: { label: string; count: number; rate: number }[];
-          signups?: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
+          signups?: { email: string; name: string; phone: string; trade: string; status?: string; createdAt: string }[];
           trades?: { slug: string; views: number; signups: number; rate: number }[];
         };
         setFunnel(f.funnel ?? []);
@@ -342,6 +343,7 @@ export default function DashboardApp() {
               funnel={funnel} signupFunnel={signupFunnel} signups={signups} tradeStats={tradeStats}
               funnelDays={funnelDays}
               onFunnelDays={(d) => { setFunnelDays(d); unlockAdmin("funnel", d); }}
+              onLeadStatus={(email, status) => adminCall("/api/admin/funnel", { action: "status", email, status, days: funnelDays })}
               userStats={userStats} history={history} flash={adminFlash} adminPassword={adminPass}
               threads={threads} waiting={waiting}
               members={members} adminCall={adminCall}
@@ -2738,8 +2740,9 @@ function MarketingView(props: {
   funnel: { label: string; count: number; rate: number }[];
   funnelDays: number;
   onFunnelDays: (days: number) => void;
+  onLeadStatus: (email: string, status: string) => void;
   signupFunnel: { label: string; count: number; rate: number }[];
-  signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
+  signups: { email: string; name: string; phone: string; trade: string; status?: string; createdAt: string }[];
   tradeStats: { slug: string; views: number; signups: number; rate: number }[];
   members: Member[];
   adminCall: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
@@ -2769,7 +2772,7 @@ function MarketingView(props: {
         ))}
       </div>
       <div className="subpanel">
-        {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} days={props.funnelDays} onDays={props.onFunnelDays} />}
+        {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} days={props.funnelDays} onDays={props.onFunnelDays} onStatus={props.onLeadStatus} />}
         {props.active === "support" && <SupportView threads={props.threads} flash={props.flash} onAction={props.adminCall} />}
         {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} adminPassword={props.adminPassword} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
@@ -2817,13 +2820,61 @@ function Bars({ rows, empty }: {
   );
 }
 
-function FunnelView({ rows, signupRows, signups, trades, days, onDays }: {
+/** Where Ross got to with a waitlist lead. Click the pill, pick the next step. */
+function LeadPill({ email, status, onSet }: {
+  email: string;
+  status?: string;
+  onSet: (email: string, status: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  const current = leadStatus(status);
+
+  useEffect(() => {
+    if (!open) return;
+    const shut = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", shut);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", shut);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  return (
+    <span className="dots-wrap" ref={box}>
+      <button className={`lead-pill tone-${current.tone}`} onClick={() => setOpen(!open)}>
+        {current.label}
+        <i className="caret" />
+      </button>
+      {open && (
+        <span className="dots-menu" role="menu">
+          {LEAD_STATUSES.map((st) => (
+            <button
+              key={st.key}
+              className={st.key === current.key ? "dots-item on" : "dots-item"}
+              role="menuitem"
+              onClick={() => { setOpen(false); if (st.key !== current.key) onSet(email, st.key); }}
+            >
+              <i className={`tone-dot tone-${st.tone}`} />
+              {st.label}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function FunnelView({ rows, signupRows, signups, trades, days, onDays, onStatus }: {
   rows: { label: string; count: number; rate: number }[];
   signupRows: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
   trades: { slug: string; views: number; signups: number; rate: number }[];
   days: number;
   onDays: (days: number) => void;
+  onStatus: (email: string, status: string) => void;
 }) {
   const activeTrades = trades.filter((t) => t.views > 0 || t.signups > 0);
   const when = (t: string) =>
@@ -2896,7 +2947,7 @@ function FunnelView({ rows, signupRows, signups, trades, days, onDays }: {
                     <td>{w.trade || "-"}</td>
                     <td>{w.phone ? <a href={`tel:${w.phone.replace(/\s/g, "")}`}>{w.phone}</a> : "-"}</td>
                     <td><a href={`mailto:${w.email}`}>{w.email}</a></td>
-                    <td><span className={w.phone ? "chip-status ok" : "chip-status pending"}>{w.phone ? "Ready to call" : "Email only"}</span></td>
+                    <td><LeadPill email={w.email} status={w.status} onSet={onStatus} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -3172,6 +3223,20 @@ const CSS = `
 .dots-item svg{flex:none;opacity:.7;}
 
 /* Matches the input beside it. A pill next to a rounded rectangle looks wrong. */
+.lead-pill{align-items:center;border:1px solid transparent;border-radius:99px;display:inline-flex;font-size:11.5px;font-weight:800;gap:6px;padding:5px 10px;transition:filter .18s;white-space:nowrap;}
+.lead-pill:hover{filter:brightness(.96);}
+.lead-pill .caret{border-left:4px solid transparent;border-right:4px solid transparent;border-top:4px solid currentColor;display:inline-block;opacity:.6;}
+.tone-grey{background:#eef1f6;color:#4a5468;}
+.tone-amber{background:#fff3d8;color:#8a5a00;}
+.tone-green{background:var(--mint-soft);color:#14724f;}
+.tone-red{background:#fdece8;color:var(--coral-deep);}
+.tone-dot{border-radius:99px;display:inline-block;flex:none;height:9px;width:9px;}
+.tone-dot.tone-grey{background:#8b93a7;}
+.tone-dot.tone-amber{background:#e0a80f;}
+.tone-dot.tone-green{background:var(--mint);}
+.tone-dot.tone-red{background:var(--coral-deep);}
+.dots-item.on{background:#faf7f2;font-weight:800;}
+
 .range{background:#f6f1e9;border-radius:99px;display:flex;gap:3px;padding:3px;}
 .range-pick{background:none;border:0;border-radius:99px;color:var(--muted);font-size:12.5px;font-weight:700;padding:7px 13px;transition:background .18s var(--ease),color .18s;}
 .range-pick:hover{color:var(--ink);}

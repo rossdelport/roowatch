@@ -1,0 +1,1 @@
+ALTER TABLE `waitlist` ADD `status` text DEFAULT 'new' NOT NULL;

@@ -1,11 +1,15 @@
-import { desc, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { events, users, waitlist } from "../../../../db/schema";
+import { isLeadStatus } from "../../../../db/leadstatus";
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     password?: string;
     days?: number;
+    action?: "status";
+    email?: string;
+    status?: string;
   };
   const adminPassword = process.env.ADMIN_PASSWORD;
   if (!adminPassword) {
@@ -13,6 +17,19 @@ export async function POST(request: Request) {
   }
   if (!body.password || body.password !== adminPassword) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const db0 = getDb();
+  // Ross marking where he got to with a lead. Same endpoint, since the table
+  // it changes is rendered right here.
+  if (body.action === "status" && body.email && body.status) {
+    if (!isLeadStatus(body.status)) {
+      return Response.json({ error: "bad_status" }, { status: 400 });
+    }
+    await db0
+      .update(waitlist)
+      .set({ status: body.status })
+      .where(eq(waitlist.email, body.email.trim().toLowerCase()));
   }
 
   const days = Math.min(Math.max(Number(body.days ?? 7), 1), 90);
@@ -57,6 +74,7 @@ export async function POST(request: Request) {
       name: waitlist.name,
       phone: waitlist.phone,
       trade: waitlist.trade,
+      status: waitlist.status,
       createdAt: waitlist.createdAt,
     })
     .from(waitlist)
