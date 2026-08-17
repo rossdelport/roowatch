@@ -1235,7 +1235,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
         <h3>Session</h3>
         <button className="btn ghost" onClick={onLogout}>Log out</button>
       </div>
-      <CancelSubscription />
+      <ManageSubscription plan={plan} />
     </div>
   );
 }
@@ -1957,14 +1957,18 @@ function SaveState({ status }: { status: "clean" | "typing" | "saving" | "saved"
 }
 
 /**
- * Cancelling happens on Stripe, not here.
+ * Everything about their subscription happens on Stripe, not here.
  *
- * We hand them a one time link into Stripe's own billing portal, where they can
- * cancel, change their card or read their invoices. Their customer id comes
- * from their own row, so this can only ever reach their own subscription. It
- * also means no cancellation logic and no card details live in RooWatch.
+ * One time link into Stripe's own billing portal, where they can move between
+ * plans, cancel, change their card or read invoices. Their customer id comes
+ * from their own row, so this can only ever reach their own subscription, and
+ * no billing logic or card details ever live in RooWatch.
+ *
+ * A plan change there fires customer.subscription.updated, and the webhook
+ * reads the new price back onto their profile. So an upgrade lifts their group
+ * and post limits without anyone touching the admin panel.
  */
-function CancelSubscription() {
+function ManageSubscription({ plan }: { plan: Plan }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -1991,17 +1995,30 @@ function CancelSubscription() {
   }
 
   return (
-    <div className="card danger">
-      <h3>Cancel subscription</h3>
+    <div className="card">
+      <h3>Your subscription</h3>
       <p className="muted">
-        Opens your billing page, where you can cancel, change your card or download
-        an invoice. You keep your leads until the end of the month you have paid for.
+        Move up a plan for more groups, drop down, change your card, grab an invoice,
+        or cancel. It all happens on our secure billing page.
       </p>
+      <div className="sub-plans">
+        {PLAN_KEYS.map((k) => (
+          <span key={k} className={plan.key === k ? "sub-plan on" : "sub-plan"}>
+            <strong>{PLANS[k].name}</strong>
+            <span>${PLANS[k].priceAud} &middot; {PLANS[k].groups} groups</span>
+            {plan.key === k && <em>Your plan</em>}
+          </span>
+        ))}
+      </div>
       {error && <p className="error">{error}</p>}
-      <button className="btn ghost mt" disabled={busy} onClick={openPortal}>
-        {busy ? "Opening" : "Manage or cancel my subscription"}
+      <button className="btn primary mt" disabled={busy} onClick={openPortal}>
+        {busy ? "Opening" : "Manage subscription"}
       </button>
-      <p className="tiny">Changed your mind? Message us on the support bubble first, we might be able to help.</p>
+      <p className="tiny">
+        Upgrades take effect straight away and the difference goes on your next
+        invoice. If you cancel you keep your leads until the end of the period you
+        have paid for.
+      </p>
     </div>
   );
 }
@@ -3260,6 +3277,13 @@ const CSS = `
 .tone-dot.tone-green{background:var(--mint);}
 .tone-dot.tone-red{background:var(--coral-deep);}
 .dots-item.on{background:#faf7f2;font-weight:800;}
+
+.sub-plans{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin:16px 0 4px;}
+.sub-plan{background:#faf7f2;border:1px solid var(--line);border-radius:12px;display:grid;gap:2px;padding:12px 14px;position:relative;}
+.sub-plan strong{font-size:14px;}
+.sub-plan span{color:var(--muted);font-size:12px;}
+.sub-plan.on{background:#fff;border-color:var(--coral);box-shadow:var(--shadow-soft);}
+.sub-plan em{color:var(--coral-deep);font-size:11px;font-style:normal;font-weight:800;margin-top:3px;}
 
 .range{background:#f6f1e9;border-radius:99px;display:flex;gap:3px;padding:3px;}
 .range-pick{background:none;border:0;border-radius:99px;color:var(--muted);font-size:12.5px;font-weight:700;padding:7px 13px;transition:background .18s var(--ease),color .18s;}
