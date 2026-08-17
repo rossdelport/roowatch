@@ -10,6 +10,39 @@ import { PLAN_KEYS, PLANS, type Plan } from "../../db/plans";
 import { BRIEF_MAX, BRIEF_MIN } from "../../db/brief";
 import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
 
+const PIXEL_ID = "4105570149577363";
+
+type Pixel = ((...args: unknown[]) => void) & {
+  queue?: unknown[];
+  callMethod?: (...args: unknown[]) => void;
+  loaded?: boolean;
+  version?: string;
+};
+
+/** The standard Meta snippet, written once when the dashboard opens after
+ *  checkout. Loaded here rather than on every dashboard visit, so it never
+ *  runs for a member who is just checking their leads. */
+function startPixel() {
+  const w = window as unknown as { fbq?: Pixel; _fbq?: Pixel };
+  if (w.fbq) return;
+  const fbq: Pixel = function (...args: unknown[]) {
+    if (fbq.callMethod) fbq.callMethod(...args);
+    else fbq.queue!.push(args);
+  } as Pixel;
+  fbq.queue = [];
+  fbq.loaded = true;
+  fbq.version = "2.0";
+  w.fbq = fbq;
+  w._fbq = fbq;
+
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = "https://connect.facebook.net/en_US/fbevents.js";
+  document.head.appendChild(script);
+
+  fbq("init", PIXEL_ID);
+}
+
 type User = { id: string; email: string; name: string };
 type Profile = {
   businessName: string;
@@ -188,6 +221,23 @@ export default function DashboardApp() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    // Stripe sends them back here the moment checkout completes, card and
+    // all. That is the real conversion, so this is where the pixel fires,
+    // not the signup form where anyone who abandons at the card step would
+    // still have counted.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success") return;
+    params.delete("checkout");
+    const rest = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
+
+    startPixel();
+    (window as unknown as { fbq?: Pixel }).fbq?.("track", "CompleteRegistration", {
+      content_name: "RooWatch account",
+    });
   }, []);
 
   async function logout() {

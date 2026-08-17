@@ -14,10 +14,6 @@ type Pixel = ((...args: unknown[]) => void) & {
   version?: string;
 };
 
-function pixel() {
-  return (window as unknown as { fbq?: Pixel }).fbq;
-}
-
 /** The standard Meta snippet, written once when the page opens. */
 function startPixel() {
   const w = window as unknown as { fbq?: Pixel; _fbq?: Pixel };
@@ -126,7 +122,9 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
       }
 
       if (mode === "signup") {
-        pixel()?.("track", "CompleteRegistration", { content_name: "RooWatch account" });
+        // The pixel's CompleteRegistration event fires on the dashboard once
+        // Stripe checkout actually completes, not here. Firing it this early
+        // would count someone who abandons at the card form as a conversion.
         // Checkout is built on our side so the intro discount and the trial
         // come from the plan, not from a link anyone could edit.
         const checkout = await fetch("/api/checkout", {

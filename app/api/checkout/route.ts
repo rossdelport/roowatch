@@ -35,7 +35,9 @@ export async function POST(request: Request) {
     client_reference_id: user.email,
     "metadata[plan]": planKey,
     "subscription_data[metadata][plan]": planKey,
-    success_url: "https://roowatch.com.au/dashboard",
+    // The dashboard uses this to fire the Facebook pixel only once the card
+    // has actually gone through, not at the signup form.
+    success_url: "https://roowatch.com.au/dashboard?checkout=success",
     cancel_url: "https://roowatch.com.au/signup",
   });
 

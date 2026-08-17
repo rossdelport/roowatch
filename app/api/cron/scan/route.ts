@@ -112,8 +112,11 @@ async function collectJob(job: Job) {
   );
   for (const source of rows) {
     const slug = groupSlug(source.url);
-    await learnAbout(source, facts.get(slug));
     await processSource(source.id, byGroup.get(slug) ?? []);
+    // After, never before. processSource writes its own lastError at the end
+    // of every pass, so learning first would have the reason wiped a moment
+    // after we wrote it down.
+    await learnAbout(source, facts.get(slug));
   }
 
   await db.delete(scanJobs).where(eq(scanJobs.id, job.id));
@@ -134,7 +137,7 @@ async function collectJob(job: Job) {
  * Saying so beats leaving somebody to wonder why that one is always quiet.
  */
 async function learnAbout(
-  source: { id: number; groupName: string; url: string },
+  source: { id: number; groupName: string; url: string; lastError: string },
   fact: GroupFacts | undefined
 ) {
   if (!fact) return;
