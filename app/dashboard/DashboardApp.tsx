@@ -3331,8 +3331,14 @@ const CSS = `
 .dash input:focus,.dash textarea:focus{border-color:var(--coral);}
 .dash textarea{margin-top:10px;}
 
-.overlay{align-items:center;animation:dRise .3s var(--ease) both;backdrop-filter:blur(4px);background:rgba(17,29,54,.55);display:flex;inset:0;justify-content:center;padding:20px;position:fixed;z-index:50;}
-.modal{animation:dPop .45s var(--ease) both;background:#fff;border-radius:20px;box-shadow:var(--shadow);max-width:460px;padding:32px;width:100%;}
+/* A fixed overlay does not scroll, so a modal taller than the window used
+   to lose its own buttons off the bottom edge. The wizard hit this the
+   moment somebody added their tenth group: Continue was still there and
+   still enabled, just below the screen with no way to reach it.
+   flex-start plus margin:auto keeps a short modal centred and keeps a
+   tall one fully scrollable from its very top. */
+.overlay{align-items:flex-start;animation:dRise .3s var(--ease) both;backdrop-filter:blur(4px);background:rgba(17,29,54,.55);display:flex;inset:0;justify-content:center;overflow-y:auto;padding:20px;position:fixed;z-index:50;}
+.modal{animation:dPop .45s var(--ease) both;background:#fff;border-radius:20px;box-shadow:var(--shadow);margin:auto;max-width:460px;padding:32px;width:100%;}
 .modal h2{font-size:22px;letter-spacing:-.02em;margin:0 0 6px;}
 .modal .muted{margin-bottom:18px;}
 .modal-small{max-width:380px;}
