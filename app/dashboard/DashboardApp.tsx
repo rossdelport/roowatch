@@ -728,8 +728,12 @@ function FirstLead({ me }: { me: Me }) {
   if (!started) return null;
 
   const hours = Math.max(0, (nowMs - started) / 3_600_000);
+  // Past the window it stops being reassurance and starts being a full bar
+  // telling somebody their lead is late. Nothing at all beats that.
+  if (hours >= TARGET_HOURS) return null;
+
   const pct = Math.min(100, (hours / TARGET_HOURS) * 100);
-  const left = Math.max(0, Math.ceil(TARGET_HOURS - hours));
+  const left = Math.max(1, Math.ceil(TARGET_HOURS - hours));
 
   return (
     <div className="firstlead">
@@ -744,9 +748,7 @@ function FirstLead({ me }: { me: Me }) {
         <i style={{ width: `${Math.max(2, pct)}%` }} />
       </div>
       <p className="tiny fl-foot">
-        {left > 0
-          ? `Typically ${left} ${left === 1 ? "hour" : "hours"} to go. You do not need to do anything.`
-          : "Taking longer than usual. Adding more groups is the fastest fix."}
+        Typically {left} {left === 1 ? "hour" : "hours"} to go. You do not need to do anything.
       </p>
     </div>
   );
