@@ -134,6 +134,13 @@
       "when": 1786917408895,
       "tag": "0018_overconfident_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1786931382032,
+      "tag": "0019_aspiring_gravity",
+      "breakpoints": true
     }
   ]
 }

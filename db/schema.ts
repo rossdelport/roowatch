@@ -130,6 +130,24 @@ export const alerts = sqliteTable("alerts", {
     .where(sql`${table.postKey} <> ''`),
 }));
 
+/**
+ * One support conversation per member, both sides in the same table.
+ *
+ * Priority support is sold on the Growth and Scale plans, so a tradie needs
+ * somewhere to ask that is not "email Ross and hope". Read flags drive the
+ * unread badges on both ends.
+ */
+export const supportMessages = sqliteTable("support_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  /** 1 when Ross wrote it, 0 when the member did. */
+  fromAdmin: integer("from_admin").notNull().default(0),
+  body: text("body").notNull(),
+  readByMember: integer("read_by_member").notNull().default(0),
+  readByAdmin: integer("read_by_admin").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const events = sqliteTable("events", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),

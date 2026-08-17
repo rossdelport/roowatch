@@ -110,6 +110,8 @@ const I = {
   flow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M4 4v6a2 2 0 0 0 2 2h12a2 2 0 0 1 2 2v6"/><circle cx="4" cy="3" r="1.6"/><circle cx="20" cy="21" r="1.6"/></svg>,
   out: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   tick: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>,
+  pencil: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>,
+  chat: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 4 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 8 8.4z"/></svg>,
   dots: <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>,
   bin: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>,
   spark: <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2.5l1.9 5.3 5.3 1.9-5.3 1.9L12 16.9l-1.9-5.3L4.8 9.7l5.3-1.9z"/><path d="M18.5 15l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></svg>,
@@ -119,7 +121,9 @@ export default function DashboardApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState("overview");
   const [leadsView, setLeadsView] = useState<"leads" | "posts">("leads");
-  const [adminTab, setAdminTab] = useState<null | "users" | "members" | "stripe" | "pipeline" | "funnel">(null);
+  const [adminTab, setAdminTab] = useState<null | "users" | "support" | "members" | "stripe" | "pipeline" | "funnel">(null);
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [waiting, setWaiting] = useState(0);
   const [adminPass, setAdminPass] = useState("");
   const [adminPrompt, setAdminPrompt] = useState(false);
   const [adminError, setAdminError] = useState("");
@@ -165,7 +169,7 @@ export default function DashboardApp() {
     refresh();
   }
 
-  async function unlockAdmin(target: "users" | "members" | "stripe" | "pipeline" | "funnel") {
+  async function unlockAdmin(target: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel") {
     setAdminBusy(true);
     setAdminError("");
     try {
@@ -175,11 +179,12 @@ export default function DashboardApp() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: adminPass }),
         });
-      const [mRes, sRes, pRes, fRes] = await Promise.all([
+      const [mRes, sRes, pRes, fRes, tRes] = await Promise.all([
         post("/api/admin/members"),
         post("/api/admin/stripe"),
         post("/api/admin/sources"),
         post("/api/admin/funnel"),
+        post("/api/admin/support"),
       ]);
       if (mRes.status === 401) {
         setAdminError("Wrong password.");
@@ -222,6 +227,12 @@ export default function DashboardApp() {
         setSignupFunnel(f.signupFunnel ?? []);
         setSignups(f.signups ?? []);
         setTradeStats(f.trades ?? []);
+      }
+      if (tRes.ok) {
+        const t = (await tRes.json()) as { threads?: Thread[]; waiting?: number; flash?: string };
+        setThreads(t.threads ?? []);
+        setWaiting(t.waiting ?? 0);
+        if (t.flash) setAdminFlash(t.flash);
       }
       setAdminTab(target);
       setAdminPrompt(false);
@@ -298,6 +309,7 @@ export default function DashboardApp() {
             <button className={tab === "overview" && !adminTab ? "on" : ""} onClick={() => { setTab("overview"); setAdminTab(null); }}>{I.grid} Overview</button>
             <button className={tab === "groups" && !adminTab ? "on" : ""} onClick={() => { setTab("groups"); setAdminTab(null); }}>{I.eye} Groups watching</button>
             <button className={tab === "alerts" && !adminTab ? "on" : ""} onClick={() => { setTab("alerts"); setAdminTab(null); }}>{I.bell} Leads</button>
+            <button className={tab === "support" && !adminTab ? "on" : ""} onClick={() => { setTab("support"); setAdminTab(null); }}>{I.chat} Support</button>
           </nav>
           <div className="side-bottom">
             {me.isAdmin && (
@@ -321,6 +333,7 @@ export default function DashboardApp() {
               active={adminTab} setActive={setAdminTab}
               funnel={funnel} signupFunnel={signupFunnel} signups={signups} tradeStats={tradeStats}
               userStats={userStats} history={history} flash={adminFlash} adminPassword={adminPass}
+              threads={threads} waiting={waiting}
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
@@ -1180,6 +1193,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
   }
 
   if (tab === "alerts") return <LeadsPage me={me} view={leadsView} setView={setLeadsView} />;
+  if (tab === "support") return <SupportPage me={me} />;
 
   return (
     <div className="page">
@@ -1369,10 +1383,11 @@ function PostsRead({ posts }: { posts: ReadPost[] | null }) {
  * group. It is now behind the menu, next to a way to open the group on
  * Facebook, so a member can go and look before deciding.
  */
-function GroupMenu({ group, busy, onRemove }: {
+function GroupMenu({ group, busy, onRemove, onRename }: {
   group: Group;
   busy: boolean;
   onRemove: () => void;
+  onRename: (name: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
@@ -1404,6 +1419,18 @@ function GroupMenu({ group, busy, onRemove }: {
       </button>
       {open && (
         <span className="dots-menu" role="menu">
+          <button
+            className="dots-item"
+            role="menuitem"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false);
+              const next = prompt("What do you want to call this group?", group.name);
+              if (next && next.trim() && next.trim() !== group.name) onRename(next.trim());
+            }}
+          >
+            {I.pencil} Rename
+          </button>
           {group.url ? (
             <a className="dots-item" role="menuitem" href={group.url} target="_blank" rel="noreferrer noopener" onClick={() => setOpen(false)}>
               {I.out} Visit group on Facebook
@@ -1425,6 +1452,224 @@ function GroupMenu({ group, busy, onRemove }: {
         </span>
       )}
     </span>
+  );
+}
+
+type SupportMessage = {
+  id: number;
+  userId: string;
+  fromAdmin: number;
+  body: string;
+  createdAt: string;
+};
+
+function chatTime(raw: string) {
+  return new Date(raw.replace(" ", "T") + "Z").toLocaleString("en-AU", {
+    timeZone: "Australia/Perth",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** The member's side of the conversation. */
+function SupportPage({ me }: { me: Me }) {
+  const [messages, setMessages] = useState<SupportMessage[] | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const plan = me.plan ?? PLANS.local;
+
+  useEffect(() => {
+    let live = true;
+    fetch("/api/member/support")
+      .then((r) => r.json())
+      .then((d: { messages?: SupportMessage[] }) => live && setMessages(d.messages ?? []))
+      .catch(() => live && setMessages([]));
+    return () => { live = false; };
+  }, []);
+
+  async function send() {
+    const text = draft.trim();
+    if (text.length < 2 || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/member/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+      const d = (await res.json()) as { messages?: SupportMessage[] };
+      if (d.messages) setMessages(d.messages);
+      setDraft("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <h1>Support</h1>
+          <p className="muted">Ask us anything. We answer here and by email.</p>
+        </div>
+        <span className="live"><i /> {plan.name} support</span>
+      </header>
+
+      <div className="card chat-card">
+        <div className="chat-log">
+          {messages === null ? (
+            <div className="empty"><span className="spinner" /></div>
+          ) : messages.length === 0 ? (
+            <div className="empty">
+              <p><strong>Say g&apos;day.</strong></p>
+              <p className="muted">
+                Stuck on a group? Not happy with your leads? Want more groups watched?
+                Write it below and Ross will get back to you.
+              </p>
+            </div>
+          ) : (
+            messages.map((m) => (
+              <div className={m.fromAdmin ? "bubble-row them" : "bubble-row me"} key={m.id}>
+                <div className="bubble">
+                  <p>{m.body}</p>
+                  <span className="bubble-time">{m.fromAdmin ? "Ross" : "You"} &middot; {chatTime(m.createdAt)}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="chat-send">
+          <textarea
+            rows={2}
+            placeholder="Type your message"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+            }}
+          />
+          <button className="btn primary" disabled={busy || draft.trim().length < 2} onClick={send}>
+            {busy ? "Sending" : "Send"}
+          </button>
+        </div>
+      </div>
+      <p className="tiny">We email you the moment Ross replies, so you do not have to sit here.</p>
+    </div>
+  );
+}
+
+type Thread = {
+  userId: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  businessName: string;
+  plan: string;
+  unread: number;
+  lastAt: string;
+  lastFromAdmin: boolean;
+  preview: string;
+  messages: SupportMessage[];
+};
+
+/** Ross's side: every conversation, whoever is waiting at the top. */
+function SupportView({ threads, flash, onAction }: {
+  threads: Thread[];
+  flash: string;
+  onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [openId, setOpenId] = useState<string | null>(threads[0]?.userId ?? null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const open = threads.find((t) => t.userId === openId) ?? threads[0] ?? null;
+
+  async function reply() {
+    if (!open || draft.trim().length < 2 || busy) return;
+    setBusy(true);
+    try {
+      await onAction("/api/admin/support", {
+        action: "reply",
+        userId: open.userId,
+        message: draft.trim(),
+      });
+      setDraft("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!threads.length) {
+    return (
+      <div className="subview">
+        <div className="card">
+          <div className="empty">
+            <p><strong>No messages yet.</strong></p>
+            <p className="muted">When a member writes from their dashboard it lands here, and in your inbox.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="subview">
+      {flash && <p className="flash mb">{flash}</p>}
+      <div className="chat-split">
+        <div className="thread-list">
+          {threads.map((t) => (
+            <button
+              key={t.userId}
+              className={t.userId === open?.userId ? "thread on" : "thread"}
+              onClick={() => { setOpenId(t.userId); if (t.unread) onAction("/api/admin/support", { action: "read", userId: t.userId }); }}
+            >
+              <div className="thread-top">
+                <strong>{t.businessName || t.name || t.email}</strong>
+                {t.unread > 0 && <span className="unread">{t.unread}</span>}
+              </div>
+              <span className="thread-preview">{t.lastFromAdmin ? "You: " : ""}{t.preview}</span>
+              <span className="thread-meta">{t.plan} &middot; {chatTime(t.lastAt)}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="card chat-card">
+          {open && (
+            <>
+              <div className="chat-head">
+                <strong>{open.businessName || open.name || open.email}</strong>
+                <span className="tiny">{open.email} &middot; {open.plan}</span>
+              </div>
+              <div className="chat-log">
+                {open.messages.map((m) => (
+                  <div className={m.fromAdmin ? "bubble-row me" : "bubble-row them"} key={m.id}>
+                    <div className="bubble">
+                      <p>{m.body}</p>
+                      <span className="bubble-time">{m.fromAdmin ? "You" : open.name || "Them"} &middot; {chatTime(m.createdAt)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="chat-send">
+                <textarea
+                  rows={2}
+                  placeholder={`Reply to ${open.name || open.email}`}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) reply(); }}
+                />
+                <button className="btn primary" disabled={busy || draft.trim().length < 2} onClick={reply}>
+                  {busy ? "Sending" : "Reply"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      <p className="tiny">Replying emails them too, so they see it without opening the dashboard.</p>
+    </div>
   );
 }
 
@@ -1480,6 +1725,7 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                   group={g}
                   busy={busy}
                   onRemove={() => call({ action: "remove", groupId: g.id })}
+                  onRename={(name) => call({ action: "rename", groupId: g.id, name })}
                 />
               </span>
             </div>
@@ -2385,8 +2631,10 @@ function shrinkImage(file: File): Promise<string> {
 }
 
 function MarketingView(props: {
-  active: "users" | "members" | "stripe" | "pipeline" | "funnel";
-  setActive: (t: "users" | "members" | "stripe" | "pipeline" | "funnel") => void;
+  active: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel";
+  setActive: (t: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel") => void;
+  threads: Thread[];
+  waiting: number;
   userStats: UserStats | null;
   history: HistoryPoint[];
   flash: string;
@@ -2401,8 +2649,9 @@ function MarketingView(props: {
   onScan: (id: number) => Promise<{ ok: boolean; matches?: number; posts?: number; error?: string }>;
   stripeRows: StripeRow[]; stripeOn: boolean; onRefreshStripe: () => void; adminBusy: boolean;
 }) {
-  const tabs: { key: "users" | "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
+  const tabs: { key: "users" | "support" | "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
     { key: "users", label: "Users" },
+    { key: "support", label: props.waiting ? `Support (${props.waiting})` : "Support" },
     { key: "funnel", label: "Ad funnel" },
     { key: "members", label: "Members" },
     { key: "pipeline", label: "Pipeline" },
@@ -2423,6 +2672,7 @@ function MarketingView(props: {
       </div>
       <div className="subpanel">
         {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} />}
+        {props.active === "support" && <SupportView threads={props.threads} flash={props.flash} onAction={props.adminCall} />}
         {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} adminPassword={props.adminPassword} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
         {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
@@ -2805,6 +3055,33 @@ const CSS = `
 .dots-item.danger:hover{background:#fdece8;}
 .dots-item.off{color:#a8b0c0;cursor:default;font-weight:500;}
 .dots-item svg{flex:none;opacity:.7;}
+
+/* ---- support chat ---- */
+.chat-card{display:flex;flex-direction:column;min-height:420px;padding:0;}
+.chat-head{border-bottom:1px solid var(--line);display:grid;gap:2px;padding:16px 20px;}
+.chat-log{display:grid;gap:12px;flex:1;overflow-y:auto;max-height:52vh;padding:20px;}
+.bubble-row{display:flex;}
+.bubble-row.me{justify-content:flex-end;}
+.bubble{border-radius:14px;max-width:78%;padding:11px 14px;}
+.bubble p{font-size:14.5px;line-height:1.5;margin:0;white-space:pre-wrap;}
+.bubble-time{display:block;font-size:11px;margin-top:6px;opacity:.65;}
+.bubble-row.them .bubble{background:#f4f1ec;border:1px solid var(--line);color:var(--ink);}
+.bubble-row.me .bubble{background:var(--coral);color:#fff;}
+.chat-send{align-items:flex-end;border-top:1px solid var(--line);display:flex;gap:10px;padding:14px 20px;}
+.chat-send textarea{margin:0;}
+.chat-send .btn{flex:none;}
+
+.chat-split{align-items:start;display:grid;gap:16px;grid-template-columns:270px 1fr;}
+.thread-list{display:grid;gap:8px;max-height:60vh;overflow-y:auto;}
+.thread{background:#fff;border:1px solid var(--line);border-radius:12px;display:grid;gap:4px;padding:12px 14px;text-align:left;transition:border-color .18s var(--ease),box-shadow .18s var(--ease);}
+.thread:hover{border-color:var(--coral);}
+.thread.on{border-color:var(--coral);box-shadow:var(--shadow-soft);}
+.thread-top{align-items:center;display:flex;gap:8px;justify-content:space-between;}
+.thread-top strong{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.unread{background:var(--coral);border-radius:99px;color:#fff;flex:none;font-size:11px;font-weight:800;min-width:19px;padding:2px 6px;text-align:center;}
+.thread-preview{color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.thread-meta{color:#a8b0c0;font-size:11.5px;font-weight:600;}
+@media(max-width:860px){.chat-split{grid-template-columns:1fr;}.thread-list{max-height:220px;}}
 
 /* ---- posts we read ---- */
 .read-list{display:grid;gap:12px;}

@@ -1,15 +1,15 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { groupLimit } from "../../../../db/plans";
-import { groups, profiles } from "../../../../db/schema";
+import { groups, profiles, sources } from "../../../../db/schema";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await request.json().catch(() => ({}))) as {
-    action?: "add" | "remove";
+    action?: "add" | "remove" | "rename";
     name?: string;
     groupId?: number;
   };
@@ -34,6 +34,44 @@ export async function POST(request: Request) {
       return Response.json({ error: "duplicate" }, { status: 400 });
     }
     await db.insert(groups).values({ userId: user.id, name, status: "pending" });
+    return Response.json({ ok: true });
+  }
+
+  /**
+   * Rename a group, for looks only. Some groups come back from Facebook as
+   * "Perth Group 600380330147945" and a member should be able to write what
+   * they actually call it.
+   *
+   * The trap: a group with no source_id is matched to its scraper by NAME.
+   * Renaming one of those would quietly cut it off from the pipeline and the
+   * member would simply stop getting leads, with no error anywhere. So we
+   * pin the source id first, using the old name, before the name changes.
+   */
+  if (body.action === "rename" && body.groupId) {
+    const name = (body.name ?? "").trim().slice(0, 120);
+    if (name.length < 2) return Response.json({ error: "bad_name" }, { status: 400 });
+
+    const [mine] = await db
+      .select({ id: groups.id, name: groups.name, sourceId: groups.sourceId })
+      .from(groups)
+      .where(and(eq(groups.id, body.groupId), eq(groups.userId, user.id)))
+      .limit(1);
+    if (!mine) return Response.json({ error: "not_yours" }, { status: 404 });
+
+    let sourceId = mine.sourceId;
+    if (!sourceId) {
+      const [match] = await db
+        .select({ id: sources.id })
+        .from(sources)
+        .where(sql`lower(${sources.groupName}) = lower(${mine.name})`)
+        .limit(1);
+      sourceId = match?.id ?? null;
+    }
+
+    await db
+      .update(groups)
+      .set({ name, ...(sourceId ? { sourceId } : {}) })
+      .where(and(eq(groups.id, body.groupId), eq(groups.userId, user.id)));
     return Response.json({ ok: true });
   }
 
