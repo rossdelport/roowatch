@@ -111,6 +111,7 @@ const I = {
   out: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   tick: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>,
   pencil: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>,
+  x: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" width="15" height="15"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   chat: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 4 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 8 8.4z"/></svg>,
   dots: <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>,
   bin: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>,
@@ -1387,7 +1388,7 @@ function GroupMenu({ group, busy, onRemove, onRename }: {
   group: Group;
   busy: boolean;
   onRemove: () => void;
-  onRename: (name: string) => void;
+  onRename: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
@@ -1423,11 +1424,7 @@ function GroupMenu({ group, busy, onRemove, onRename }: {
             className="dots-item"
             role="menuitem"
             disabled={busy}
-            onClick={() => {
-              setOpen(false);
-              const next = prompt("What do you want to call this group?", group.name);
-              if (next && next.trim() && next.trim() !== group.name) onRename(next.trim());
-            }}
+            onClick={() => { setOpen(false); onRename(); }}
           >
             {I.pencil} Rename
           </button>
@@ -1675,6 +1672,8 @@ function SupportView({ threads, flash, onAction }: {
 
 function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: number; onRefresh: () => void }) {
   const [name, setName] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const LIMIT = limit;
@@ -1706,6 +1705,13 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
     }
   }
 
+  async function saveName(groupId: number) {
+    const next = draft.trim();
+    setEditingId(null);
+    if (next.length < 2) return;
+    await call({ action: "rename", groupId, name: next });
+  }
+
   return (
     <div className="page">
       <header className="page-head">
@@ -1718,15 +1724,38 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
         ) : (
           groups.map((g) => (
             <div className="group-row" key={g.id}>
-              <span className="group-name">{g.name}</span>
-              <span className="row gap">
-                <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
-                <GroupMenu
-                  group={g}
-                  busy={busy}
-                  onRemove={() => call({ action: "remove", groupId: g.id })}
-                  onRename={(name) => call({ action: "rename", groupId: g.id, name })}
+              {editingId === g.id ? (
+                <input
+                  className="name-edit"
+                  value={draft}
+                  autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveName(g.id);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
                 />
+              ) : (
+                <span className="group-name">{g.name}</span>
+              )}
+              <span className="row gap">
+                {editingId === g.id ? (
+                  <>
+                    <button className="icon-btn save" disabled={busy || draft.trim().length < 2} onClick={() => saveName(g.id)} aria-label="Save name">{I.tick}</button>
+                    <button className="icon-btn" onClick={() => setEditingId(null)} aria-label="Cancel">{I.x}</button>
+                  </>
+                ) : (
+                  <>
+                    <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
+                    <GroupMenu
+                      group={g}
+                      busy={busy}
+                      onRemove={() => call({ action: "remove", groupId: g.id })}
+                      onRename={() => { setDraft(g.name); setEditingId(g.id); }}
+                    />
+                  </>
+                )}
               </span>
             </div>
           ))
@@ -3044,6 +3073,14 @@ const CSS = `
 .day-count{color:#98a0b3;flex:none;font-size:11.5px;font-weight:700;}
 .day-head::after{background:var(--line);content:"";flex:1;height:1px;order:1;}
 .day-count{order:2;}
+
+/* Renaming happens where the name already is, not in a browser prompt. */
+.name-edit{background:#fff;border:1px solid var(--coral);border-radius:9px;box-shadow:0 0 0 3px rgba(255,106,77,.14);flex:1;font-size:14.5px;font-weight:700;margin-right:12px;min-width:0;padding:8px 11px;}
+.icon-btn{align-items:center;background:#f6f1e9;border:0;border-radius:8px;color:var(--muted);display:inline-flex;height:30px;justify-content:center;transition:background .18s,color .18s;width:30px;}
+.icon-btn:hover:not(:disabled){background:#ece5da;color:var(--ink);}
+.icon-btn.save{background:var(--mint-soft);color:#14724f;}
+.icon-btn.save:hover:not(:disabled){background:var(--mint);color:#fff;}
+.icon-btn:disabled{cursor:default;opacity:.45;}
 
 .dots-wrap{display:inline-flex;position:relative;}
 .dots{align-items:center;background:none;border:0;border-radius:8px;color:#a8b0c0;display:inline-flex;height:30px;justify-content:center;transition:background .18s,color .18s;width:30px;}
