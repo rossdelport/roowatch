@@ -153,23 +153,33 @@ type CheckoutSession = {
  * just bought and it maps exactly to one plan. Metadata is only a shortcut that
  * saves an API call when it happens to be there.
  */
-async function planFromSession(session: CheckoutSession): Promise<PlanKey | undefined> {
+async function planFromSession(
+  session: CheckoutSession
+): Promise<{ plan?: PlanKey; trialEndsAt: number }> {
   const fromMetadata = session.metadata?.plan;
-  if (PLAN_KEYS.includes(fromMetadata as PlanKey)) return fromMetadata as PlanKey;
+  const known = PLAN_KEYS.includes(fromMetadata as PlanKey)
+    ? (fromMetadata as PlanKey)
+    : undefined;
 
   const subscriptionId = String(session.subscription || "");
-  if (!subscriptionId) return undefined;
+  if (!subscriptionId) return { plan: known, trialEndsAt: 0 };
 
   try {
+    // Fetched even when metadata already told us the plan, because this is
+    // also where the trial end comes from.
     const subscription = (await stripeApi(`subscriptions/${subscriptionId}`)) as {
+      trial_end?: number | null;
       items?: { data?: { price?: { id?: string } }[] };
     };
     const priceId = subscription.items?.data?.[0]?.price?.id ?? "";
-    return PLAN_KEYS.find((key) => PLANS[key].stripePriceId === priceId);
+    return {
+      plan: known ?? PLAN_KEYS.find((key) => PLANS[key].stripePriceId === priceId),
+      trialEndsAt: Number(subscription.trial_end ?? 0),
+    };
   } catch {
     // Leave the plan alone rather than guess. Ross can set it by hand from the
     // Marketing tab, and the payment itself is already recorded.
-    return undefined;
+    return { plan: known, trialEndsAt: 0 };
   }
 }
 
@@ -187,17 +197,23 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
   const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
   if (!user) return;
 
-  const plan = await planFromSession(session);
+  const { plan, trialEndsAt } = await planFromSession(session);
 
   await db
     .update(profiles)
-    .set({ stripeCustomerId: customerId, subscriptionStatus: "trialing", ...(plan ? { plan } : {}) })
+    .set({
+      stripeCustomerId: customerId,
+      subscriptionStatus: trialEndsAt ? "trialing" : "active",
+      trialEndsAt,
+      ...(plan ? { plan } : {}),
+    })
     .where(eq(profiles.userId, user.id));
 }
 
 type Subscription = {
   customer?: string;
   status?: string;
+  trial_end?: number | null;
   items?: { data?: { price?: { id?: string } }[] };
 };
 
@@ -232,6 +248,13 @@ async function handleSubscriptionChange(subscription: Subscription) {
   if (fromPrice) {
     await db.update(profiles).set({ plan: fromPrice }).where(eq(profiles.userId, row.userId));
   }
+
+  // Follow the trial end as well. Upgrading mid trial keeps the trial running,
+  // so this has to track rather than be set once at checkout.
+  await db
+    .update(profiles)
+    .set({ trialEndsAt: Number(subscription.trial_end ?? 0) })
+    .where(eq(profiles.userId, row.userId));
 
   const wasLapsed = LAPSED.has(row.prevStatus);
   const nowLapsed = LAPSED.has(newStatus);

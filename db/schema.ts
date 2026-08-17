@@ -54,6 +54,10 @@ export const profiles = sqliteTable("profiles", {
   /** Mirrors the Stripe subscription status: trialing, active, past_due,
    *  unpaid, canceled. Empty until a checkout completes. */
   subscriptionStatus: text("subscription_status").notNull().default(""),
+  /** Unix seconds their trial ends, straight from Stripe. 0 when there is no
+   *  trial. Stored rather than fetched so the dashboard never waits on Stripe
+   *  just to draw a pill. */
+  trialEndsAt: integer("trial_ends_at").notNull().default(0),
 });
 
 export const sources = sqliteTable("sources", {

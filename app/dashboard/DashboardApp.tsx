@@ -60,6 +60,8 @@ type Me = {
   impersonating?: boolean;
   supportUnread?: number;
   plan?: Plan;
+  trialEndsAt?: number;
+  subscriptionStatus?: string;
 };
 type UserStats = {
   mrr: number; trialMrr: number; total: number; paying: number;
@@ -1269,7 +1271,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
         <h3>Session</h3>
         <button className="btn ghost" onClick={onLogout}>Log out</button>
       </div>
-      <ManageSubscription plan={plan} />
+      <ManageSubscription plan={plan} trialEndsAt={me.trialEndsAt ?? 0} status={me.subscriptionStatus ?? ""} />
     </div>
   );
 }
@@ -2002,9 +2004,22 @@ function SaveState({ status }: { status: "clean" | "typing" | "saving" | "saved"
  * reads the new price back onto their profile. So an upgrade lifts their group
  * and post limits without anyone touching the admin panel.
  */
-function ManageSubscription({ plan }: { plan: Plan }) {
+function ManageSubscription({ plan, trialEndsAt, status }: {
+  plan: Plan;
+  trialEndsAt: number;
+  status: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Pinned once. Reading the clock during render makes the component impure.
+  const [now] = useState(() => Date.now());
+
+  // Only while the trial is genuinely running. A trial_end in the past means
+  // it has converted, and showing "0 days left" then would be a lie.
+  const trialDays =
+    status === "trialing" && trialEndsAt * 1000 > now
+      ? Math.floor((trialEndsAt * 1000 - now) / 86400000)
+      : null;
 
   async function openPortal() {
     setBusy(true);
@@ -2030,7 +2045,16 @@ function ManageSubscription({ plan }: { plan: Plan }) {
 
   return (
     <div className="card">
-      <h3>Your subscription</h3>
+      <div className="card-head">
+        <h3>Your subscription</h3>
+        {trialDays !== null && (
+          <span className="chip-status ok">
+            {trialDays === 0
+              ? "Last day of your trial"
+              : `${trialDays} day${trialDays === 1 ? "" : "s"} left of your trial`}
+          </span>
+        )}
+      </div>
       <p className="muted">
         Move up a plan for more groups, drop down, change your card, grab an invoice,
         or cancel. It all happens on our secure billing page.

@@ -61,6 +61,8 @@ export async function GET(request: Request) {
     supportUnread: Number(unread?.n ?? 0),
     impersonating: Boolean(readCookie(request, ADMIN_RETURN_COOKIE)),
     plan: planFor(profile?.plan),
+    trialEndsAt: profile?.trialEndsAt ?? 0,
+    subscriptionStatus: profile?.subscriptionStatus ?? "",
     smsUsed:
       profile && profile.smsMonth === new Date().toISOString().slice(0, 7)
         ? profile.smsUsed

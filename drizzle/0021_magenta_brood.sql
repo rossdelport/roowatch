@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `trial_ends_at` integer DEFAULT 0 NOT NULL;
