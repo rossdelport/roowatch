@@ -1214,6 +1214,7 @@ type ReadPost = {
  */
 function LeadsPage({ me }: { me: Me }) {
   const [view, setView] = useState<"leads" | "posts">("leads");
+  const [now] = useState(() => Date.now());
   const [posts, setPosts] = useState<ReadPost[] | null>(null);
   const [total, setTotal] = useState(0);
   const alerts = me.alerts ?? [];
@@ -1269,7 +1270,12 @@ function LeadsPage({ me }: { me: Me }) {
               )}
             </div>
           ) : (
-            alerts.map((a) => <AlertRow key={a.id} alert={a} />)
+            byDay(alerts, (a) => new Date(a.sentAt + "Z").getTime(), now).map((g) => (
+              <div className="day-group" key={g.key}>
+                <DayHeading label={g.label} count={g.items.length} noun="lead" />
+                {g.items.map((a) => <AlertRow key={a.id} alert={a} />)}
+              </div>
+            ))
           )}
         </div>
       ) : (
@@ -1307,25 +1313,30 @@ function PostsRead({ posts }: { posts: ReadPost[] | null }) {
 
   return (
     <div className="card">
-      <div className="read-list">
-        {posts.map((p) => (
-          <article className="read-row" key={p.id}>
-            <div className="read-meta">
-              <span className="read-group">{p.groupName}</span>
-              <span className="read-when">{when(p.seenAt)}</span>
-            </div>
-            <p className="read-text">{p.text || "This post had no text we could read."}</p>
-            <div className="read-foot">
-              <span className="read-author">{p.author || "Someone"}</span>
-              {p.url && (
-                <a className="read-link" href={p.url} target="_blank" rel="noreferrer noopener">
-                  See post
-                </a>
-              )}
-            </div>
-          </article>
-        ))}
-      </div>
+      {byDay(posts, (p) => p.seenAt, now).map((g) => (
+        <div className="day-group" key={g.key}>
+          <DayHeading label={g.label} count={g.items.length} noun="post" />
+          <div className="read-list">
+            {g.items.map((p) => (
+              <article className="read-row" key={p.id}>
+                <div className="read-meta">
+                  <span className="read-group">{p.groupName}</span>
+                  <span className="read-when">{when(p.seenAt)}</span>
+                </div>
+                <p className="read-text">{p.text || "This post had no text we could read."}</p>
+                <div className="read-foot">
+                  <span className="read-author">{p.author || "Someone"}</span>
+                  {p.url && (
+                    <a className="read-link" href={p.url} target="_blank" rel="noreferrer noopener">
+                      See post
+                    </a>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ))}
       <p className="tiny">We keep 14 days of posts. Anything older is deleted.</p>
     </div>
   );
@@ -1603,6 +1614,47 @@ function DangerZone() {
       ) : (
         <button className="btn ghost mt" onClick={() => setConfirming(true)}>Delete my account</button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Group a list into days, newest day first, newest item first inside it.
+ *
+ * A tradie scanning their leads needs to know at a glance which ones landed
+ * today. One unbroken column of cards does not tell them that.
+ */
+function byDay<T>(items: T[], at: (item: T) => number, now: number) {
+  const startOf = (ms: number) => {
+    const d = new Date(ms);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const today = startOf(now);
+
+  const label = (ms: number) => {
+    const days = Math.round((today - startOf(ms)) / 86400000);
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    return new Date(ms).toLocaleDateString("en-AU", {
+      weekday: "short", day: "numeric", month: "short",
+    });
+  };
+
+  const groups: { key: number; label: string; items: T[] }[] = [];
+  for (const item of [...items].sort((a, b) => at(b) - at(a))) {
+    const key = startOf(at(item));
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.items.push(item);
+    else groups.push({ key, label: label(at(item)), items: [item] });
+  }
+  return groups;
+}
+
+function DayHeading({ label, count, noun }: { label: string; count: number; noun: string }) {
+  return (
+    <div className="day-head">
+      <span className="day-name">{label}</span>
+      <span className="day-count">{count} {noun}{count === 1 ? "" : "s"}</span>
     </div>
   );
 }
@@ -2708,6 +2760,14 @@ const CSS = `
 .key-mrr{background:var(--mint);}
 
 .plan-switch.left{justify-content:flex-start;margin-top:8px;}
+
+.day-group{margin-bottom:22px;}
+.day-group:last-of-type{margin-bottom:0;}
+.day-head{align-items:center;background:#fff;display:flex;gap:12px;justify-content:space-between;padding:2px 0 11px;position:sticky;top:0;z-index:1;}
+.day-name{color:var(--ink);font-size:13px;font-weight:800;letter-spacing:-.01em;}
+.day-count{color:#98a0b3;flex:none;font-size:11.5px;font-weight:700;}
+.day-head::after{background:var(--line);content:"";flex:1;height:1px;order:1;}
+.day-count{order:2;}
 
 .dots-wrap{display:inline-flex;position:relative;}
 .dots{align-items:center;background:none;border:0;border-radius:8px;color:#a8b0c0;display:inline-flex;height:30px;justify-content:center;transition:background .18s,color .18s;width:30px;}
