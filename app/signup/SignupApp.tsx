@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { PLANS, type PlanKey } from "../../db/plans";
+import { type PlanKey } from "../../db/plans";
 import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
 
 const PIXEL_ID = "4105570149577363";
@@ -123,10 +123,15 @@ export default function SignupApp({ start, plan }: { start: "signup" | "login"; 
 
       if (mode === "signup") {
         pixel()?.("track", "CompleteRegistration", { content_name: "RooWatch account" });
-        const link = new URL(PLANS[plan].stripePaymentLink);
-        link.searchParams.set("prefilled_email", email.trim());
-        link.searchParams.set("client_reference_id", email.trim());
-        window.location.href = link.toString();
+        // Checkout is built on our side so the intro discount and the trial
+        // come from the plan, not from a link anyone could edit.
+        const checkout = await fetch("/api/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan }),
+        });
+        const session = (await checkout.json().catch(() => ({}))) as { url?: string };
+        window.location.href = session.url || "/dashboard";
         return;
       }
       window.location.href = "/dashboard";

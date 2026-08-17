@@ -26,10 +26,17 @@ export type Plan = {
   smsPerMonth: number;
   alertMinutes: number;
   priceAud: number;
+  /** What they pay for the first month, after the free trial. */
+  firstMonthAud: number;
   stripePriceId: string;
-  /** Stripe Payment Link a new signup is sent to. Must have a 7 day trial
-   *  configured on it in the Stripe Dashboard, card required upfront. */
-  stripePaymentLink: string;
+  /** Knocks the first invoice down to firstMonthAud. Applied once. */
+  stripeCouponId: string;
+  /**
+   * Prices we used to sell at. A member who signed up on an old price must
+   * still resolve to the right plan when Stripe tells us about their
+   * subscription, or a paying customer would silently drop to Local limits.
+   */
+  legacyPriceIds: string[];
 };
 
 export const PLANS: Record<PlanKey, Plan> = {
@@ -38,33 +45,39 @@ export const PLANS: Record<PlanKey, Plan> = {
     name: "Local",
     groups: 10,
     postsPerMonth: 10_000,
-    smsPerMonth: 300,
+    smsPerMonth: 150,
     alertMinutes: 5,
-    priceAud: 297,
-    stripePriceId: "price_1U4sCe9HOJbWqVToqrNBDaIp",
-    stripePaymentLink: "https://buy.stripe.com/3cI9AN2Df9vYgVyg6bgUM01",
+    priceAud: 197,
+    firstMonthAud: 50,
+    stripePriceId: "price_1U5Ja49HOJbWqVToYzQV07oK",
+    stripeCouponId: "wEVaw5Ec",
+    legacyPriceIds: ["price_1U4sCe9HOJbWqVToqrNBDaIp"],
   },
   growth: {
     key: "growth",
     name: "Growth",
     groups: 25,
     postsPerMonth: 25_000,
-    smsPerMonth: 750,
+    smsPerMonth: 375,
     alertMinutes: 5,
-    priceAud: 597,
-    stripePriceId: "price_1U4sCg9HOJbWqVToRKrBxw6W",
-    stripePaymentLink: "https://buy.stripe.com/00w5kx4LnbE6dJm6vBgUM02",
+    priceAud: 397,
+    firstMonthAud: 100,
+    stripePriceId: "price_1U5Ja59HOJbWqVTo9JLdtVcU",
+    stripeCouponId: "wSgWGxEE",
+    legacyPriceIds: ["price_1U4sCg9HOJbWqVToRKrBxw6W"],
   },
   scale: {
     key: "scale",
     name: "Scale",
     groups: 100,
     postsPerMonth: 100_000,
-    smsPerMonth: 3_000,
+    smsPerMonth: 1_500,
     alertMinutes: 3,
-    priceAud: 1997,
-    stripePriceId: "price_1U4sCh9HOJbWqVToU4GpQFTO",
-    stripePaymentLink: "https://buy.stripe.com/6oUfZb5PreQifRu4ntgUM03",
+    priceAud: 1497,
+    firstMonthAud: 375,
+    stripePriceId: "price_1U5Ja69HOJbWqVTocZcT4T7D",
+    stripeCouponId: "UfVZ9G1F",
+    legacyPriceIds: ["price_1U4sCh9HOJbWqVToU4GpQFTO"],
   },
 };
 
@@ -92,3 +105,19 @@ export function smsLimit(value: string | null | undefined): number {
 }
 
 export const PLAN_KEYS = Object.keys(PLANS) as PlanKey[];
+
+/**
+ * Which plan a Stripe price belongs to, current or retired.
+ *
+ * Prices change when Ross changes his mind about pricing. Members already
+ * paying stay on the price they signed up at, so matching only the current
+ * price would quietly drop a paying customer to Local limits the day after a
+ * price change.
+ */
+export function planForPrice(priceId: string): PlanKey | undefined {
+  if (!priceId) return undefined;
+  return PLAN_KEYS.find(
+    (key) =>
+      PLANS[key].stripePriceId === priceId || PLANS[key].legacyPriceIds.includes(priceId)
+  );
+}

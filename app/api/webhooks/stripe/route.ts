@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { sendEmail } from "../../../../db/auth";
-import { PLANS, PLAN_KEYS, type PlanKey } from "../../../../db/plans";
+import { PLAN_KEYS, planForPrice, type PlanKey } from "../../../../db/plans";
 import { groups, profiles, sources, users } from "../../../../db/schema";
 
 /**
@@ -173,7 +173,7 @@ async function planFromSession(
     };
     const priceId = subscription.items?.data?.[0]?.price?.id ?? "";
     return {
-      plan: known ?? PLAN_KEYS.find((key) => PLANS[key].stripePriceId === priceId),
+      plan: known ?? planForPrice(priceId),
       trialEndsAt: Number(subscription.trial_end ?? 0),
     };
   } catch {
@@ -254,9 +254,7 @@ async function handleSubscriptionChange(subscription: Subscription) {
   // means a plan swap made anywhere, the admin panel or the Stripe dashboard,
   // ends up on the member's profile without anyone syncing it by hand.
   const priceId = subscription.items?.data?.[0]?.price?.id ?? "";
-  const fromPrice = priceId
-    ? PLAN_KEYS.find((key) => PLANS[key].stripePriceId === priceId)
-    : undefined;
+  const fromPrice = planForPrice(priceId);
   if (fromPrice) {
     await db.update(profiles).set({ plan: fromPrice }).where(eq(profiles.userId, row.userId));
   }
