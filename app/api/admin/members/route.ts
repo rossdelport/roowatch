@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { requireAdmin } from "../../../../db/admin";
 import { sendEmail } from "../../../../db/auth";
+import { BRIEF_MAX } from "../../../../db/brief";
 import { PLANS, PLAN_KEYS, planFor, type PlanKey } from "../../../../db/plans";
 import {
   alerts,
@@ -209,7 +210,7 @@ export async function POST(request: Request) {
     if (typeof body.businessName === "string") {
       patch.businessName = body.businessName.trim().slice(0, 120);
     }
-    if (typeof body.brief === "string") patch.brief = body.brief.trim().slice(0, 600);
+    if (typeof body.brief === "string") patch.brief = body.brief.trim().slice(0, BRIEF_MAX);
     if (Object.keys(patch).length) {
       await db.update(profiles).set(patch).where(eq(profiles.userId, body.userId));
     }

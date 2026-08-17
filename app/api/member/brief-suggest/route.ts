@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { profiles } from "../../../../db/schema";
+import { BRIEF_AI_MAX } from "../../../../db/brief";
 import { readWebsite } from "../../../../db/website";
 
 /**
@@ -81,7 +82,7 @@ Rules:
 Use grade 3 English. Short sentences. Simple words.
 Never use an em dash.
 No headings. No bullet points. No lists. No markdown.
-Under 130 words in total.
+Under ${BRIEF_AI_MAX} characters in total. This is a hard limit.
 Reply with the brief only. Do not add any other words.`,
         },
       ],
@@ -93,7 +94,14 @@ Reply with the brief only. Do not add any other words.`,
   }
 
   const data = (await res.json()) as { content?: { type: string; text?: string }[] };
-  const brief = (data.content?.find((c) => c.type === "text")?.text ?? "").trim();
+  // A model that overshoots its own limit must not become a save that fails
+  // for the member. Trim on a sentence boundary so the brief still reads well.
+  let brief = (data.content?.find((c) => c.type === "text")?.text ?? "").trim();
+  if (brief.length > BRIEF_AI_MAX) {
+    const cut = brief.slice(0, BRIEF_AI_MAX);
+    const lastStop = Math.max(cut.lastIndexOf("."), cut.lastIndexOf("\n"));
+    brief = (lastStop > BRIEF_AI_MAX * 0.6 ? cut.slice(0, lastStop + 1) : cut).trim();
+  }
   if (!brief) return Response.json({ error: "ai_failed" }, { status: 502 });
 
   return Response.json({ brief });

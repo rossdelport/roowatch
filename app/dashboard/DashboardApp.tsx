@@ -7,6 +7,7 @@ import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
 import { OTHER_TRADE, TRADES } from "../../db/trades";
 import { PLAN_KEYS, PLANS, type Plan } from "../../db/plans";
+import { BRIEF_MAX, BRIEF_MIN } from "../../db/brief";
 import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
 
 type User = { id: string; email: string; name: string };
@@ -125,6 +126,7 @@ export default function DashboardApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState("overview");
   const [leadsView, setLeadsView] = useState<"leads" | "posts">("leads");
+  const [celebrate, setCelebrate] = useState(false);
   const [adminTab, setAdminTab] = useState<null | "users" | "support" | "members" | "stripe" | "pipeline" | "funnel">(null);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [waiting, setWaiting] = useState(0);
@@ -363,7 +365,12 @@ export default function DashboardApp() {
           )}
         </main>
 
-        {needsOnboarding && <Onboarding me={me} onDone={refresh} />}
+        {needsOnboarding && (
+          <Onboarding
+            me={me}
+            onDone={() => { setCelebrate(true); refresh(); }}
+          />
+        )}
 
         {adminPrompt && (
           <div className="overlay">
@@ -384,6 +391,7 @@ export default function DashboardApp() {
       {/* Where modals are rendered. See Portal below for why. */}
       <div id="roo-modals" />
       {!me.isAdmin && <SupportBubble me={me} onRefresh={refresh} />}
+      {celebrate && <Confetti onDone={() => setCelebrate(false)} />}
     </div>
   );
 }
@@ -400,6 +408,58 @@ export default function DashboardApp() {
  * The host sits inside `.dash`, not on `document.body`, so the CSS variables
  * and every `.dash input` style still reach the modal.
  */
+/**
+ * Confetti, once, when a member finishes setup.
+ *
+ * Hand rolled rather than a library: this ships inside the dashboard bundle
+ * that every member loads on every visit, and a few dozen divs are not worth
+ * a dependency. Pieces are generated once in state, never during render, so
+ * the component stays pure and does not reshuffle on every re-render.
+ */
+function Confetti({ onDone }: { onDone: () => void }) {
+  const [pieces] = useState(() =>
+    Array.from({ length: 70 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      delay: Math.random() * 900,
+      fall: 2600 + Math.random() * 2200,
+      drift: (Math.random() - 0.5) * 140,
+      spin: 360 + Math.random() * 720,
+      size: 7 + Math.random() * 7,
+      round: Math.random() > 0.65,
+      tone: ["#ff6a4d", "#2eaa81", "#f5c451", "#111d36", "#f04f31"][i % 5],
+    }))
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(onDone, 5200);
+    return () => clearTimeout(timer);
+  }, [onDone]);
+
+  return (
+    <Portal>
+      <div className="confetti" aria-hidden="true">
+        {pieces.map((p) => (
+          <i
+            key={p.id}
+            style={{
+              left: `${p.left}%`,
+              width: `${p.size}px`,
+              height: `${p.size * (p.round ? 1 : 1.6)}px`,
+              background: p.tone,
+              borderRadius: p.round ? "99px" : "2px",
+              animationDelay: `${p.delay}ms`,
+              animationDuration: `${p.fall}ms`,
+              ["--drift" as string]: `${p.drift}px`,
+              ["--spin" as string]: `${p.spin}deg`,
+            }}
+          />
+        ))}
+      </div>
+    </Portal>
+  );
+}
+
 function Portal({ children }: { children: React.ReactNode }) {
   if (typeof document === "undefined") return null;
   const host = document.getElementById("roo-modals");
@@ -599,7 +659,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     business: Boolean(website.trim()),
     trade: chosenTrade.length > 1,
     suburbs: suburbs.length > 0,
-    jobs: brief.trim().length >= 20 && brief.trim().length <= 500,
+    jobs: brief.trim().length >= BRIEF_MIN && brief.trim().length <= BRIEF_MAX,
     groups: true,
     review: true,
   };
@@ -703,8 +763,8 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 />
                 <div className="count-row">
                   <p className="tiny">Say what you want and what to skip. This is what we look for.</p>
-                  <span className={brief.trim().length > 500 ? "counter over" : "counter"}>
-                    {brief.trim().length} / 500
+                  <span className={brief.trim().length > BRIEF_MAX ? "counter over" : "counter"}>
+                    {brief.trim().length} / {BRIEF_MAX}
                   </span>
                 </div>
                 <button className="ai-btn small" onClick={askForBrief}>
@@ -723,8 +783,8 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} />
             <p className="tiny">
               {groupList.length === 0
-                ? "Add the local groups you are already in. Most tradies watch 5 or more."
-                : `${groupList.length} of ${planGroups} groups added.${groupList.length < 5 ? " Most tradies watch 5 or more." : ""}`}
+                ? ""
+                : `${groupList.length} of ${planGroups} groups added.`}
             </p>
           </>
         )}
@@ -887,9 +947,6 @@ function GroupTable({ rows, onChange, onSay }: {
   onChange: (next: WizardGroup[]) => void;
   onSay: (message: string) => void;
 }) {
-  const [editing, setEditing] = useState<number | null>(null);
-  const [draft, setDraft] = useState("");
-
   if (rows.length === 0) {
     return (
       <div className="empty tight">
@@ -897,18 +954,6 @@ function GroupTable({ rows, onChange, onSay }: {
         <p className="muted">Add a group and we start watching it the moment you finish.</p>
       </div>
     );
-  }
-
-  function saveEdit(index: number) {
-    const parsed = parseGroupInput(draft.trim());
-    if (!parsed?.url) return;
-    if (rows.some((g, i) => i !== index && g.url === parsed.url)) {
-      onSay("This group is already on your list");
-      return;
-    }
-    onChange(rows.map((g, i) => (i === index ? { url: parsed.url!, name: parsed.name } : g)));
-    setEditing(null);
-    onSay("Group updated");
   }
 
   return (
@@ -920,33 +965,22 @@ function GroupTable({ rows, onChange, onSay }: {
         <tbody>
           {rows.map((g, i) => (
             <tr key={g.url}>
-              {editing === i ? (
-                <td colSpan={3}>
-                  <div className="adder-row">
-                    <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveEdit(i)} autoFocus />
-                    <button className="btn primary" disabled={!groupSlug(draft)} onClick={() => saveEdit(i)}>Save</button>
-                    <button className="btn ghost" onClick={() => setEditing(null)}>Cancel</button>
-                  </div>
-                </td>
-              ) : (
-                <>
-                  <td><strong>{g.name}</strong></td>
-                  <td className="link-cell">{g.url.replace("https://www.facebook.com/groups/", "")}</td>
-                  <td className="act-cell">
-                    <button className="mini" onClick={() => { setEditing(i); setDraft(g.url); }}>Edit</button>
-                    <button
-                      className="mini danger"
-                      onClick={() => {
-                        if (!confirm(`Stop watching ${g.name}?`)) return;
-                        onChange(rows.filter((_, x) => x !== i));
-                        onSay("Group removed");
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </>
-              )}
+              <td><strong>{g.name}</strong></td>
+              <td className="link-cell">{g.url.replace("https://www.facebook.com/groups/", "")}</td>
+              <td className="act-cell">
+                {/* No edit here. A wrong link is faster to delete and repaste
+                    than to fix in place, and two buttons crowded the row. */}
+                <button
+                  className="mini danger"
+                  onClick={() => {
+                    if (!confirm(`Stop watching ${g.name}?`)) return;
+                    onChange(rows.filter((_, x) => x !== i));
+                    onSay("Group removed");
+                  }}
+                >
+                  Delete
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -3296,6 +3330,16 @@ const CSS = `
 .wide .chat-card{min-height:min(72vh,660px);}
 .wide .chat-log{max-height:none;}
 .wide .thread-list{max-height:min(72vh,660px);}
+
+.confetti{inset:0;overflow:hidden;pointer-events:none;position:fixed;z-index:90;}
+.confetti i{animation:fall linear forwards;position:absolute;top:-24px;will-change:transform,opacity;}
+@keyframes fall{
+  0%{opacity:0;transform:translate3d(0,0,0) rotate(0deg);}
+  8%{opacity:1;}
+  85%{opacity:1;}
+  100%{opacity:0;transform:translate3d(var(--drift),102vh,0) rotate(var(--spin));}
+}
+@media(prefers-reduced-motion:reduce){.confetti{display:none;}}
 
 /* ---- support bubble ---- */
 .rw-chat{bottom:22px;position:fixed;right:22px;z-index:80;}

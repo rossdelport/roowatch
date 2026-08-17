@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { clearedCookie, currentUser, sendEmail } from "../../../../db/auth";
 import { hashPassword, passwordProblem, verifyPassword } from "../../../../db/password";
+import { BRIEF_MAX } from "../../../../db/brief";
 import { toE164 } from "../../../../db/sms";
 import {
   alerts,
@@ -78,10 +79,15 @@ export async function POST(request: Request) {
       .where(eq(profiles.userId, user.id));
   }
 
+  if (typeof body.brief === "string" && body.brief.trim().length > BRIEF_MAX) {
+    return Response.json({ error: "long_brief" }, { status: 400 });
+  }
+
   const patch: Record<string, string> = {};
-  for (const key of ["businessName", "website", "services", "location", "brief"] as const) {
+  for (const key of ["businessName", "website", "services", "location"] as const) {
     if (typeof body[key] === "string") patch[key] = body[key]!.trim().slice(0, 600);
   }
+  if (typeof body.brief === "string") patch.brief = body.brief.trim();
   if (Object.keys(patch).length) {
     const [existing] = await db
       .select()

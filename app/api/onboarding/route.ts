@@ -3,6 +3,7 @@ import { getDb } from "../../../db";
 import { currentUser, sendEmail } from "../../../db/auth";
 import { groups, profiles, sources } from "../../../db/schema";
 import { groupSlug, parseGroupInput } from "../../../db/fbgroups";
+import { BRIEF_MAX, BRIEF_MIN } from "../../../db/brief";
 import { groupLimit } from "../../../db/plans";
 
 export async function POST(request: Request) {
@@ -31,7 +32,10 @@ export async function POST(request: Request) {
 
   if (!rawTrade) return Response.json({ error: "no_trade" }, { status: 400 });
   if (!suburbs.length) return Response.json({ error: "no_suburbs" }, { status: 400 });
-  if (brief.length < 20) return Response.json({ error: "short_brief" }, { status: 400 });
+  if (brief.length < BRIEF_MIN) return Response.json({ error: "short_brief" }, { status: 400 });
+  // Refuse a brief that is too long rather than cut the end off it. Silently
+  // losing the "skip these" half of someone's brief would wreck their matching.
+  if (brief.length > BRIEF_MAX) return Response.json({ error: "long_brief" }, { status: 400 });
 
   // A trade is either one from our list or the member's own words behind
   // "Other". Both are plain text, so length is the only thing to police.
@@ -45,7 +49,7 @@ export async function POST(request: Request) {
     services: (body.services ?? "").trim().slice(0, 600),
     // The pipeline reads location as free text, so the suburb list joins up.
     location: suburbs.join(", ").slice(0, 600),
-    brief: brief.slice(0, 600),
+    brief,
     onboardedAt: new Date().toISOString(),
   };
 
