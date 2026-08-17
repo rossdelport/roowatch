@@ -24,6 +24,8 @@ type Profile = {
   alertPhone: string;
   smsEnabled: number;
   onboardedAt: string | null;
+  /** The setup wizard as they left it, JSON. Empty once setup is finished. */
+  wizardDraft?: string;
 } | null;
 
 type Source = {
@@ -510,25 +512,55 @@ type WizardGroup = { url: string; name: string };
 type Stage = "business" | "trade" | "suburbs" | "jobs" | "groups" | "review";
 const STAGES: Stage[] = ["business", "trade", "suburbs", "jobs", "groups", "review"];
 
+type Draft = {
+  stage?: Stage;
+  website?: string;
+  gbpUrl?: string;
+  businessName?: string;
+  services?: string;
+  trade?: string;
+  tradeOther?: string;
+  suburbs?: string[];
+  brief?: string;
+  groups?: WizardGroup[];
+  logo?: string;
+};
+
+/** Whatever they had typed last time, or nothing if this is their first go. */
+function readDraft(raw: string | null | undefined): Draft {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Draft;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    // A draft we cannot read is not worth blocking setup over.
+    return {};
+  }
+}
+
 function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const known = me.profile;
   const state = known?.state ?? "";
-  const [stage, setStage] = useState<Stage>("business");
+  // Read once. Later saves must not pull the member back to an older step.
+  const [draft] = useState(() => readDraft(known?.wizardDraft));
+  const [stage, setStage] = useState<Stage>(
+    draft.stage && STAGES.includes(draft.stage) ? draft.stage : "business"
+  );
 
-  const [website, setWebsite] = useState(known?.website ?? "");
-  const [gbpUrl, setGbpUrl] = useState(known?.gbpUrl ?? "");
-  const [businessName, setBusinessName] = useState(known?.businessName ?? "");
-  const [services, setServices] = useState(known?.services ?? "");
-  const [trade, setTrade] = useState(known?.trade ?? "");
-  const [tradeOther, setTradeOther] = useState("");
-  const [suburbs, setSuburbs] = useState<string[]>([]);
-  const [brief, setBrief] = useState(known?.brief ?? "");
-  const [groupList, setGroupList] = useState<WizardGroup[]>([]);
+  const [website, setWebsite] = useState(draft.website ?? known?.website ?? "");
+  const [gbpUrl, setGbpUrl] = useState(draft.gbpUrl ?? known?.gbpUrl ?? "");
+  const [businessName, setBusinessName] = useState(draft.businessName ?? known?.businessName ?? "");
+  const [services, setServices] = useState(draft.services ?? known?.services ?? "");
+  const [trade, setTrade] = useState(draft.trade ?? known?.trade ?? "");
+  const [tradeOther, setTradeOther] = useState(draft.tradeOther ?? "");
+  const [suburbs, setSuburbs] = useState<string[]>(draft.suburbs ?? []);
+  const [brief, setBrief] = useState(draft.brief ?? known?.brief ?? "");
+  const [groupList, setGroupList] = useState<WizardGroup[]>(draft.groups ?? []);
 
-  const [logo, setLogo] = useState("");
+  const [logo, setLogo] = useState(draft.logo ?? "");
   const [scanning, setScanning] = useState(false);
   const [thinking, setThinking] = useState(false);
-  const briefTried = useRef(false);
+  const briefTried = useRef(Boolean(draft.brief));
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
@@ -547,6 +579,41 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     const timer = setTimeout(() => setToast(""), 2600);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  /**
+   * Keep the server copy up to date, a moment after they stop typing.
+   *
+   * The wizard used to live only in the browser. A member pasted ten group
+   * links, closed the tab, and every one of them was gone. The wait is there
+   * so a long brief is one save and not one per keystroke.
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetch("/api/onboarding/step", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draft: {
+            stage,
+            website,
+            gbpUrl,
+            businessName,
+            services,
+            trade,
+            tradeOther,
+            suburbs,
+            brief,
+            groups: groupList,
+            logo,
+          },
+        }),
+        keepalive: true,
+      }).catch(() => {
+        // Losing one save is fine. The next change writes the lot again.
+      });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [stage, website, gbpUrl, businessName, services, trade, tradeOther, suburbs, brief, groupList, logo]);
 
   /** Step 1. Read the website and the Google listing, then move on. */
   async function scan() {

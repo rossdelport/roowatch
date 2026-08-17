@@ -48,6 +48,13 @@ export const profiles = sqliteTable("profiles", {
    */
   smsEnabled: integer("sms_enabled").notNull().default(0),
   emailEnabled: integer("email_enabled").notNull().default(1),
+  /**
+   * The setup wizard as they left it, JSON, saved on every step. Only the
+   * wizard reads it. Real rows are still only written when they press Start
+   * watching, so a half finished setup never creates a source and never costs
+   * us a scan. Cleared once they finish.
+   */
+  wizardDraft: text("wizard_draft").notNull().default(""),
   onboardedAt: text("onboarded_at"),
   /** Set by the Stripe webhook. Empty until a checkout completes. */
   stripeCustomerId: text("stripe_customer_id").notNull().default(""),

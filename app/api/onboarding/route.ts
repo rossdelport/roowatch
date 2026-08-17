@@ -51,6 +51,8 @@ export async function POST(request: Request) {
     location: suburbs.join(", ").slice(0, 600),
     brief,
     onboardedAt: new Date().toISOString(),
+    // Setup is done, so the half finished copy is no longer the truth.
+    wizardDraft: "",
   };
 
   const [existing] = await db
