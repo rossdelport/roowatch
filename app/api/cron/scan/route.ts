@@ -1,8 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { bdCollect, bdProgress, bdTrigger, dueSources, processSource } from "../../../../db/pipeline";
+import { bdCollect, bdProgress, bdTrigger, dueSources, processSource, type GroupFacts } from "../../../../db/pipeline";
 import { groupSlug } from "../../../../db/fbgroups";
-import { scanJobs, sources } from "../../../../db/schema";
+import { groups, scanJobs, sources } from "../../../../db/schema";
 
 /**
  * The scanner.
@@ -106,16 +106,62 @@ async function collectJob(job: Job) {
     return 0;
   }
 
-  const byGroup = await bdCollect(
+  const { posts: byGroup, facts } = await bdCollect(
     job.snapshotId,
     rows.map((s) => s.url)
   );
   for (const source of rows) {
-    await processSource(source.id, byGroup.get(groupSlug(source.url)) ?? []);
+    const slug = groupSlug(source.url);
+    await learnAbout(source, facts.get(slug));
+    await processSource(source.id, byGroup.get(slug) ?? []);
   }
 
   await db.delete(scanJobs).where(eq(scanJobs.id, job.id));
   return rows.length;
+}
+
+/**
+ * Write down what the snapshot told us about a group.
+ *
+ * Two things a member should never have to sort out themselves:
+ *
+ * A group link is often just a number, because that is all Facebook puts in
+ * the address bar. "Group 589657251411693" is a terrible thing to read in a
+ * dashboard. Facebook hands us the real name with every post, so the first
+ * post a group produces is enough to fix its name for good.
+ *
+ * And a private group can never be read, no matter how long we watch it.
+ * Saying so beats leaving somebody to wonder why that one is always quiet.
+ */
+async function learnAbout(
+  source: { id: number; groupName: string; url: string },
+  fact: GroupFacts | undefined
+) {
+  if (!fact) return;
+  const db = getDb();
+
+  if (fact.name && fact.name !== source.groupName) {
+    await db.update(sources).set({ groupName: fact.name }).where(eq(sources.id, source.id));
+
+    // Members keep their own label for a group, so only the ugly ones are
+    // replaced. A name holding the raw id is one nobody chose. Anything a
+    // person typed, or Ross fixed by hand, is left exactly as it is.
+    const slug = groupSlug(source.url);
+    if (slug) {
+      const mine = await db
+        .select({ id: groups.id, name: groups.name })
+        .from(groups)
+        .where(eq(groups.sourceId, source.id));
+      for (const row of mine) {
+        if (!row.name.includes(slug)) continue;
+        await db.update(groups).set({ name: fact.name }).where(eq(groups.id, row.id));
+      }
+    }
+  }
+
+  if (fact.error !== source.lastError) {
+    await db.update(sources).set({ lastError: fact.error }).where(eq(sources.id, source.id));
+  }
 }
 
 /**

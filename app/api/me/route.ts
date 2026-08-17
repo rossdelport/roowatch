@@ -24,6 +24,9 @@ export async function GET(request: Request) {
       name: groups.name,
       status: groups.status,
       url: sql<string>`coalesce(${sources.url}, '')`,
+      // Facebook's own words when a group cannot be read, so a member is told
+      // their group is private rather than left wondering why it is quiet.
+      problem: sql<string>`coalesce(${sources.lastError}, '')`,
     })
     .from(groups)
     .leftJoin(

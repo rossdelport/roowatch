@@ -76,16 +76,29 @@ export async function bdProgress(snapshotId: string): Promise<BdProgress> {
   };
 }
 
+/** What one group in a snapshot told us, beyond its posts. */
+export type GroupFacts = {
+  /** The group's real name on Facebook, when a post carried it. */
+  name: string;
+  /** Why we got nothing, in Facebook's words. Empty when all is well. */
+  error: string;
+  /** True when Facebook says only members may read it. It will never work. */
+  private: boolean;
+};
+
 /**
  * Read a finished snapshot and bucket the posts by group slug.
  *
- * Rows without a post_id are the "no posts found for this period" notices.
- * They are free and carry no data, so they are dropped.
+ * Rows without a post_id are not all the same thing. Some say "no posts in
+ * that window", which is normal and free. Others say "Private group: only
+ * members can see who's in the group", which means we will never read that
+ * group no matter how long we wait. Both used to be dropped on the floor, so
+ * a member could watch a private group for a month and never be told.
  */
 export async function bdCollect(
   snapshotId: string,
   sourceUrls: string[]
-): Promise<Map<string, FetchedPost[]>> {
+): Promise<{ posts: Map<string, FetchedPost[]>; facts: Map<string, GroupFacts> }> {
   const res = await fetch(`${BD_API}/snapshot/${snapshotId}?format=json`, {
     headers: bdHeaders(),
   });
@@ -136,7 +149,36 @@ export async function bdCollect(
       postedAt: String(row.date_posted ?? ""),
     });
   }
-  return out;
+  return { posts: out, facts: readFacts(rows, sourceUrls) };
+}
+
+function readFacts(
+  rows: Record<string, unknown>[],
+  sourceUrls: string[]
+): Map<string, GroupFacts> {
+  const facts = new Map<string, GroupFacts>();
+  for (const url of sourceUrls) {
+    facts.set(groupSlug(url), { name: "", error: "", private: false });
+  }
+
+  for (const row of rows) {
+    const input = row.input as { url?: string } | undefined;
+    const from = String(input?.url ?? row.group_url ?? row.url ?? "");
+    const fact = facts.get(groupSlug(from));
+    if (!fact) continue;
+
+    const name = String(row.group_name ?? "").trim();
+    if (name) fact.name = name;
+
+    const error = String(row.error ?? "").trim();
+    if (!error) continue;
+    // "Posts for the specified period were not found" is the happy path: we
+    // asked about the last few minutes and nothing was posted.
+    if (/not found/i.test(error)) continue;
+    fact.error = error;
+    if (/private/i.test(error)) fact.private = true;
+  }
+  return facts;
 }
 
 /** Pull recent posts for one group through the Apify actor. */

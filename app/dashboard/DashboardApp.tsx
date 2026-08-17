@@ -39,7 +39,19 @@ type Source = {
   lastError: string;
   watchers: number;
 };
-type Group = { id: number; name: string; status: string; url?: string };
+type Group = {
+  id: number;
+  name: string;
+  status: string;
+  url?: string;
+  /** Why we cannot read it, in Facebook's words. Empty when all is well. */
+  problem?: string;
+};
+
+/** Facebook lets nobody but members read a private group, us included. */
+function isPrivate(group: { problem?: string }) {
+  return /private/i.test(group.problem ?? "");
+}
 type Alert = {
   id: number;
   groupName: string;
@@ -855,7 +867,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         {stage === "groups" && (
           <>
             <h2>Which Facebook groups should we watch?</h2>
-            <p className="muted">We read these groups day and night and tell you when a job comes up.</p>
+            <p className="muted">We read these groups day and night and tell you when a job comes up. Public groups only. Nobody outside a private group can read it, us included.</p>
             <GroupAdder onAdd={addGroup} />
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} />
             <p className="tiny">
@@ -1088,6 +1100,10 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
             <p className="tiny">Also try: &ldquo;[your suburb] community&rdquo;, &ldquo;[your suburb] buy swap sell&rdquo;, &ldquo;[your area] tradies&rdquo;.</p>
           </li>
           <li>
+            <strong>Check it says Public group.</strong>
+            <p className="muted">Look under the group name. A private group can only be read by its members, so we cannot read it for you.</p>
+          </li>
+          <li>
             <strong>Join the group.</strong>
             <p className="muted">Press Join on the group page. Wait for the admin to let you in.</p>
           </li>
@@ -1107,6 +1123,7 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
 
         <div className="help-warn">
           <p><span className="no-mark">&times;</span> The group name on its own will not work.</p>
+          <p><span className="no-mark">&times;</span> Private groups will not work. Only their members can read them.</p>
           <p><span className="yes-mark">{I.tick}</span> Paste the whole link: https://facebook.com/groups/123456789/</p>
         </div>
 
@@ -1895,7 +1912,7 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
   return (
     <div className="page">
       <header className="page-head">
-        <div><h1>Groups watching</h1><p className="muted">The groups we read for you, day and night.</p></div>
+        <div><h1>Groups watching</h1><p className="muted">The groups we read for you, day and night. Public groups only.</p></div>
         <span className="tiny">{groups.length} of {LIMIT}</span>
       </header>
       <div className="card">
@@ -1927,7 +1944,11 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                   </>
                 ) : (
                   <>
-                    <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
+                    {isPrivate(g) ? (
+                      <span className="chip-status bad" title={g.problem}>Private, we cannot read it</span>
+                    ) : (
+                      <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
+                    )}
                     <GroupMenu
                       group={g}
                       busy={busy}
