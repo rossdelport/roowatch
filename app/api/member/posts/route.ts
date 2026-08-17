@@ -24,6 +24,11 @@ export async function GET(request: Request) {
   const user = await currentUser(request);
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
+  // The overview ticker polls this every few seconds, so it asks for a short
+  // list. The Posts tab still asks for the lot.
+  const asked = Number(new URL(request.url).searchParams.get("limit") ?? 300);
+  const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 300, 1), 300);
+
   const rows = await getDb()
     .select({
       id: seenPosts.id,
@@ -37,7 +42,7 @@ export async function GET(request: Request) {
     .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
     .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))
     .orderBy(desc(seenPosts.seenAt))
-    .limit(300);
+    .limit(limit);
 
   const [counted] = (await getDb()
     .select({ n: sql<number>`count(*)` })
@@ -47,10 +52,23 @@ export async function GET(request: Request) {
     n: number;
   }[];
 
+  // Posts read since midnight, their time near enough. The overview says it
+  // out loud, because "we read 47 posts today" is the proof that the thing
+  // they are paying for is actually running.
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const [todayRow] = (await getDb()
+    .select({ n: sql<number>`count(*)` })
+    .from(seenPosts)
+    .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
+    .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))
+    .where(sql`${seenPosts.seenAt} >= ${midnight.getTime()}`)) as { n: number }[];
+
   return Response.json({
     ok: true,
     posts: rows,
     total: Number(counted?.n ?? 0),
+    today: Number(todayRow?.n ?? 0),
     keptDays: 14,
   });
 }

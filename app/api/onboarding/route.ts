@@ -136,7 +136,12 @@ export async function POST(request: Request) {
     if (!sourceId) {
       const [created] = await db
         .insert(sources)
-        .values({ groupName: g.name, url: g.url })
+        // Backdated an hour on purpose. dueSources orders by lastChecked, so
+        // these sort to the front of the very next tick and the window comes
+        // out at an hour wide. The member watches a real hour of their own
+        // groups arrive within a minute of finishing setup, instead of an
+        // empty page and a promise.
+        .values({ groupName: g.name, url: g.url, lastChecked: Date.now() - 60 * 60 * 1000 })
         .returning({ id: sources.id });
       sourceId = created?.id;
       // So a second group later in this same request that resolves to the

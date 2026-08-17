@@ -69,7 +69,10 @@ export async function POST(request: Request) {
     if (!sourceId) {
       const [created] = await db
         .insert(sources)
-        .values({ groupName: parsed.name, url: parsed.url })
+        // Backdated an hour, same as setup. A group added on a Tuesday
+        // afternoon should start showing its posts within a minute, not sit
+        // blank until something happens to be posted.
+        .values({ groupName: parsed.name, url: parsed.url, lastChecked: Date.now() - 60 * 60 * 1000 })
         .returning({ id: sources.id });
       sourceId = created?.id;
     }

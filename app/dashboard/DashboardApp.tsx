@@ -487,6 +487,271 @@ export default function DashboardApp() {
  * The host sits inside `.dash`, not on `document.body`, so the CSS variables
  * and every `.dash input` style still reach the modal.
  */
+type FeedPost = {
+  id: string;
+  seenAt: number;
+  text: string;
+  url: string;
+  author: string;
+  groupName: string;
+};
+
+/**
+ * The posts we have actually read, arriving on screen.
+ *
+ * A member who has no leads yet has no way of telling whether they are paying
+ * for a working machine or a spinner. This is the proof: their own groups,
+ * their own posts, the real times we read them.
+ *
+ * The first load deals them out about three a second rather than dumping the
+ * lot, because a page that fills itself in front of you reads as alive and a
+ * page that is simply full reads as a screenshot. After that it polls, and
+ * anything new slides in at the top and pushes the rest down.
+ */
+function LiveFeed({ groups, onGo }: {
+  groups: Group[];
+  onGo: (tab: string, view?: string) => void;
+}) {
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [shown, setShown] = useState(0);
+  const [today, setToday] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const known = useRef(new Set<string>());
+  const dealt = useRef(false);
+
+  const watching = groups.filter((g) => g.status === "watching").length;
+
+  useEffect(() => {
+    let alive = true;
+
+    async function pull() {
+      try {
+        const res = await fetch("/api/member/posts?limit=40");
+        const data = (await res.json()) as { posts?: FeedPost[]; today?: number };
+        if (!alive) return;
+        const rows = data.posts ?? [];
+        setToday(data.today ?? 0);
+        setPosts(rows);
+        setLoaded(true);
+        // First run deals them out. Later runs are already on screen, so any
+        // new arrival just appears at the top.
+        if (!dealt.current) {
+          dealt.current = true;
+        } else {
+          setShown(rows.length);
+        }
+        rows.forEach((p) => known.current.add(p.id));
+      } catch {
+        if (alive) setLoaded(true);
+      }
+    }
+
+    pull();
+    const timer = setInterval(pull, 9000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  // The deal. One row every 320ms until the list is out.
+  useEffect(() => {
+    if (!posts.length || shown >= posts.length) return;
+    const timer = setTimeout(() => setShown((n) => n + 1), shown === 0 ? 250 : 320);
+    return () => clearTimeout(timer);
+  }, [posts.length, shown]);
+
+  const visible = posts.slice(0, shown);
+
+  return (
+    <div className="card feed">
+      <div className="feed-head">
+        <div>
+          <h3>Posts we are reading</h3>
+          <p className="tiny">
+            {today > 0
+              ? `${today.toLocaleString()} read today across your ${watching} ${watching === 1 ? "group" : "groups"}. None matched yet.`
+              : `Watching ${watching} ${watching === 1 ? "group" : "groups"}, day and night.`}
+          </p>
+        </div>
+        <span className="live"><i /> Live</span>
+      </div>
+
+      {!loaded ? (
+        <div className="feed-wait"><span className="spinner" /> Opening your groups</div>
+      ) : visible.length === 0 ? (
+        <div className="empty small">
+          <p><strong>Nothing read yet.</strong></p>
+          <p className="muted">
+            {watching === 0
+              ? "Add a group and posts start appearing here."
+              : "Your groups are queued. The first posts land within a few minutes."}
+          </p>
+        </div>
+      ) : (
+        <div className="feed-rows">
+          {visible.map((p) => (
+            <a
+              className="feed-row"
+              key={p.id}
+              href={p.url || undefined}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="feed-when">{shortTime(p.seenAt)}</span>
+              <span className="feed-body">
+                <span className="feed-group">{p.groupName}</span>
+                <span className="feed-text">{p.text}</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {posts.length > 0 && (
+        <button className="feed-more" onClick={() => onGo("alerts", "posts")}>
+          See every post we have read
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Milliseconds from a stored timestamp, whichever way it was written.
+ *
+ * onboardedAt comes from toISOString and already carries a Z. Other columns
+ * come from SQL CURRENT_TIMESTAMP and carry none, so they need one added or
+ * they read as local time. Appending a second Z gives NaN, which is how the
+ * first lead strip managed to never appear at all.
+ */
+function whenMs(value: string | null | undefined): number {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  const stamped = /[Zz]$|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw.replace(" ", "T")}Z`;
+  const ms = Date.parse(stamped);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/** "9:42 am" for something read today, "Tue 4:10 pm" for older. */
+function shortTime(ms: number) {
+  const d = new Date(ms);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const time = d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+  return sameDay ? time : `${d.toLocaleDateString("en-AU", { weekday: "short" })} ${time}`;
+}
+
+/**
+ * What to fix, instead of a row of noughts.
+ *
+ * On day one every number this dashboard owns is zero, which reads as broken.
+ * These are the things that actually change how many leads somebody gets, so
+ * a quiet day turns into a short list of jobs rather than a wall of failure.
+ */
+function SetupScore({ me, groups, alerts, onGo }: {
+  me: Me;
+  groups: Group[];
+  alerts: Alert[];
+  onGo: (tab: string, view?: string) => void;
+}) {
+  const limit = me.plan?.groups ?? 10;
+  const watching = groups.filter((g) => g.status === "watching");
+  const privates = groups.filter(isPrivate);
+  const brief = (me.profile?.brief ?? "").trim();
+  const texts = me.profile?.smsEnabled === 1 && Boolean(me.profile?.alertPhone);
+
+  const jobs = [
+    {
+      key: "private",
+      done: privates.length === 0,
+      // The one that costs them real leads, so it goes first when it applies.
+      label: privates.length
+        ? `${privates.length} ${privates.length === 1 ? "group is" : "groups are"} private, swap ${privates.length === 1 ? "it" : "them"}`
+        : "No private groups",
+      go: () => onGo("groups"),
+    },
+    {
+      key: "groups",
+      done: watching.length >= limit,
+      label: `${watching.length} of ${limit} groups used`,
+      go: () => onGo("groups"),
+    },
+    {
+      key: "brief",
+      done: brief.length >= 20,
+      label: brief.length >= 20 ? "Job brief written" : "Tell us what jobs you want",
+      go: () => onGo("settings"),
+    },
+    {
+      key: "texts",
+      done: texts,
+      label: texts ? "Texts switched on" : "Switch texts on",
+      go: () => onGo("settings"),
+    },
+  ];
+
+  const done = jobs.filter((j) => j.done).length;
+  if (done === jobs.length && alerts.length > 0) return null;
+
+  return (
+    <div className="card score">
+      <div className="score-head">
+        <h3>Get more leads</h3>
+        <span className="score-count">{done} of {jobs.length}</span>
+      </div>
+      <div className="score-bar"><i style={{ width: `${(done / jobs.length) * 100}%` }} /></div>
+      <div className="score-list">
+        {jobs.map((j) => (
+          <button className={j.done ? "score-row done" : "score-row"} key={j.key} onClick={j.go}>
+            <span className="score-mark">{j.done ? I.tick : ""}</span>
+            <span className="score-label">{j.label}</span>
+            {!j.done && <span className="score-go">Fix</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * How long they have been waiting, against how long it usually takes.
+ *
+ * Day two is when somebody with no lead yet decides the thing does not work.
+ * Saying the number out loud, before they have to ask, is the cheapest way to
+ * keep them.
+ */
+function FirstLead({ me }: { me: Me }) {
+  const TARGET_HOURS = 48;
+  const started = whenMs(me.profile?.onboardedAt);
+  const [nowMs] = useState(() => Date.now());
+  if (!started) return null;
+
+  const hours = Math.max(0, (nowMs - started) / 3_600_000);
+  const pct = Math.min(100, (hours / TARGET_HOURS) * 100);
+  const left = Math.max(0, Math.ceil(TARGET_HOURS - hours));
+
+  return (
+    <div className="firstlead">
+      <div className="fl-top">
+        <div>
+          <strong>Your first lead is on its way</strong>
+          <p className="tiny">Most tradies get theirs within {TARGET_HOURS} hours of setting up.</p>
+        </div>
+        <span className="fl-count">{hours < 1 ? "Just started" : `${Math.floor(hours)}h in`}</span>
+      </div>
+      <div className="fl-track">
+        <i style={{ width: `${Math.max(2, pct)}%` }} />
+      </div>
+      <p className="tiny fl-foot">
+        {left > 0
+          ? `Typically ${left} ${left === 1 ? "hour" : "hours"} to go. You do not need to do anything.`
+          : "Taking longer than usual. Adding more groups is the fastest fix."}
+      </p>
+    </div>
+  );
+}
+
 /**
  * The first thing a member sees after setup.
  *
@@ -1407,6 +1672,8 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
           </div>
           <span className="live"><i /> Watching live</span>
         </header>
+        {alerts.length === 0 && <FirstLead me={me} />}
+
         <div className="tiles">
           <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{alerts.length}</span><span className="tile-label">Leads sent to you</span></button>
@@ -1414,23 +1681,22 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
           <button className="tile tap" onClick={() => onGo("alerts", "posts")}><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></button>
           <div className="tile tile-accent"><span className="tile-num">&lt;60 sec</span><span className="tile-label">Alert speed</span></div>
         </div>
-        <div className="card">
-          <h3>Latest leads</h3>
-          {alerts.length === 0 ? (
-            <div className="empty">
-              <p><strong>No leads yet.</strong> That is normal on day one.</p>
-              {(me.postsUsed ?? 0) > 0 ? (
-                <p className="muted">
-                  We have read <strong>{(me.postsUsed ?? 0).toLocaleString()}</strong> posts in your
-                  groups this month. None of them matched what you asked for yet. We are still watching.
-                </p>
+
+        <div className="ov-split">
+          <LiveFeed groups={groups} onGo={onGo} />
+          <div className="ov-side">
+            <SetupScore me={me} groups={groups} alerts={alerts} onGo={onGo} />
+            <div className="card">
+              <h3>Latest leads</h3>
+              {alerts.length === 0 ? (
+                <div className="empty small">
+                  <p className="muted">Nothing yet. The moment a job comes up we text you.</p>
+                </div>
               ) : (
-                <p className="muted">We are setting up your watchlist. Your first lead usually lands within 48 hours.</p>
+                alerts.slice(0, 3).map((a) => <AlertRow key={a.id} alert={a} />)
               )}
             </div>
-          ) : (
-            alerts.slice(0, 5).map((a) => <AlertRow key={a.id} alert={a} />)
-          )}
+          </div>
         </div>
       </div>
     );
@@ -3881,6 +4147,60 @@ const CSS = `
 
 /* ---- setup wizard ---- */
 .modal-wide{max-width:600px;position:relative;}
+
+/* The overview: proof on the left, jobs on the right. */
+.ov-split{align-items:start;display:grid;gap:16px;grid-template-columns:1fr 340px;}
+.ov-side{display:grid;gap:16px;}
+
+.feed{padding:0;}
+.feed-head{align-items:flex-start;border-bottom:1px solid var(--line);display:flex;gap:12px;justify-content:space-between;padding:18px 20px 14px;}
+.feed-head h3{margin:0 0 3px;}
+.feed-head .tiny{margin:0;}
+.feed-wait{align-items:center;color:var(--muted);display:flex;font-size:14px;gap:10px;justify-content:center;padding:44px 20px;}
+.feed-rows{max-height:min(56vh,560px);overflow-y:auto;}
+.feed-row{align-items:baseline;border-bottom:1px solid var(--line);color:inherit;display:flex;gap:14px;padding:12px 20px;text-decoration:none;transition:background .18s var(--ease);
+  animation:feedIn .42s var(--ease) both;}
+.feed-row:hover{background:#fffaf3;}
+.feed-row:last-child{border-bottom:0;}
+.feed-when{color:var(--muted);flex:none;font-size:11.5px;font-variant-numeric:tabular-nums;padding-top:2px;width:64px;}
+.feed-body{display:grid;gap:2px;min-width:0;}
+.feed-group{color:var(--coral-deep);font-size:11.5px;font-weight:800;letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.feed-text{color:var(--ink);display:-webkit-box;font-size:13.5px;line-height:1.5;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;}
+.feed-more{background:none;border:0;border-top:1px solid var(--line);color:var(--coral-deep);font-size:13px;font-weight:800;padding:13px;width:100%;}
+.feed-more:hover{background:#fffaf3;}
+@keyframes feedIn{from{opacity:0;transform:translateY(-9px);}to{opacity:1;transform:none;}}
+
+.score-head{align-items:center;display:flex;justify-content:space-between;}
+.score-head h3{margin:0;}
+.score-count{color:var(--muted);font-size:12px;font-weight:800;}
+.score-bar{background:var(--line);border-radius:99px;height:6px;margin:12px 0 14px;overflow:hidden;}
+.score-bar i{background:var(--mint);border-radius:99px;display:block;height:100%;transition:width .5s var(--ease);}
+.score-list{display:grid;gap:2px;}
+.score-row{align-items:center;background:none;border:0;border-radius:9px;display:flex;gap:10px;padding:9px 8px;text-align:left;transition:background .18s var(--ease);width:100%;}
+.score-row:hover{background:#fffaf3;}
+.score-mark{align-items:center;background:var(--line);border-radius:99px;color:#fff;display:inline-flex;flex:none;height:18px;justify-content:center;width:18px;}
+.score-row.done .score-mark{background:var(--mint);}
+.score-row.done .score-label{color:var(--muted);}
+.score-mark svg{height:11px;width:11px;}
+.score-label{color:var(--ink);flex:1;font-size:13.5px;font-weight:600;}
+.score-go{color:var(--coral-deep);flex:none;font-size:12px;font-weight:800;}
+
+.firstlead{background:linear-gradient(115deg,#111d36,#1b2c4f);border-radius:16px;box-shadow:var(--shadow-soft);color:#fff;margin-bottom:18px;overflow:hidden;padding:18px 20px 16px;position:relative;}
+.firstlead:after{background:radial-gradient(circle,rgba(255,106,77,.35),transparent 70%);content:"";height:220px;position:absolute;right:-70px;top:-90px;width:220px;}
+.fl-top{align-items:flex-start;display:flex;gap:14px;justify-content:space-between;position:relative;}
+.fl-top strong{font-size:15.5px;letter-spacing:-.01em;}
+.fl-top .tiny{color:#a9b8d4;margin:3px 0 0;}
+.fl-count{background:rgba(255,255,255,.12);border-radius:99px;flex:none;font-size:11.5px;font-weight:800;padding:5px 11px;}
+.fl-track{background:rgba(255,255,255,.14);border-radius:99px;height:7px;margin:14px 0 9px;overflow:hidden;position:relative;}
+.fl-track i{background:linear-gradient(90deg,var(--coral),#ffa46d);border-radius:99px;display:block;height:100%;position:relative;transition:width .8s var(--ease);}
+.fl-track i:after{animation:flPulse 2.2s var(--ease) infinite;background:rgba(255,255,255,.65);border-radius:99px;content:"";inset:0 0 0 auto;position:absolute;width:7px;}
+.fl-foot{color:#a9b8d4;margin:0;position:relative;}
+@keyframes flPulse{0%,100%{opacity:.25;}50%{opacity:1;}}
+@media(prefers-reduced-motion:reduce){.fl-track i:after{animation:none;}.feed-row{animation:none;}}
+
+.empty.small{padding:18px 4px;}
+@media(max-width:1100px){.ov-split{grid-template-columns:1fr;}}
+
 .allset{max-width:430px;text-align:center;}
 .allset h2{margin-bottom:10px;}
 .allset .muted{margin:0 auto 22px;max-width:340px;}
