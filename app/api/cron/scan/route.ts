@@ -112,11 +112,12 @@ async function collectJob(job: Job) {
   );
   for (const source of rows) {
     const slug = groupSlug(source.url);
-    await processSource(source.id, byGroup.get(slug) ?? []);
+    const posts = byGroup.get(slug) ?? [];
+    await processSource(source.id, posts);
     // After, never before. processSource writes its own lastError at the end
     // of every pass, so learning first would have the reason wiped a moment
     // after we wrote it down.
-    await learnAbout(source, facts.get(slug));
+    await learnAbout(source, facts.get(slug), posts.length > 0);
   }
 
   await db.delete(scanJobs).where(eq(scanJobs.id, job.id));
@@ -138,7 +139,8 @@ async function collectJob(job: Job) {
  */
 async function learnAbout(
   source: { id: number; groupName: string; url: string; lastError: string },
-  fact: GroupFacts | undefined
+  fact: GroupFacts | undefined,
+  sawPosts: boolean
 ) {
   if (!fact) return;
   const db = getDb();
@@ -162,8 +164,13 @@ async function learnAbout(
     }
   }
 
-  if (fact.error !== source.lastError) {
-    await db.update(sources).set({ lastError: fact.error }).where(eq(sources.id, source.id));
+  // Only write when we actually learned something. A snapshot that says
+  // nothing at all about a group is not evidence that it became readable, and
+  // blanking the reason on those passes made the private warning flicker on
+  // and off between scans.
+  const next = fact.error ? fact.error : sawPosts ? "" : source.lastError;
+  if (next !== source.lastError) {
+    await db.update(sources).set({ lastError: next }).where(eq(sources.id, source.id));
   }
 }
 

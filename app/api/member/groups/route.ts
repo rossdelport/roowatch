@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
-import { parseGroupInput } from "../../../../db/fbgroups";
+import { groupSlug, parseGroupInput } from "../../../../db/fbgroups";
 import { groupLimit } from "../../../../db/plans";
 import { groups, profiles, sources } from "../../../../db/schema";
 
@@ -51,6 +51,16 @@ export async function POST(request: Request) {
       .from(sources)
       .where(eq(sources.url, parsed.url))
       .limit(1);
+
+    // Same rule as the wizard: a group we already know is private can never
+    // send them a lead, so it is turned away rather than quietly added.
+    const known = await db
+      .select({ url: sources.url, lastError: sources.lastError })
+      .from(sources);
+    const match = known.find((s) => groupSlug(s.url) === groupSlug(parsed.url));
+    if (match && /private/i.test(match.lastError)) {
+      return Response.json({ error: "private" }, { status: 400 });
+    }
 
     let sourceId = existing?.id;
     if (sourceId && !existing.active) {

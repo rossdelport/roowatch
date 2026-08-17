@@ -751,7 +751,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     setStage(next);
   }
 
-  function addGroup(raw: string) {
+  async function addGroup(raw: string) {
     const parsed = parseGroupInput(raw);
     if (!parsed?.url) return false;
     if (groupList.some((g) => g.url === parsed.url)) {
@@ -761,6 +761,24 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     if (groupList.length >= planGroups) {
       say(`Your plan covers ${planGroups} groups`);
       return false;
+    }
+    // Turn a private group away here rather than let somebody finish setup
+    // and wonder for a week why that one never sends anything.
+    try {
+      const res = await fetch("/api/onboarding/check-group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: parsed.url }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (data.error === "private") {
+          say("Sorry, we cannot watch private groups");
+          return false;
+        }
+      }
+    } catch {
+      // If the check itself fails, let them add it. The scan settles it.
     }
     setGroupList([...groupList, { url: parsed.url, name: parsed.name }]);
     say("Group added");
@@ -1045,15 +1063,21 @@ function SuburbPicker({ state, chosen, onChange, onSay }: {
 }
 
 /** The add box, with a live tick or cross so nobody pastes the wrong thing. */
-function GroupAdder({ onAdd }: { onAdd: (raw: string) => boolean }) {
+function GroupAdder({ onAdd }: { onAdd: (raw: string) => Promise<boolean> }) {
   const [value, setValue] = useState("");
+  const [checking, setChecking] = useState(false);
   const typed = value.trim();
   const good = Boolean(groupSlug(typed));
   const bad = typed.length > 0 && !good;
 
-  function submit() {
-    if (!good) return;
-    if (onAdd(typed)) setValue("");
+  async function submit() {
+    if (!good || checking) return;
+    setChecking(true);
+    try {
+      if (await onAdd(typed)) setValue("");
+    } finally {
+      setChecking(false);
+    }
   }
 
   return (
@@ -1070,7 +1094,7 @@ function GroupAdder({ onAdd }: { onAdd: (raw: string) => boolean }) {
           {good && <span className="mark ok">{I.tick}</span>}
           {bad && <span className="mark no">&times;</span>}
         </div>
-        <button className="btn primary" disabled={!good} onClick={submit}>Add group</button>
+        <button className="btn primary" disabled={!good || checking} onClick={submit}>{checking ? "Checking" : "Add group"}</button>
       </div>
       {bad && (
         <p className="error">
@@ -1941,6 +1965,8 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
             ? `Your plan covers ${LIMIT} groups. Remove one first.`
             : d.error === "duplicate"
             ? "That group is already on your list."
+            : d.error === "private"
+            ? "Sorry, we cannot watch private groups. Only their members can read them."
             : "Could not save that."
         );
         return;
