@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
+import { parseGroupInput } from "../../../../db/fbgroups";
 import { groupLimit } from "../../../../db/plans";
 import { groups, profiles, sources } from "../../../../db/schema";
 
@@ -15,9 +16,21 @@ export async function POST(request: Request) {
   };
   const db = getDb();
 
+  /**
+   * Add a group from a Facebook link.
+   *
+   * This used to store whatever was typed as a plain name with status
+   * "pending", and nothing ever promoted it. A member could add a group, see
+   * it sitting in their list, and never be told that nothing was reading it.
+   * The onboarding wizard did this properly and Settings did not, which is
+   * exactly how a group ends up watching nothing.
+   */
   if (body.action === "add") {
-    const name = (body.name ?? "").trim().slice(0, 120);
-    if (!name) return Response.json({ error: "bad_name" }, { status: 400 });
+    const raw = (body.name ?? "").trim();
+    if (!raw) return Response.json({ error: "bad_name" }, { status: 400 });
+
+    const parsed = parseGroupInput(raw);
+    if (!parsed?.url) return Response.json({ error: "need_url" }, { status: 400 });
 
     const [profile] = await db
       .select({ plan: profiles.plan })
@@ -30,10 +43,37 @@ export async function POST(request: Request) {
     if (mine.length >= limit) {
       return Response.json({ error: "plan_limit", limit }, { status: 400 });
     }
-    if (mine.some((g) => g.name.toLowerCase() === name.toLowerCase())) {
+
+    // Find or make the source, then point their row at it. Without this the
+    // group is decoration: the scanner never picks it up.
+    const [existing] = await db
+      .select({ id: sources.id, active: sources.active })
+      .from(sources)
+      .where(eq(sources.url, parsed.url))
+      .limit(1);
+
+    let sourceId = existing?.id;
+    if (sourceId && !existing.active) {
+      await db.update(sources).set({ active: 1, lastError: "" }).where(eq(sources.id, sourceId));
+    }
+    if (!sourceId) {
+      const [created] = await db
+        .insert(sources)
+        .values({ groupName: parsed.name, url: parsed.url })
+        .returning({ id: sources.id });
+      sourceId = created?.id;
+    }
+
+    if (mine.some((g) => g.sourceId === sourceId)) {
       return Response.json({ error: "duplicate" }, { status: 400 });
     }
-    await db.insert(groups).values({ userId: user.id, name, status: "pending" });
+
+    await db.insert(groups).values({
+      userId: user.id,
+      name: parsed.name,
+      sourceId,
+      status: sourceId ? "watching" : "pending",
+    });
     return Response.json({ ok: true });
   }
 

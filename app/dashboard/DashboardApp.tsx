@@ -1690,7 +1690,9 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
       if (!res.ok) {
         const d = (await res.json().catch(() => ({}))) as { error?: string };
         setError(
-          d.error === "plan_limit"
+          d.error === "need_url"
+            ? "Paste the whole Facebook link, like facebook.com/groups/123456789. A name on its own cannot be watched."
+            : d.error === "plan_limit"
             ? `Your plan covers ${LIMIT} groups. Remove one first.`
             : d.error === "duplicate"
             ? "That group is already on your list."
@@ -1761,12 +1763,12 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
           ))
         )}
         <div className="row gap mt">
-          <input placeholder="Add a group name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim() && call({ action: "add", name })} />
-          <button className="btn ghost" disabled={busy || !name.trim()} onClick={() => call({ action: "add", name })}>Add</button>
+          <input placeholder="Paste the Facebook group link" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim() && call({ action: "add", name })} />
+          <button className="btn ghost square" disabled={busy || !name.trim()} onClick={() => call({ action: "add", name })}>Add</button>
         </div>
         {error && <p className="error">{error}</p>}
       </div>
-      <p className="tiny">New groups show as Setting up while we connect them. That usually takes a few hours.</p>
+      <p className="tiny">Open the group on Facebook and copy the address from your browser. We start watching it straight away.</p>
     </div>
   );
 }
@@ -2687,7 +2689,7 @@ function MarketingView(props: {
     { key: "stripe", label: "Payments" },
   ];
   return (
-    <div className="page admin">
+    <div className={props.active === "support" ? "page admin wide" : "page admin"}>
       <header className="page-head">
         <div>
           <h1>Marketing</h1>
@@ -3097,6 +3099,9 @@ const CSS = `
 .chat-card{display:flex;flex-direction:column;min-height:420px;padding:0;}
 .chat-head{border-bottom:1px solid var(--line);display:grid;gap:2px;padding:16px 20px;}
 .chat-log{display:grid;gap:12px;flex:1;overflow-y:auto;max-height:52vh;padding:20px;}
+.wide .chat-card{min-height:min(72vh,660px);}
+.wide .chat-log{max-height:none;}
+.wide .thread-list{max-height:min(72vh,660px);}
 .bubble-row{display:flex;}
 .bubble-row.me{justify-content:flex-end;}
 .bubble{border-radius:14px;max-width:78%;padding:11px 14px;}
@@ -3108,7 +3113,7 @@ const CSS = `
 .chat-send textarea{margin:0;}
 .chat-send .btn{flex:none;}
 
-.chat-split{align-items:start;display:grid;gap:16px;grid-template-columns:270px 1fr;}
+.chat-split{align-items:start;display:grid;gap:16px;grid-template-columns:300px 1fr;}
 .thread-list{display:grid;gap:8px;max-height:60vh;overflow-y:auto;}
 .thread{background:#fff;border:1px solid var(--line);border-radius:12px;display:grid;gap:4px;padding:12px 14px;text-align:left;transition:border-color .18s var(--ease),box-shadow .18s var(--ease);}
 .thread:hover{border-color:var(--coral);}
