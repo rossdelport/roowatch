@@ -58,6 +58,10 @@ export const profiles = sqliteTable("profiles", {
    *  trial. Stored rather than fetched so the dashboard never waits on Stripe
    *  just to draw a pill. */
   trialEndsAt: integer("trial_ends_at").notNull().default(0),
+  /** Unix seconds their subscription is scheduled to end, 0 when it is not.
+   *  Cancelling in the portal takes effect at the end of the period they paid
+   *  for, so without this a member who cancels sees no sign of it anywhere. */
+  cancelAt: integer("cancel_at").notNull().default(0),
 });
 
 export const sources = sqliteTable("sources", {

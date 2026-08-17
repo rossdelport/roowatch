@@ -214,8 +214,20 @@ type Subscription = {
   customer?: string;
   status?: string;
   trial_end?: number | null;
+  cancel_at?: number | null;
+  cancel_at_period_end?: boolean;
+  current_period_end?: number | null;
   items?: { data?: { price?: { id?: string } }[] };
 };
+
+/** "24 August", the way a person writes it. */
+function whenDate(unixSeconds: number) {
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-AU", {
+    timeZone: "Australia/Perth",
+    day: "numeric",
+    month: "long",
+  });
+}
 
 async function handleSubscriptionChange(subscription: Subscription) {
   const customerId = String(subscription.customer || "");
@@ -251,10 +263,47 @@ async function handleSubscriptionChange(subscription: Subscription) {
 
   // Follow the trial end as well. Upgrading mid trial keeps the trial running,
   // so this has to track rather than be set once at checkout.
+  //
+  // cancel_at is the date a scheduled cancellation lands. Cancelling in the
+  // portal takes effect at the end of the period they paid for, so the status
+  // stays trialing or active and nothing else here would notice.
+  const cancelAt = Number(
+    subscription.cancel_at ??
+      (subscription.cancel_at_period_end ? subscription.current_period_end ?? 0 : 0) ??
+      0
+  );
   await db
     .update(profiles)
-    .set({ trialEndsAt: Number(subscription.trial_end ?? 0) })
+    .set({ trialEndsAt: Number(subscription.trial_end ?? 0), cancelAt })
     .where(eq(profiles.userId, row.userId));
+
+  // Only on the tick where it is newly scheduled, or Stripe's other updates
+  // would email them the same goodbye over and over.
+  if (cancelAt && !row.prevCancelAt) {
+    await sendEmail(
+      row.email,
+      "Your RooWatch subscription is cancelled",
+      [
+        `G'day ${row.name || "there"},`,
+        "",
+        "Sorry to see you go.",
+        "",
+        `Your subscription is cancelled and will end on ${whenDate(cancelAt)}.`,
+        "You keep every lead and keep getting new ones right up until then. Nothing else changes.",
+        "",
+        "Changed your mind? You can turn it back on any time before that date from Settings in your dashboard.",
+        "",
+        "If we got something wrong, hit reply and tell me. I read every one.",
+        "",
+        "Ross from RooWatch",
+      ].join("\n")
+    );
+    await sendEmail(
+      ["ross@roowatch.com.au", "rossdelport1998@gmail.com"],
+      `Cancellation: ${row.email}`,
+      `${row.email} cancelled. Their access ends ${whenDate(cancelAt)}. Worth a call before then.`
+    );
+  }
 
   const wasLapsed = LAPSED.has(row.prevStatus);
   const nowLapsed = LAPSED.has(newStatus);
@@ -308,7 +357,13 @@ async function handleSubscriptionChange(subscription: Subscription) {
 async function lookupByCustomerId(customerId: string) {
   const db = getDb();
   const [row] = await db
-    .select({ userId: profiles.userId, email: users.email, prevStatus: profiles.subscriptionStatus })
+    .select({
+      userId: profiles.userId,
+      email: users.email,
+      name: users.name,
+      prevStatus: profiles.subscriptionStatus,
+      prevCancelAt: profiles.cancelAt,
+    })
     .from(profiles)
     .innerJoin(users, eq(users.id, profiles.userId))
     .where(eq(profiles.stripeCustomerId, customerId))
@@ -319,7 +374,13 @@ async function lookupByCustomerId(customerId: string) {
 async function lookupByEmail(email: string, backfillCustomerId: string) {
   const db = getDb();
   const [row] = await db
-    .select({ userId: profiles.userId, email: users.email, prevStatus: profiles.subscriptionStatus })
+    .select({
+      userId: profiles.userId,
+      email: users.email,
+      name: users.name,
+      prevStatus: profiles.subscriptionStatus,
+      prevCancelAt: profiles.cancelAt,
+    })
     .from(profiles)
     .innerJoin(users, eq(users.id, profiles.userId))
     .where(eq(users.email, email))

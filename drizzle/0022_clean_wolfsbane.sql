@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `cancel_at` integer DEFAULT 0 NOT NULL;

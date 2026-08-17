@@ -61,6 +61,7 @@ type Me = {
   supportUnread?: number;
   plan?: Plan;
   trialEndsAt?: number;
+  cancelAt?: number;
   subscriptionStatus?: string;
 };
 type UserStats = {
@@ -1271,7 +1272,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
         <h3>Session</h3>
         <button className="btn ghost" onClick={onLogout}>Log out</button>
       </div>
-      <ManageSubscription plan={plan} trialEndsAt={me.trialEndsAt ?? 0} status={me.subscriptionStatus ?? ""} />
+      <ManageSubscription plan={plan} trialEndsAt={me.trialEndsAt ?? 0} cancelAt={me.cancelAt ?? 0} status={me.subscriptionStatus ?? ""} />
     </div>
   );
 }
@@ -2004,9 +2005,10 @@ function SaveState({ status }: { status: "clean" | "typing" | "saving" | "saved"
  * reads the new price back onto their profile. So an upgrade lifts their group
  * and post limits without anyone touching the admin panel.
  */
-function ManageSubscription({ plan, trialEndsAt, status }: {
+function ManageSubscription({ plan, trialEndsAt, cancelAt, status }: {
   plan: Plan;
   trialEndsAt: number;
+  cancelAt: number;
   status: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -2019,6 +2021,16 @@ function ManageSubscription({ plan, trialEndsAt, status }: {
   const trialDays =
     status === "trialing" && trialEndsAt * 1000 > now
       ? Math.floor((trialEndsAt * 1000 - now) / 86400000)
+      : null;
+
+  // A cancellation booked for the end of the period they paid for. Without
+  // this the dashboard looks completely normal and they assume it failed.
+  const endsOn =
+    cancelAt * 1000 > now
+      ? new Date(cancelAt * 1000).toLocaleDateString("en-AU", {
+          day: "numeric",
+          month: "long",
+        })
       : null;
 
   async function openPortal() {
@@ -2047,7 +2059,9 @@ function ManageSubscription({ plan, trialEndsAt, status }: {
     <div className="card">
       <div className="card-head">
         <h3>Your subscription</h3>
-        {trialDays !== null && (
+        {endsOn ? (
+          <span className="chip-status warn">Cancelled, ends {endsOn}</span>
+        ) : trialDays !== null && (
           <span className="chip-status ok">
             {trialDays === 0
               ? "Last day of your trial"
@@ -2073,9 +2087,9 @@ function ManageSubscription({ plan, trialEndsAt, status }: {
         {busy ? "Opening" : "Manage subscription"}
       </button>
       <p className="tiny">
-        Upgrades take effect straight away and the difference goes on your next
-        invoice. If you cancel you keep your leads until the end of the period you
-        have paid for.
+        {endsOn
+          ? `Your subscription ends on ${endsOn}. You keep getting leads right up until then, and you can turn it back on any time before that date.`
+          : "Upgrades take effect straight away and the difference goes on your next invoice. If you cancel you keep your leads until the end of the period you have paid for."}
       </p>
     </div>
   );
@@ -3281,6 +3295,7 @@ const CSS = `
 .plan-growth{background:var(--mint-soft);color:#14724f;}
 .plan-scale{background:#efe4ff;color:#5b3a9c;}
 .chip-status.bad{background:#fdece8;color:var(--coral-deep);}
+.chip-status.warn{background:#fff3d8;color:#8a5a00;}
 
 .growth{margin:6px 0 0;}
 .growth-svg{display:block;height:170px;width:100%;}
