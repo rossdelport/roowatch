@@ -56,6 +56,7 @@ type Me = {
   smsUsed?: number;
   hasPassword?: boolean;
   impersonating?: boolean;
+  supportUnread?: number;
   plan?: Plan;
 };
 type UserStats = {
@@ -111,6 +112,7 @@ const I = {
   out: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   tick: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>,
   pencil: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>,
+  send: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="17" height="17"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
   x: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" width="15" height="15"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
   chat: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 4 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 8 8.4z"/></svg>,
   dots: <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>,
@@ -310,7 +312,6 @@ export default function DashboardApp() {
             <button className={tab === "overview" && !adminTab ? "on" : ""} onClick={() => { setTab("overview"); setAdminTab(null); }}>{I.grid} Overview</button>
             <button className={tab === "groups" && !adminTab ? "on" : ""} onClick={() => { setTab("groups"); setAdminTab(null); }}>{I.eye} Groups watching</button>
             <button className={tab === "alerts" && !adminTab ? "on" : ""} onClick={() => { setTab("alerts"); setAdminTab(null); }}>{I.bell} Leads</button>
-            <button className={tab === "support" && !adminTab ? "on" : ""} onClick={() => { setTab("support"); setAdminTab(null); }}>{I.chat} Support</button>
           </nav>
           <div className="side-bottom">
             {me.isAdmin && (
@@ -372,6 +373,7 @@ export default function DashboardApp() {
 
       {/* Where modals are rendered. See Portal below for why. */}
       <div id="roo-modals" />
+      {!me.isAdmin && <SupportBubble me={me} onRefresh={refresh} />}
     </div>
   );
 }
@@ -1194,7 +1196,6 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
   }
 
   if (tab === "alerts") return <LeadsPage me={me} view={leadsView} setView={setLeadsView} />;
-  if (tab === "support") return <SupportPage me={me} />;
 
   return (
     <div className="page">
@@ -1470,26 +1471,55 @@ function chatTime(raw: string) {
   });
 }
 
-/** The member's side of the conversation. */
-function SupportPage({ me }: { me: Me }) {
+/**
+ * The support bubble, bottom right on every page.
+ *
+ * Members do not get a Support tab any more. A tradie should be able to ask a
+ * question from wherever they are without losing their place, the way every
+ * SaaS chat widget works. Ross still gets the full thread view in the admin
+ * dashboard, because he is triaging many people and they are only ever in one
+ * conversation.
+ *
+ * It renders through the same portal as the modals, so the transforms on
+ * .page and .subpanel cannot trap it in the content column.
+ */
+function SupportBubble({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [messages, setMessages] = useState<SupportMessage[] | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const plan = me.plan ?? PLANS.local;
+  const [justSent, setJustSent] = useState<number | null>(null);
+  const log = useRef<HTMLDivElement>(null);
+  const unread = me.supportUnread ?? 0;
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/member/support");
+      const d = (await res.json()) as { messages?: SupportMessage[] };
+      setMessages(d.messages ?? []);
+      // Opening marks Ross's replies read, so refresh the badge.
+      if (unread) onRefresh();
+    } catch {
+      setMessages([]);
+    }
+  }, [unread, onRefresh]);
 
   useEffect(() => {
-    let live = true;
-    fetch("/api/member/support")
-      .then((r) => r.json())
-      .then((d: { messages?: SupportMessage[] }) => live && setMessages(d.messages ?? []))
-      .catch(() => live && setMessages([]));
-    return () => { live = false; };
-  }, []);
+    if (open && log.current) log.current.scrollTop = log.current.scrollHeight;
+  }, [open, messages]);
+
+  function shut() {
+    // Let the close animation finish before the panel leaves the tree.
+    setClosing(true);
+    setTimeout(() => { setClosing(false); setOpen(false); }, 180);
+  }
 
   async function send() {
     const text = draft.trim();
     if (text.length < 2 || busy) return;
     setBusy(true);
+    setDraft("");
     try {
       const res = await fetch("/api/member/support", {
         method: "POST",
@@ -1497,64 +1527,91 @@ function SupportPage({ me }: { me: Me }) {
         body: JSON.stringify({ message: text }),
       });
       const d = (await res.json()) as { messages?: SupportMessage[] };
-      if (d.messages) setMessages(d.messages);
-      setDraft("");
+      if (d.messages) {
+        setMessages(d.messages);
+        setJustSent(d.messages[d.messages.length - 1]?.id ?? null);
+      }
+    } catch {
+      setDraft(text);
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>Support</h1>
-          <p className="muted">Ask us anything. We answer here and by email.</p>
-        </div>
-        <span className="live"><i /> {plan.name} support</span>
-      </header>
-
-      <div className="card chat-card">
-        <div className="chat-log">
-          {messages === null ? (
-            <div className="empty"><span className="spinner" /></div>
-          ) : messages.length === 0 ? (
-            <div className="empty">
-              <p><strong>Say g&apos;day.</strong></p>
-              <p className="muted">
-                Stuck on a group? Not happy with your leads? Want more groups watched?
-                Write it below and Ross will get back to you.
-              </p>
-            </div>
-          ) : (
-            messages.map((m) => (
-              <div className={m.fromAdmin ? "bubble-row them" : "bubble-row me"} key={m.id}>
-                <div className="bubble">
-                  <p>{m.body}</p>
-                  <span className="bubble-time">{m.fromAdmin ? "Ross" : "You"} &middot; {chatTime(m.createdAt)}</span>
-                </div>
+    <Portal>
+      <div className="rw-chat">
+        {(open || closing) && (
+          <section className={closing ? "rw-panel out" : "rw-panel"} role="dialog" aria-label="Support">
+            <header className="rw-panel-head">
+              <div>
+                <strong>Support</strong>
+                <span>We reply here and by email</span>
               </div>
-            ))
-          )}
-        </div>
+              <button className="rw-x" onClick={shut} aria-label="Close support">{I.x}</button>
+            </header>
 
-        <div className="chat-send">
-          <textarea
-            rows={2}
-            placeholder="Type your message"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
-            }}
-          />
-          <button className="btn primary" disabled={busy || draft.trim().length < 2} onClick={send}>
-            {busy ? "Sending" : "Send"}
-          </button>
-        </div>
+            <div className="rw-log" ref={log}>
+              {messages === null ? (
+                <div className="rw-empty"><span className="spinner" /></div>
+              ) : messages.length === 0 ? (
+                <div className="rw-empty">
+                  <strong>Say g&apos;day</strong>
+                  <p>Stuck on a group? Leads not right? Want more groups watched? Ask away and Ross will come back to you.</p>
+                </div>
+              ) : (
+                messages.map((m) => (
+                  <div
+                    className={`bubble-row ${m.fromAdmin ? "them" : "me"}${m.id === justSent ? " pop" : ""}`}
+                    key={m.id}
+                  >
+                    <div className="bubble">
+                      <p>{m.body}</p>
+                      <span className="bubble-time">{m.fromAdmin ? "Ross" : "You"} &middot; {chatTime(m.createdAt)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+              {busy && (
+                <div className="bubble-row me">
+                  <div className="bubble sending"><span className="dot" /><span className="dot" /><span className="dot" /></div>
+                </div>
+              )}
+            </div>
+
+            <div className="rw-send">
+              <textarea
+                rows={1}
+                placeholder="Type your message"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                }}
+              />
+              <button className="rw-send-btn" disabled={busy || draft.trim().length < 2} onClick={send} aria-label="Send">
+                {I.send}
+              </button>
+            </div>
+          </section>
+        )}
+
+        <button
+          className={open ? "rw-launcher open" : "rw-launcher"}
+          onClick={() => {
+            if (open) return shut();
+            setOpen(true);
+            // Fetch on the click rather than in an effect. Opening is the
+            // event, and this keeps render pure.
+            if (messages === null) load();
+          }}
+          aria-label={open ? "Close support" : "Open support"}
+        >
+          <span className="rw-icon-swap">{open ? I.x : I.chat}</span>
+          {!open && unread > 0 && <span className="rw-badge">{unread}</span>}
+        </button>
       </div>
-      <p className="tiny">We email you the moment Ross replies, so you do not have to sit here.</p>
-    </div>
+    </Portal>
   );
 }
 
@@ -3094,6 +3151,52 @@ const CSS = `
 .dots-item.danger:hover{background:#fdece8;}
 .dots-item.off{color:#a8b0c0;cursor:default;font-weight:500;}
 .dots-item svg{flex:none;opacity:.7;}
+
+/* ---- support bubble ---- */
+.rw-chat{bottom:22px;position:fixed;right:22px;z-index:80;}
+.rw-launcher{align-items:center;background:var(--coral);border:0;border-radius:99px;box-shadow:0 10px 28px rgba(240,79,49,.42);color:#fff;display:flex;height:56px;justify-content:center;margin-left:auto;position:relative;transition:transform .22s var(--ease),box-shadow .22s var(--ease),background .2s;width:56px;}
+.rw-launcher:hover{background:var(--coral-deep);box-shadow:0 14px 34px rgba(240,79,49,.5);transform:translateY(-2px) scale(1.04);}
+.rw-launcher:active{transform:translateY(0) scale(.96);}
+.rw-launcher.open{background:var(--navy);box-shadow:0 10px 28px rgba(17,29,54,.4);}
+.rw-icon-swap{align-items:center;animation:rwSpin .28s var(--ease) both;display:flex;}
+@keyframes rwSpin{from{opacity:0;transform:rotate(-90deg) scale(.6)}}
+.rw-badge{align-items:center;animation:rwPing .4s var(--ease) both;background:#fff;border-radius:99px;box-shadow:0 2px 8px rgba(0,0,0,.2);color:var(--coral-deep);display:flex;font-size:11.5px;font-weight:900;height:21px;justify-content:center;min-width:21px;padding:0 5px;position:absolute;right:-2px;top:-2px;}
+@keyframes rwPing{from{opacity:0;transform:scale(.3)}60%{transform:scale(1.15)}}
+
+.rw-panel{animation:rwIn .26s var(--ease) both;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 60px rgba(23,32,56,.24);display:flex;flex-direction:column;height:min(74vh,540px);margin-bottom:14px;overflow:hidden;transform-origin:bottom right;width:min(92vw,372px);}
+.rw-panel.out{animation:rwOut .18s var(--ease) both;}
+@keyframes rwIn{from{opacity:0;transform:translateY(16px) scale(.9)}}
+@keyframes rwOut{to{opacity:0;transform:translateY(12px) scale(.92)}}
+
+.rw-panel-head{align-items:center;background:var(--navy);color:#fff;display:flex;gap:12px;justify-content:space-between;padding:15px 18px;}
+.rw-panel-head strong{display:block;font-size:15px;}
+.rw-panel-head span{color:#9fb0cc;font-size:12px;}
+.rw-x{background:rgba(255,255,255,.12);border:0;border-radius:8px;color:#fff;display:flex;padding:6px;transition:background .18s;}
+.rw-x:hover{background:rgba(255,255,255,.24);}
+
+.rw-log{display:grid;gap:10px;flex:1;overflow-y:auto;padding:16px;}
+.rw-log .bubble{max-width:84%;}
+.rw-log .bubble p{font-size:14px;}
+.rw-empty{align-items:center;color:var(--muted);display:flex;flex-direction:column;gap:6px;justify-content:center;height:100%;padding:20px;text-align:center;}
+.rw-empty strong{color:var(--ink);font-size:15px;}
+.rw-empty p{font-size:13.5px;line-height:1.55;margin:0;}
+.bubble-row.pop .bubble{animation:rwPop .3s var(--ease) both;}
+@keyframes rwPop{from{opacity:0;transform:translateY(8px) scale(.94)}}
+
+.bubble.sending{align-items:center;display:flex;gap:5px;padding:14px 16px;}
+.bubble.sending .dot{animation:rwDot 1.1s infinite ease-in-out;background:rgba(255,255,255,.85);border-radius:99px;height:6px;width:6px;}
+.bubble.sending .dot:nth-child(2){animation-delay:.16s;}
+.bubble.sending .dot:nth-child(3){animation-delay:.32s;}
+@keyframes rwDot{0%,70%,100%{opacity:.35;transform:translateY(0)}35%{opacity:1;transform:translateY(-4px)}}
+
+.rw-send{align-items:flex-end;border-top:1px solid var(--line);display:flex;gap:8px;padding:12px 14px;}
+.rw-send textarea{background:#faf7f2;border-radius:12px;font-size:14px;margin:0;max-height:110px;min-height:42px;padding:11px 13px;}
+.rw-send-btn{align-items:center;background:var(--coral);border:0;border-radius:12px;color:#fff;display:flex;flex:none;height:42px;justify-content:center;transition:background .18s,transform .18s var(--ease);width:42px;}
+.rw-send-btn:hover:not(:disabled){background:var(--coral-deep);transform:scale(1.06);}
+.rw-send-btn:active:not(:disabled){transform:scale(.92);}
+.rw-send-btn:disabled{background:#f3c6bb;cursor:default;}
+@media(max-width:520px){.rw-chat{bottom:16px;right:16px;}}
+@media(prefers-reduced-motion:reduce){.rw-panel,.rw-panel.out,.rw-icon-swap,.rw-badge,.bubble-row.pop .bubble{animation:none;}}
 
 /* ---- support chat ---- */
 .chat-card{display:flex;flex-direction:column;min-height:420px;padding:0;}

@@ -1,8 +1,8 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ADMIN_RETURN_COOKIE, currentUser, isAdminEmail, readCookie } from "../../../db/auth";
 import { planFor } from "../../../db/plans";
-import { alerts, groups, profiles, sources } from "../../../db/schema";
+import { alerts, groups, profiles, sources, supportMessages } from "../../../db/schema";
 
 export async function GET(request: Request) {
   const user = await currentUser(request);
@@ -40,11 +40,25 @@ export async function GET(request: Request) {
     .orderBy(desc(alerts.id))
     .limit(50);
 
+  // Drives the dot on the support bubble. Counting is not reading, so this
+  // must never mark anything read.
+  const [unread] = (await db
+    .select({ n: sql<number>`count(*)` })
+    .from(supportMessages)
+    .where(
+      and(
+        eq(supportMessages.userId, user.id),
+        eq(supportMessages.fromAdmin, 1),
+        eq(supportMessages.readByMember, 0)
+      )
+    )) as { n: number }[];
+
   return Response.json({
     user: { id: user.id, email: user.email, name: user.name },
     avatar: user.avatar || undefined,
     hasPassword: Boolean(user.passwordHash),
     isAdmin: isAdminEmail(user.email),
+    supportUnread: Number(unread?.n ?? 0),
     impersonating: Boolean(readCookie(request, ADMIN_RETURN_COOKIE)),
     plan: planFor(profile?.plan),
     smsUsed:
