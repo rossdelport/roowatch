@@ -135,6 +135,9 @@ export default function DashboardApp() {
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [adminFlash, setAdminFlash] = useState("");
+  /** How far back the ad funnel looks. It used to be a hidden 7 days, which
+   *  quietly hid two thirds of Ross's waitlist. */
+  const [funnelDays, setFunnelDays] = useState(90);
   const [stripeRows, setStripeRows] = useState<StripeRow[]>([]);
   const [stripeOn, setStripeOn] = useState(true);
   const [sources, setSources] = useState<Source[]>([]);
@@ -172,21 +175,24 @@ export default function DashboardApp() {
     refresh();
   }
 
-  async function unlockAdmin(target: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel") {
+  async function unlockAdmin(
+    target: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel",
+    days = funnelDays
+  ) {
     setAdminBusy(true);
     setAdminError("");
     try {
-      const post = (path: string) =>
+      const post = (path: string, extra: Record<string, unknown> = {}) =>
         fetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: adminPass }),
+          body: JSON.stringify({ password: adminPass, ...extra }),
         });
       const [mRes, sRes, pRes, fRes, tRes] = await Promise.all([
         post("/api/admin/members"),
         post("/api/admin/stripe"),
         post("/api/admin/sources"),
-        post("/api/admin/funnel"),
+        post("/api/admin/funnel", { days }),
         post("/api/admin/support"),
       ]);
       if (mRes.status === 401) {
@@ -334,6 +340,8 @@ export default function DashboardApp() {
             <MarketingView
               active={adminTab} setActive={setAdminTab}
               funnel={funnel} signupFunnel={signupFunnel} signups={signups} tradeStats={tradeStats}
+              funnelDays={funnelDays}
+              onFunnelDays={(d) => { setFunnelDays(d); unlockAdmin("funnel", d); }}
               userStats={userStats} history={history} flash={adminFlash} adminPassword={adminPass}
               threads={threads} waiting={waiting}
               members={members} adminCall={adminCall}
@@ -2728,6 +2736,8 @@ function MarketingView(props: {
   flash: string;
   adminPassword: string;
   funnel: { label: string; count: number; rate: number }[];
+  funnelDays: number;
+  onFunnelDays: (days: number) => void;
   signupFunnel: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
   tradeStats: { slug: string; views: number; signups: number; rate: number }[];
@@ -2759,7 +2769,7 @@ function MarketingView(props: {
         ))}
       </div>
       <div className="subpanel">
-        {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} />}
+        {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} days={props.funnelDays} onDays={props.onFunnelDays} />}
         {props.active === "support" && <SupportView threads={props.threads} flash={props.flash} onAction={props.adminCall} />}
         {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} adminPassword={props.adminPassword} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
@@ -2807,11 +2817,13 @@ function Bars({ rows, empty }: {
   );
 }
 
-function FunnelView({ rows, signupRows, signups, trades }: {
+function FunnelView({ rows, signupRows, signups, trades, days, onDays }: {
   rows: { label: string; count: number; rate: number }[];
   signupRows: { label: string; count: number; rate: number }[];
   signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
   trades: { slug: string; views: number; signups: number; rate: number }[];
+  days: number;
+  onDays: (days: number) => void;
 }) {
   const activeTrades = trades.filter((t) => t.views > 0 || t.signups > 0);
   const when = (t: string) =>
@@ -2821,7 +2833,14 @@ function FunnelView({ rows, signupRows, signups, trades }: {
   return (
     <div className="subview">
       <header className="subhead">
-        <div><p className="muted">Last 7 days. Where visitors drop out.</p></div>
+        <div><p className="muted">Where visitors drop out. Everything on this tab uses the range below.</p></div>
+        <div className="range">
+          {[7, 30, 90].map((d) => (
+            <button key={d} className={days === d ? "range-pick on" : "range-pick"} onClick={() => onDays(d)}>
+              {d} days
+            </button>
+          ))}
+        </div>
       </header>
       <div className="card">
         <h3>Signups from the website</h3>
@@ -3153,6 +3172,11 @@ const CSS = `
 .dots-item svg{flex:none;opacity:.7;}
 
 /* Matches the input beside it. A pill next to a rounded rectangle looks wrong. */
+.range{background:#f6f1e9;border-radius:99px;display:flex;gap:3px;padding:3px;}
+.range-pick{background:none;border:0;border-radius:99px;color:var(--muted);font-size:12.5px;font-weight:700;padding:7px 13px;transition:background .18s var(--ease),color .18s;}
+.range-pick:hover{color:var(--ink);}
+.range-pick.on{background:#fff;box-shadow:0 2px 8px rgba(23,32,56,.1);color:var(--ink);}
+
 .btn.square{border-radius:10px;}
 /* The support tab is a workspace, not a reading column. Let it use the screen. */
 .page.admin.wide{max-width:1440px;}
