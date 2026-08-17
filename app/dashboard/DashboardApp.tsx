@@ -1235,7 +1235,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
         <h3>Session</h3>
         <button className="btn ghost" onClick={onLogout}>Log out</button>
       </div>
-      <DangerZone />
+      <CancelSubscription />
     </div>
   );
 }
@@ -1956,28 +1956,52 @@ function SaveState({ status }: { status: "clean" | "typing" | "saving" | "saved"
   return <span className="save-state">Saving</span>;
 }
 
-function DangerZone() {
-  const [confirming, setConfirming] = useState(false);
+/**
+ * Cancelling happens on Stripe, not here.
+ *
+ * We hand them a one time link into Stripe's own billing portal, where they can
+ * cancel, change their card or read their invoices. Their customer id comes
+ * from their own row, so this can only ever reach their own subscription. It
+ * also means no cancellation logic and no card details live in RooWatch.
+ */
+function CancelSubscription() {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  async function remove() {
+  async function openPortal() {
     setBusy(true);
-    await fetch("/api/member/account", { method: "DELETE" });
-    window.location.href = "/";
+    setError("");
+    try {
+      const res = await fetch("/api/member/billing", { method: "POST" });
+      const d = (await res.json()) as { url?: string; error?: string };
+      if (d.url) {
+        window.location.href = d.url;
+        return;
+      }
+      setError(
+        d.error === "no_subscription"
+          ? "We cannot find a subscription for your account. Email ross@roowatch.com.au and we will sort it."
+          : "Could not open your billing page. Try again in a moment."
+      );
+    } catch {
+      setError("Could not open your billing page. Try again in a moment.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div className="card danger">
-      <h3>Delete account</h3>
-      <p className="muted">This removes your account, your groups, and your leads. It cannot be undone.</p>
-      {confirming ? (
-        <div className="row gap mt">
-          <button className="btn ghost" onClick={() => setConfirming(false)}>Keep my account</button>
-          <button className="btn danger-btn" disabled={busy} onClick={remove}>{busy ? "Deleting" : "Yes, delete everything"}</button>
-        </div>
-      ) : (
-        <button className="btn ghost mt" onClick={() => setConfirming(true)}>Delete my account</button>
-      )}
+      <h3>Cancel subscription</h3>
+      <p className="muted">
+        Opens your billing page, where you can cancel, change your card or download
+        an invoice. You keep your leads until the end of the month you have paid for.
+      </p>
+      {error && <p className="error">{error}</p>}
+      <button className="btn ghost mt" disabled={busy} onClick={openPortal}>
+        {busy ? "Opening" : "Manage or cancel my subscription"}
+      </button>
+      <p className="tiny">Changed your mind? Message us on the support bubble first, we might be able to help.</p>
     </div>
   );
 }
