@@ -465,7 +465,12 @@ export default function DashboardApp() {
       {/* Where modals are rendered. See Portal below for why. */}
       <div id="roo-modals" />
       {!me.isAdmin && <SupportBubble me={me} onRefresh={refresh} />}
-      {celebrate && <Confetti onDone={() => setCelebrate(false)} />}
+      {celebrate && (
+        <>
+          <Confetti onDone={() => {}} />
+          <AllSet onClose={() => setCelebrate(false)} />
+        </>
+      )}
     </div>
   );
 }
@@ -482,6 +487,34 @@ export default function DashboardApp() {
  * The host sits inside `.dash`, not on `document.body`, so the CSS variables
  * and every `.dash input` style still reach the modal.
  */
+/**
+ * The first thing a member sees after setup.
+ *
+ * The worry at this moment is "what do I do now?". The answer is nothing, so
+ * the popup says exactly that. The kangaroo is here because a wall of text is
+ * a poor reward for finishing.
+ */
+function AllSet({ onClose }: { onClose: () => void }) {
+  return (
+    <Portal>
+      <div className="overlay" onClick={onClose}>
+        <div className="modal allset" onClick={(e) => e.stopPropagation()}>
+          {/* One fixed size, so Next's optimiser adds nothing here. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="allset-roo" src="/roowatch-mascot-3d.png" alt="RooWatch kangaroo waving" />
+          <h2>Congratulations, you are all set up</h2>
+          <p className="muted">
+            We are watching your groups now. You do not need to do anything.
+            As soon as we find a lead we send you a text and an email with a
+            link straight to the post.
+          </p>
+          <button className="btn primary wide" onClick={onClose}>Sounds good</button>
+        </div>
+      </div>
+    </Portal>
+  );
+}
+
 /**
  * Confetti, once, when a member finishes setup.
  *
@@ -3848,6 +3881,12 @@ const CSS = `
 
 /* ---- setup wizard ---- */
 .modal-wide{max-width:600px;position:relative;}
+.allset{max-width:430px;text-align:center;}
+.allset h2{margin-bottom:10px;}
+.allset .muted{margin:0 auto 22px;max-width:340px;}
+.allset-roo{display:block;height:120px;margin:0 auto 14px;object-fit:contain;width:120px;animation:allsetWave 2.4s var(--ease) .25s infinite;transform-origin:60% 90%;}
+@keyframes allsetWave{0%,60%,100%{transform:rotate(0deg);}70%{transform:rotate(-9deg);}80%{transform:rotate(7deg);}90%{transform:rotate(-4deg);}}
+@media(prefers-reduced-motion:reduce){.allset-roo{animation:none;}}
 .wiz-brand{align-items:center;animation:dPop .4s var(--ease) both;display:flex;gap:11px;margin-bottom:18px;}
 .wiz-logo{background:#fff;border:1px solid var(--line);border-radius:10px;flex:none;height:38px;object-fit:contain;padding:3px;width:38px;}
 .wiz-brand span{color:var(--muted);font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
