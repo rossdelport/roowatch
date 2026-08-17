@@ -100,7 +100,7 @@ export default async function TradeReserve({
       .replace("ask for a tradie they can trust", `ask for ${t.article} ${t.noun} they can trust`)
       .replace(">SM</span>", `>${t.initials}</span>`)
       .replace("Sarah M.", t.author)
-      .replace("Northern Beaches Community", t.group)
+      .replaceAll("Northern Beaches Community", t.group)
       .replace(BASE_POST, t.post)
       .replace("This post is worth $800", `This post is worth $${t.amount}`)
       // Carry the trade to signup so somebody clicking a plumber ad does not
