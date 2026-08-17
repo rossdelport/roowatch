@@ -93,7 +93,9 @@ export async function sendEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "RooWatch <notify@trynoisy.com>",
+      // roowatch.com.au is verified in Resend, so alerts finally come from
+      // the brand rather than an unrelated domain that looked like spam.
+      from: "RooWatch <notify@roowatch.com.au>",
       reply_to: "ross@roowatch.com.au",
       to: Array.isArray(to) ? to : [to],
       subject,

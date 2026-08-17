@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "RooWatch <notify@trynoisy.com>",
+      from: "RooWatch <notify@roowatch.com.au>",
       to: ["ross@roowatch.com.au"],
       subject: "Someone clicked Reserve my spot for $1",
       text: [

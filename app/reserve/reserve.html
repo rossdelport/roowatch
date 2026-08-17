@@ -50,7 +50,6 @@
   .wl-input:focus { border-color: var(--coral); }
   .r-card form .button { border: 0; cursor: pointer; font-family: inherit; margin-top: 12px; }
   .r-card form .button:disabled { opacity: .6; transform: none; }
-  .wl-step { background: var(--gold-soft); border-radius: 99px; color: #8a5a00; font-size: 11px; font-weight: 800; letter-spacing: .04em; margin-right: 6px; padding: 3px 9px; text-transform: uppercase; }
   .wl-note { color: #98a0b3; font-size: 12.5px; margin: 12px 0 0; }
   .wl-note a { color: var(--coral); font-weight: 700; }
   .wl-error { color: var(--coral-deep); font-size: 13px; font-weight: 600; margin: 10px 0 0; }
@@ -75,6 +74,23 @@
   .react-love { background: #f33e58; margin-left: -5px; }
   .r-bridge { margin-top: 44px; }
   .r-bridge .r-lede { margin-top: 16px; }
+  .r-plan { background: #faf7f2; border: 1px solid var(--line); border-radius: 16px; margin-top: 18px; padding: 20px; text-align: left; }
+  .r-plan.best { background: #fff; border-color: var(--coral); box-shadow: 0 10px 26px rgba(240, 79, 49, .12); }
+  .r-plan-top { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+  .r-plan-name { font-size: 17px; font-weight: 800; }
+  .r-plan-tag { background: var(--gold-soft); border-radius: 99px; color: #8a5a00; font-size: 11px; font-weight: 800; letter-spacing: .04em; padding: 4px 10px; text-transform: uppercase; }
+  .r-plan-price { align-items: baseline; display: flex; gap: 9px; margin-top: 14px; }
+  .r-plan-price s { color: #98a0b3; font-size: 20px; font-weight: 800; text-decoration-color: var(--coral); text-decoration-thickness: 3px; }
+  .r-plan-price strong { font-size: 42px; font-weight: 800; letter-spacing: -.03em; }
+  .r-plan-price span { color: #98a0b3; font-size: 14px; }
+  .r-plan-sub { color: var(--muted); font-size: 14px; margin: 6px 0 16px; }
+  .r-plan-row { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; margin-top: 12px; }
+  .r-plan-small { background: #faf7f2; border: 1px solid var(--line); border-radius: 14px; display: grid; gap: 2px; padding: 14px; text-align: left; text-decoration: none; transition: border-color .2s ease, transform .2s ease; }
+  .r-plan-small:hover { border-color: var(--coral); transform: translateY(-2px); }
+  .r-plan-small strong { color: var(--ink); font-size: 14.5px; }
+  .r-plan-small span { color: var(--muted); font-size: 12.5px; }
+  .r-plan-meta { color: #98a0b3 !important; font-weight: 700; }
+  @media (max-width: 460px) { .r-plan-row { grid-template-columns: 1fr; } }
   .r-trust { color: #98a0b3; font-size: 13px; font-weight: 600; margin: 22px 0 0; }
   .r-back { color: #98a0b3; display: inline-block; font-size: 14px; font-weight: 600; margin-top: 34px; }
   .r-back:hover { color: var(--coral); }
@@ -108,7 +124,7 @@ t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
 document,'script','https://connect.facebook.net/en_US/fbevents.js');
 fbq('init',ROO_PIXEL_ID);
 fbq('track','PageView');
-fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
+fbq('track','ViewContent',{content_name:'RooWatch pricing'});
 }
 </script>
 
@@ -148,30 +164,39 @@ fbq('track','ViewContent',{content_name:'RooWatch waitlist'});
     </div>
 
     <div class="r-bridge">
-      <div class="pill"><i></i> Fully booked</div>
-      <p class="r-lede">We are full right now while we look after our current members. Claim your spot and you hear from us first when one opens.</p>
+      <div class="pill"><i></i> Open now</div>
+      <p class="r-lede">Start today. Free for 7 days, then a quarter price for your first month. Cancel any time.</p>
     </div>
 
     <div class="r-card">
-      <h2 class="r-card-title">Claim your spot</h2>
-      <input type="hidden" id="wl-trade" value="">
-      <div id="wl-step1">
-        <p><span class="wl-step">Step 1 of 2</span> Pop your email in. You claim your spot.</p>
-        <input id="wl-email" class="wl-input" type="email" required placeholder="you@business.com.au" autocomplete="email">
-        <button class="button" type="button" onclick="var e=document.getElementById('wl-email');if(!e.checkValidity()){e.reportValidity();return false;}fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e.value,partial:true,trade:document.getElementById('wl-trade').value})}).catch(function(){});document.getElementById('wl-step1').hidden=true;document.getElementById('wl-step2').hidden=false;document.getElementById('wl-echo').textContent=e.value;document.getElementById('wl-name').focus();return false;">Continue</button>
+      <h2 class="r-card-title">Start getting leads</h2>
+            <div class="r-plan best">
+        <div class="r-plan-top">
+          <span class="r-plan-name">Local</span>
+          <span class="r-plan-tag">Most tradies start here</span>
+        </div>
+        <div class="r-plan-price"><s>$197</s><strong>$50</strong><span>first month</span></div>
+        <p class="r-plan-sub">Then $197 a month. 10 groups watched for you.</p>
+        <a class="button" href="/signup?plan=local" id="cta-local">Start my 7 day free trial</a>
       </div>
-      <form id="wl-step2" hidden onsubmit="event.preventDefault();var b=document.getElementById('wl-btn'),er=document.getElementById('wl-error');b.disabled=true;b.textContent='Saving...';er.hidden=true;if(window.rooTrack)rooTrack('click_pay');fetch('/api/waitlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('wl-email').value,name:document.getElementById('wl-name').value,phone:document.getElementById('wl-phone').value,trade:document.getElementById('wl-trade').value})}).then(function(r){if(r.ok){location.href='/on-the-list'}else{b.disabled=false;b.textContent='Save my spot';er.hidden=false}}).catch(function(){b.disabled=false;b.textContent='Save my spot';er.hidden=false});return false;">
-        <p><span class="wl-step">Step 2 of 2</span> Last step. So we can call you when your spot opens.</p>
-        <input id="wl-name" class="wl-input" type="text" required placeholder="Your name" autocomplete="name">
-        <input id="wl-phone" class="wl-input" type="tel" required minlength="8" placeholder="0400 123 456" autocomplete="tel">
-        <button class="button" type="submit" id="wl-btn">Save my spot</button>
-        <p class="wl-error" id="wl-error" hidden>Those details do not look right. Try again.</p>
-        <p class="wl-note">Signing up as <b id="wl-echo"></b>. <a href="#" onclick="document.getElementById('wl-step2').hidden=true;document.getElementById('wl-step1').hidden=false;return false;">Change</a></p>
-      </form>
+
+      <div class="r-plan-row">
+        <a class="r-plan-small" href="/signup?plan=growth" id="cta-growth">
+          <strong>Growth</strong>
+          <span>$100 first month, then $397</span>
+          <span class="r-plan-meta">25 groups</span>
+        </a>
+        <a class="r-plan-small" href="/signup?plan=scale" id="cta-scale">
+          <strong>Scale</strong>
+          <span>$375 first month, then $1,497</span>
+          <span class="r-plan-meta">100 groups</span>
+        </a>
+      </div>
+
       <ul class="r-points">
-        <li><span>&#10003;</span> You claim your spot on the waitlist</li>
-        <li><span>&#10003;</span> We message you before your spot opens</li>
-        <li><span>&#10003;</span> It costs nothing to hold your place</li>
+        <li><span>&#10003;</span> Free for 7 days, then a quarter price first month</li>
+        <li><span>&#10003;</span> We text you the second a job comes up</li>
+        <li><span>&#10003;</span> Cancel any time, no lock in</li>
       </ul>
     </div>
 

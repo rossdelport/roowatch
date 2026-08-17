@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import reservePage from "./reserve.html?raw";
 
 export const metadata: Metadata = {
-  title: "RooWatch - Claim your spot",
+  title: "RooWatch - Start getting leads",
   description:
-    "RooWatch is full right now. Claim your spot on the waitlist and we message you when a place opens up.",
+    "RooWatch watches your local Facebook groups and texts you the moment somebody needs your trade. Free for 7 days.",
 };
 
 export default function Reserve() {

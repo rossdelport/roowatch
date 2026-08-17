@@ -41,7 +41,11 @@ function startPixel() {
   fbq("track", "PageView");
 }
 
-export default function SignupApp({ start, plan }: { start: "signup" | "login"; plan: PlanKey }) {
+export default function SignupApp({ start, plan, trade: fromAd }: {
+  start: "signup" | "login";
+  plan: PlanKey;
+  trade?: string;
+}) {
   const [mode, setMode] = useState<"signup" | "login">(start);
   const [name, setName] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -49,7 +53,7 @@ export default function SignupApp({ start, plan }: { start: "signup" | "login"; 
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [trade, setTrade] = useState("");
+  const [trade, setTrade] = useState(fromAd ?? "");
   const [tradeOther, setTradeOther] = useState("");
   const [state, setState] = useState("");
   const [busy, setBusy] = useState(false);

@@ -16,7 +16,7 @@ function sendEmails(key: string, email: string, name: string, phone: string, tra
 
   return Promise.all([
     send({
-      from: "RooWatch <notify@trynoisy.com>",
+      from: "RooWatch <notify@roowatch.com.au>",
       to: ["ross@roowatch.com.au", "rossdelport1998@gmail.com"],
       subject: `New waitlist signup: ${name || email}`,
       text: [
@@ -35,7 +35,7 @@ function sendEmails(key: string, email: string, name: string, phone: string, tra
       ].join("\n"),
     }),
     send({
-      from: "Ross from RooWatch <ross@trynoisy.com>",
+      from: "Ross from RooWatch <ross@roowatch.com.au>",
       reply_to: "ross@roowatch.com.au",
       to: [email],
       subject: "You're on the RooWatch list",

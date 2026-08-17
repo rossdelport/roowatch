@@ -50,13 +50,16 @@ test("renders the public landing page", async () => {
 test("renders generic and trade-specific reserve pages", async () => {
   const generic = await page("/reserve");
   assert.equal(generic.response.status, 200);
-  assert.match(generic.html, /Claim your spot/);
-  assert.match(generic.html, /id="wl-trade" value=""/);
+  assert.match(generic.html, /Start getting leads/);
+  // Pricing replaced the waitlist form, so the page must sell, not collect.
+  assert.match(generic.html, /href="\/signup\?plan=local"/);
+  assert.doesNotMatch(generic.html, /api\/waitlist/);
 
   const trade = await page("/reserve/plumbers");
   assert.equal(trade.response.status, 200);
   assert.match(trade.html, /Your next customer is asking for a <span class="highlight">plumber<\/span>/);
-  assert.match(trade.html, /id="wl-trade" value="plumber"/);
+  // The ad already knows their trade, so signup must not ask again.
+  assert.match(trade.html, /href="\/signup\?plan=local&trade=plumber"/);
 });
 
 test("keeps anonymous API access unauthenticated", async () => {

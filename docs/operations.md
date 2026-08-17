@@ -281,10 +281,9 @@ the pipeline view and Stripe payments.
 
 ## Emails
 
-Sent through Resend from `notify@trynoisy.com`. That is the only verified
-domain, which is why alerts do not come from `roowatch.com.au`. Replies go to
-`ross@roowatch.com.au`.
-
+Sent through Resend from `notify@roowatch.com.au`, with replies going to
+`ross@roowatch.com.au`. The domain is verified on the RooWatch Resend account,
+so any address on it can send.
 Signup and onboarding notifications go to both `ross@roowatch.com.au` and
 `rossdelport1998@gmail.com`.
 

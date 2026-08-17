@@ -41,6 +41,27 @@ export const STATES = [
   "Northern Territory",
 ] as const;
 
+/**
+ * Best match for a trade word coming from an ad landing page.
+ *
+ * The reserve pages say "pest controller" and "landscaper", the dropdown says
+ * "Pest control" and "Landscaper or gardener". An exact compare would drop
+ * both on the floor and the member would have to pick their own trade again
+ * after clicking an ad that already knew it.
+ */
+export function matchTrade(value: string): string {
+  const want = String(value ?? "").trim().toLowerCase();
+  if (!want) return "";
+  const list = TRADES as readonly string[];
+  return (
+    list.find((t) => t.toLowerCase() === want) ??
+    list.find((t) => t.toLowerCase().startsWith(want)) ??
+    list.find((t) => want.startsWith(t.toLowerCase())) ??
+    list.find((t) => t.toLowerCase().includes(want.split(" ")[0])) ??
+    ""
+  );
+}
+
 export function isKnownState(value: string) {
   return (STATES as readonly string[]).includes(value);
 }

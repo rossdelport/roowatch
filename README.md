@@ -61,7 +61,7 @@ brief. Matches become alerts.
 | Database | Cloudflare D1 (`roowatch-db`) | SQLite at the edge, accessed with Drizzle |
 | Scraper | Apify (paused) → Bright Data | see [docs/scraper-decision.md](docs/scraper-decision.md) |
 | Matching | Claude Haiku 4.5 | `claude-haiku-4-5-20251001` |
-| Email | Resend | sends from `notify@trynoisy.com` |
+| Email | Resend | sends from `notify@roowatch.com.au` |
 | Payments | Stripe | three live plans, see below |
 | Analytics | Meta Pixel `4105570149577363` | plus our own `events` table |
 

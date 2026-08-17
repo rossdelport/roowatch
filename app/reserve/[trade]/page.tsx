@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import base from "../reserve.html?raw";
 
 export const metadata: Metadata = {
-  title: "RooWatch - Claim your spot",
+  title: "RooWatch - Start getting leads",
   robots: { index: false, follow: false },
 };
 
@@ -103,7 +103,12 @@ export default async function TradeReserve({
       .replace("Northern Beaches Community", t.group)
       .replace(BASE_POST, t.post)
       .replace("This post is worth $800", `This post is worth $${t.amount}`)
-      .replace('id="wl-trade" value=""', `id="wl-trade" value="${t.noun}"`);
+      // Carry the trade to signup so somebody clicking a plumber ad does not
+      // have to tell us they are a plumber.
+      .replace(
+        /href="\/signup\?plan=(local|growth|scale)"/g,
+        (_m, plan) => `href="/signup?plan=${plan}&trade=${encodeURIComponent(t.noun)}"`
+      );
   }
 
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
