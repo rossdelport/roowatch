@@ -118,6 +118,7 @@ const I = {
 export default function DashboardApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState("overview");
+  const [leadsView, setLeadsView] = useState<"leads" | "posts">("leads");
   const [adminTab, setAdminTab] = useState<null | "users" | "members" | "stripe" | "pipeline" | "funnel">(null);
   const [adminPass, setAdminPass] = useState("");
   const [adminPrompt, setAdminPrompt] = useState(false);
@@ -325,7 +326,15 @@ export default function DashboardApp() {
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
             />
           ) : (
-            <MemberView me={me} tab={tab} onLogout={logout} onRefresh={refresh} />
+            <MemberView
+              me={me}
+              tab={tab}
+              leadsView={leadsView}
+              setLeadsView={setLeadsView}
+              onGo={(next, sub) => { setTab(next); setAdminTab(null); if (sub) setLeadsView(sub); }}
+              onLogout={logout}
+              onRefresh={refresh}
+            />
           )}
         </main>
 
@@ -1098,7 +1107,15 @@ function aOrAn(word: string) {
   return `${/^[aeiou]/i.test(word) ? "an" : "a"} ${word.toLowerCase()}`;
 }
 
-function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onLogout: () => void; onRefresh: () => void }) {
+function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefresh }: {
+  me: Me;
+  tab: string;
+  leadsView: "leads" | "posts";
+  setLeadsView: (v: "leads" | "posts") => void;
+  onGo: (tab: string, sub?: "leads" | "posts") => void;
+  onLogout: () => void;
+  onRefresh: () => void;
+}) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [now] = useState(() => Date.now());
   const groups = me.groups ?? [];
@@ -1130,10 +1147,10 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
           <span className="live"><i /> Watching live</span>
         </header>
         <div className="tiles">
-          <div className="tile"><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></div>
-          <div className="tile"><span className="tile-num">{alerts.length}</span><span className="tile-label">Leads sent to you</span></div>
-          <div className="tile"><span className="tile-num">{alerts.filter((a) => now - new Date(a.sentAt + "Z").getTime() < 7 * 864e5).length}</span><span className="tile-label">Leads this week</span></div>
-          <div className="tile"><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></div>
+          <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></button>
+          <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{alerts.length}</span><span className="tile-label">Leads sent to you</span></button>
+          <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{alerts.filter((a) => now - new Date(a.sentAt + "Z").getTime() < 7 * 864e5).length}</span><span className="tile-label">Leads this week</span></button>
+          <button className="tile tap" onClick={() => onGo("alerts", "posts")}><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></button>
           <div className="tile tile-accent"><span className="tile-num">&lt;60 sec</span><span className="tile-label">Alert speed</span></div>
         </div>
         <div className="card">
@@ -1162,7 +1179,7 @@ function MemberView({ me, tab, onLogout, onRefresh }: { me: Me; tab: string; onL
     return <GroupsTab groups={groups} limit={plan.groups} onRefresh={onRefresh} />;
   }
 
-  if (tab === "alerts") return <LeadsPage me={me} />;
+  if (tab === "alerts") return <LeadsPage me={me} view={leadsView} setView={setLeadsView} />;
 
   return (
     <div className="page">
@@ -1212,8 +1229,11 @@ type ReadPost = {
  * The Posts tab exists so a member with no leads yet can see the machine
  * working. Without it, "nothing matched" and "it is broken" look identical.
  */
-function LeadsPage({ me }: { me: Me }) {
-  const [view, setView] = useState<"leads" | "posts">("leads");
+function LeadsPage({ me, view, setView }: {
+  me: Me;
+  view: "leads" | "posts";
+  setView: (v: "leads" | "posts") => void;
+}) {
   const [now] = useState(() => Date.now());
   const [posts, setPosts] = useState<ReadPost[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -2572,7 +2592,13 @@ const CSS = `
 .live i{animation:dPulse 1.6s ease-in-out infinite;background:var(--mint);border-radius:99px;display:inline-block;height:8px;width:8px;}
 
 .tiles{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:18px;}
-.tile{animation:dRise .5s var(--ease) both;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-soft);display:grid;gap:4px;padding:18px 20px;transition:transform .25s var(--ease),box-shadow .25s var(--ease);}
+.tile{animation:dRise .5s var(--ease) both;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-soft);display:grid;gap:4px;padding:18px 20px;text-align:left;transition:transform .25s var(--ease),box-shadow .25s var(--ease),border-color .25s var(--ease);}
+/* A tile that goes somewhere. It has to look like it does, or nobody taps it. */
+.tile.tap{cursor:pointer;position:relative;}
+.tile.tap::after{color:#c7ccd6;content:"›";font-size:19px;line-height:1;position:absolute;right:16px;top:16px;transition:color .2s var(--ease),transform .2s var(--ease);}
+.tile.tap:hover{border-color:var(--coral);box-shadow:var(--shadow);transform:translateY(-3px);}
+.tile.tap:hover::after{color:var(--coral);transform:translateX(3px);}
+.tile.tap:active{transform:translateY(-1px);}
 .tile:hover{box-shadow:var(--shadow);transform:translateY(-3px);}
 .tile:nth-child(2){animation-delay:.05s}.tile:nth-child(3){animation-delay:.1s}.tile:nth-child(4){animation-delay:.15s}
 .tile-num{font-size:24px;font-weight:800;letter-spacing:-.02em;}
