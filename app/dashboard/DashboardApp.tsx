@@ -3152,6 +3152,14 @@ const CSS = `
 .dots-item.off{color:#a8b0c0;cursor:default;font-weight:500;}
 .dots-item svg{flex:none;opacity:.7;}
 
+/* Matches the input beside it. A pill next to a rounded rectangle looks wrong. */
+.btn.square{border-radius:10px;}
+/* The support tab is a workspace, not a reading column. Let it use the screen. */
+.page.admin.wide{max-width:1440px;}
+.wide .chat-card{min-height:min(72vh,660px);}
+.wide .chat-log{max-height:none;}
+.wide .thread-list{max-height:min(72vh,660px);}
+
 /* ---- support bubble ---- */
 .rw-chat{bottom:22px;position:fixed;right:22px;z-index:80;}
 .rw-launcher{align-items:center;background:var(--coral);border:0;border-radius:99px;box-shadow:0 10px 28px rgba(240,79,49,.42);color:#fff;display:flex;height:56px;justify-content:center;margin-left:auto;position:relative;transition:transform .22s var(--ease),box-shadow .22s var(--ease),background .2s;width:56px;}
