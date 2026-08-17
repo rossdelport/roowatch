@@ -130,7 +130,9 @@ export default function DashboardApp() {
   const [tab, setTab] = useState("overview");
   const [leadsView, setLeadsView] = useState<"leads" | "posts">("leads");
   const [celebrate, setCelebrate] = useState(false);
-  const [adminTab, setAdminTab] = useState<null | "users" | "support" | "members" | "stripe" | "pipeline" | "funnel">(null);
+  const [adminTab, setAdminTab] = useState<null | "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel">(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usageDays, setUsageDays] = useState(14);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [waiting, setWaiting] = useState(0);
   const [adminPass, setAdminPass] = useState("");
@@ -182,8 +184,9 @@ export default function DashboardApp() {
   }
 
   async function unlockAdmin(
-    target: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel",
-    days = funnelDays
+    target: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel",
+    days = funnelDays,
+    uDays = usageDays
   ) {
     setAdminBusy(true);
     setAdminError("");
@@ -194,12 +197,13 @@ export default function DashboardApp() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: adminPass, ...extra }),
         });
-      const [mRes, sRes, pRes, fRes, tRes] = await Promise.all([
+      const [mRes, sRes, pRes, fRes, tRes, uRes] = await Promise.all([
         post("/api/admin/members"),
         post("/api/admin/stripe"),
         post("/api/admin/sources"),
         post("/api/admin/funnel", { days }),
         post("/api/admin/support"),
+        post("/api/admin/usage", { days: uDays }),
       ]);
       if (mRes.status === 401) {
         setAdminError("Wrong password.");
@@ -249,6 +253,7 @@ export default function DashboardApp() {
         setWaiting(t.waiting ?? 0);
         if (t.flash) setAdminFlash(t.flash);
       }
+      if (uRes.ok) setUsage((await uRes.json()) as Usage);
       setAdminTab(target);
       setAdminPrompt(false);
     } catch {
@@ -351,6 +356,8 @@ export default function DashboardApp() {
               onLeadStatus={(email, status) => adminCall("/api/admin/funnel", { action: "status", email, status, days: funnelDays })}
               userStats={userStats} history={history} flash={adminFlash} adminPassword={adminPass}
               threads={threads} waiting={waiting}
+              usage={usage} usageDays={usageDays}
+              onUsageDays={(d) => { setUsageDays(d); unlockAdmin("usage", funnelDays, d); }}
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
@@ -2842,8 +2849,11 @@ function shrinkImage(file: File): Promise<string> {
 }
 
 function MarketingView(props: {
-  active: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel";
-  setActive: (t: "users" | "support" | "members" | "stripe" | "pipeline" | "funnel") => void;
+  active: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel";
+  setActive: (t: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel") => void;
+  usage: Usage | null;
+  usageDays: number;
+  onUsageDays: (days: number) => void;
   threads: Thread[];
   waiting: number;
   userStats: UserStats | null;
@@ -2863,8 +2873,9 @@ function MarketingView(props: {
   onScan: (id: number) => Promise<{ ok: boolean; matches?: number; posts?: number; error?: string }>;
   stripeRows: StripeRow[]; stripeOn: boolean; onRefreshStripe: () => void; adminBusy: boolean;
 }) {
-  const tabs: { key: "users" | "support" | "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
+  const tabs: { key: "users" | "support" | "usage" | "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
     { key: "users", label: "Users" },
+    { key: "usage", label: "Usage" },
     { key: "support", label: props.waiting ? `Support (${props.waiting})` : "Support" },
     { key: "funnel", label: "Ad funnel" },
     { key: "members", label: "Members" },
@@ -2886,6 +2897,7 @@ function MarketingView(props: {
       </div>
       <div className="subpanel">
         {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} days={props.funnelDays} onDays={props.onFunnelDays} onStatus={props.onLeadStatus} />}
+        {props.active === "usage" && <UsageView usage={props.usage} days={props.usageDays} onDays={props.onUsageDays} />}
         {props.active === "support" && <SupportView threads={props.threads} flash={props.flash} onAction={props.adminCall} />}
         {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} adminPassword={props.adminPassword} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
@@ -2977,6 +2989,142 @@ function LeadPill({ email, status, onSet }: {
         </span>
       )}
     </span>
+  );
+}
+
+type UsageRow = {
+  day: string;
+  records: number;
+  posts: number;
+  texts: number;
+  scraping: number;
+  reading: number;
+  texting: number;
+  total: number;
+};
+type Usage = {
+  days: number;
+  rows: UsageRow[];
+  totals: {
+    scraping: number; reading: number; texting: number; spend: number;
+    platform: number; records: number; posts: number; texts: number;
+    postsThisMonth: number;
+  };
+  smsBalance: number | null;
+  measured: { scraping: boolean; texting: boolean; reading: boolean };
+};
+
+const money = (n: number) => `$${n.toFixed(n < 10 ? 2 : 0)}`;
+
+/** Every supplier bill in one place, by day. */
+function UsageView({ usage, days, onDays }: {
+  usage: Usage | null;
+  days: number;
+  onDays: (days: number) => void;
+}) {
+  if (!usage) {
+    return <div className="subview"><div className="card"><div className="empty"><span className="spinner" /></div></div></div>;
+  }
+
+  const t = usage.totals;
+  const perDay = usage.rows.length ? t.spend / usage.rows.length : 0;
+  const peak = Math.max(0.0001, ...usage.rows.map((r) => r.total));
+  const label = (d: string) =>
+    new Date(d + "T00:00:00Z").toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+
+  return (
+    <div className="subview">
+      <header className="subhead">
+        <div><p className="muted">Everything RooWatch costs you to run, in Australian dollars.</p></div>
+        <div className="range">
+          {[7, 14, 30].map((d) => (
+            <button key={d} className={days === d ? "range-pick on" : "range-pick"} onClick={() => onDays(d)}>
+              {d} days
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div className="tiles">
+        <div className="tile tile-accent">
+          <span className="tile-num">{money(t.spend)}</span>
+          <span className="tile-label">Spent over {usage.days} days</span>
+        </div>
+        <div className="tile">
+          <span className="tile-num">{money(perDay)}</span>
+          <span className="tile-label">Average a day</span>
+        </div>
+        <div className="tile">
+          <span className="tile-num">{money(perDay * 30 + t.platform)}</span>
+          <span className="tile-label">On track for a month</span>
+        </div>
+        <div className="tile">
+          <span className="tile-num">{usage.smsBalance === null ? "n/a" : money(usage.smsBalance)}</span>
+          <span className="tile-label">ClickSend balance</span>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>What you spent, day by day</h3>
+        <div className="usage-chart">
+          {usage.rows.map((r) => (
+            <div className="ubar-col" key={r.day} title={`${label(r.day)}  scraping ${money(r.scraping)} · reading ${money(r.reading)} · texts ${money(r.texting)}`}>
+              <span className="ubar-total">{r.total > 0 ? money(r.total) : ""}</span>
+              <div className="ubar-stack" style={{ height: `${Math.max(2, (r.total / peak) * 100)}%` }}>
+                <i className="seg scrape" style={{ flexGrow: r.scraping || 0 }} />
+                <i className="seg read" style={{ flexGrow: r.reading || 0 }} />
+                <i className="seg text" style={{ flexGrow: r.texting || 0 }} />
+              </div>
+              <span className="ubar-day">{label(r.day)}</span>
+            </div>
+          ))}
+        </div>
+        <div className="usage-key">
+          <span><i className="seg scrape" /> Scraping, Bright Data</span>
+          <span><i className="seg read" /> Reading posts, Claude</span>
+          <span><i className="seg text" /> Text messages, ClickSend</span>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Where the money goes</h3>
+        <div className="spend-grid">
+          <div className="spend-row">
+            <div>
+              <strong>Scraping</strong>
+              <span className="tiny block">Bright Data &middot; {t.records.toLocaleString()} posts bought &middot; measured</span>
+            </div>
+            <strong>{money(t.scraping)}</strong>
+          </div>
+          <div className="spend-row">
+            <div>
+              <strong>Reading posts</strong>
+              <span className="tiny block">Claude &middot; {t.posts.toLocaleString()} posts checked &middot; estimated</span>
+            </div>
+            <strong>{money(t.reading)}</strong>
+          </div>
+          <div className="spend-row">
+            <div>
+              <strong>Text messages</strong>
+              <span className="tiny block">ClickSend &middot; {t.texts.toLocaleString()} sent &middot; measured</span>
+            </div>
+            <strong>{money(t.texting)}</strong>
+          </div>
+          <div className="spend-row">
+            <div>
+              <strong>Hosting</strong>
+              <span className="tiny block">Cloudflare Workers and D1 &middot; flat monthly</span>
+            </div>
+            <strong>{money(t.platform)}</strong>
+          </div>
+        </div>
+        <p className="tiny">
+          Scraping and texts come from the suppliers&apos; own APIs, so they are real numbers.
+          Reading is worked out from how many posts we checked, because Anthropic does not
+          report usage per key. Everything is converted to AUD.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -3357,6 +3505,22 @@ const CSS = `
 .sub-plan span{color:var(--muted);font-size:12px;}
 .sub-plan.on{background:#fff;border-color:var(--coral);box-shadow:var(--shadow-soft);}
 .sub-plan em{color:var(--coral-deep);font-size:11px;font-style:normal;font-weight:800;margin-top:3px;}
+
+.usage-chart{align-items:flex-end;display:flex;gap:6px;height:230px;margin-top:14px;overflow-x:auto;padding-bottom:4px;}
+.ubar-col{align-items:center;display:flex;flex:1;flex-direction:column;gap:5px;height:100%;justify-content:flex-end;min-width:34px;}
+.ubar-total{color:var(--muted);font-size:10.5px;font-weight:800;white-space:nowrap;}
+.ubar-stack{background:#f4f1ec;border-radius:6px;display:flex;flex-direction:column-reverse;min-height:4px;overflow:hidden;transition:height .4s var(--ease);width:100%;}
+.ubar-stack .seg{display:block;min-height:0;width:100%;}
+.ubar-day{color:#a8b0c0;font-size:10.5px;font-weight:600;white-space:nowrap;}
+.seg.scrape{background:var(--coral);}
+.seg.read{background:#7a6ff0;}
+.seg.text{background:var(--mint);}
+.usage-key{color:var(--muted);display:flex;flex-wrap:wrap;font-size:12.5px;font-weight:600;gap:18px;margin-top:14px;}
+.usage-key .seg{border-radius:3px;display:inline-block;height:9px;margin-right:7px;vertical-align:middle;width:14px;}
+.spend-grid{display:grid;gap:2px;margin-top:6px;}
+.spend-row{align-items:center;border-top:1px solid #f4efe7;display:flex;gap:16px;justify-content:space-between;padding:13px 2px;}
+.spend-row:first-child{border-top:0;}
+.spend-row strong{font-size:14px;}
 
 .range{background:#f6f1e9;border-radius:99px;display:flex;gap:3px;padding:3px;}
 .range-pick{background:none;border:0;border-radius:99px;color:var(--muted);font-size:12.5px;font-weight:700;padding:7px 13px;transition:background .18s var(--ease),color .18s;}
