@@ -133,8 +133,13 @@ npx wrangler secret put NEW_SECRET_NAME --name roowatch
 
 Values cannot be read back this way, it only lists names. Current secrets:
 `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRIGHTDATA_API_KEY`,
-`CRON_SECRET`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, and once the webhook is
-registered, `STRIPE_WEBHOOK_SECRET`.
+`CLICKSEND_API_KEY`, `CLICKSEND_FROM`, `CLICKSEND_USERNAME`, `CRON_SECRET`,
+`RESEND_API_KEY`, `STRIPE_SECRET_KEY`, and once the webhook is registered,
+`STRIPE_WEBHOOK_SECRET`.
+
+Private monitoring also needs `PRIVATE_SCRAPER_SECRET`. Set the same random
+value on the Worker and VPS only after the VPS, account and proxy are ready.
+Follow [the private scraper runbook](../services/private-scraper/README.md).
 
 `APIFY_TOKEN` is dead weight now. Remove it when the Apify code goes.
 

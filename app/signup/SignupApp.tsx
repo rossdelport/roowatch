@@ -174,7 +174,7 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
             <h2>More local jobs, sent to your phone.</h2>
             <ul className="proof">
               <li>We watch your local Facebook groups all day and all night.</li>
-              <li>You get an alert in under 60 seconds.</li>
+              <li>Public groups are checked often. Private groups are checked once an hour.</li>
               <li>You reply first, so you win the job.</li>
             </ul>
           </div>

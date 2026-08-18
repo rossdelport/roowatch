@@ -3,6 +3,7 @@ import { getDb } from "../../../../db";
 import { requireAdmin } from "../../../../db/admin";
 import { sendEmail } from "../../../../db/auth";
 import { BRIEF_MAX } from "../../../../db/brief";
+import { enforcePrivatePlanLimits } from "../../../../db/private-monitoring";
 import { PLANS, PLAN_KEYS, planFor, type PlanKey } from "../../../../db/plans";
 import {
   alerts,
@@ -195,6 +196,7 @@ export async function POST(request: Request) {
     } else {
       await db.insert(profiles).values({ userId: body.userId, plan: key as PlanKey });
     }
+    await enforcePrivatePlanLimits();
     flash = `Moved to ${plan.name}. ${switched.detail}.`;
   }
 

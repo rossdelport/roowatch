@@ -2,8 +2,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { groupSlug, parseGroupInput } from "../../../../db/fbgroups";
-import { groupLimit } from "../../../../db/plans";
-import { groups, profiles, sources } from "../../../../db/schema";
+import { knownGroupVisibility } from "../../../../db/group-visibility";
+import {
+  ensureClassifiedSource,
+  withGroupMutationLock,
+} from "../../../../db/group-mutations";
+import { groupLimit, privateGroupLimit } from "../../../../db/plans";
+import { groups, privateGroupStates, profiles, sources } from "../../../../db/schema";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -31,63 +36,80 @@ export async function POST(request: Request) {
 
     const parsed = parseGroupInput(raw);
     if (!parsed?.url) return Response.json({ error: "need_url" }, { status: 400 });
+    const parsedUrl = parsed.url;
 
-    const [profile] = await db
-      .select({ plan: profiles.plan })
-      .from(profiles)
-      .where(eq(profiles.userId, user.id))
-      .limit(1);
-    const limit = groupLimit(profile?.plan);
-
-    const mine = await db.select().from(groups).where(eq(groups.userId, user.id));
-    if (mine.length >= limit) {
-      return Response.json({ error: "plan_limit", limit }, { status: 400 });
+    const checked = await knownGroupVisibility(parsedUrl);
+    if (!checked || checked.status !== "ready" || checked.visibility === "unknown") {
+      return Response.json({ error: "group_check_required" }, { status: 409 });
     }
+    const visibility = checked.visibility;
 
-    // Find or make the source, then point their row at it. Without this the
-    // group is decoration: the scanner never picks it up.
-    const [existing] = await db
-      .select({ id: sources.id, active: sources.active })
-      .from(sources)
-      .where(eq(sources.url, parsed.url))
-      .limit(1);
+    const locked = await withGroupMutationLock(user.id, async () => {
+      const [profile] = await db
+        .select({ plan: profiles.plan })
+        .from(profiles)
+        .where(eq(profiles.userId, user.id))
+        .limit(1);
+      const mine = await db.select().from(groups).where(eq(groups.userId, user.id));
+      const limit = groupLimit(profile?.plan);
+      if (mine.length >= limit) {
+        return Response.json({ error: "plan_limit", limit }, { status: 400 });
+      }
 
-    // Same rule as the wizard: a group we already know is private can never
-    // send them a lead, so it is turned away rather than quietly added.
-    const known = await db
-      .select({ url: sources.url, lastError: sources.lastError })
+      const knownSources = await db
+      .select({
+        id: sources.id,
+        url: sources.url,
+        active: sources.active,
+        visibility: sources.visibility,
+      })
       .from(sources);
-    const match = known.find((s) => groupSlug(s.url) === groupSlug(parsed.url));
-    if (match && /private/i.test(match.lastError)) {
-      return Response.json({ error: "private" }, { status: 400 });
-    }
+      const source = knownSources.find((row) => groupSlug(row.url) === groupSlug(parsedUrl));
 
-    let sourceId = existing?.id;
-    if (sourceId && !existing.active) {
-      await db.update(sources).set({ active: 1, lastError: "" }).where(eq(sources.id, sourceId));
-    }
-    if (!sourceId) {
-      const [created] = await db
-        .insert(sources)
-        // Backdated an hour, same as setup. A group added on a Tuesday
-        // afternoon should start showing its posts within a minute, not sit
-        // blank until something happens to be posted.
-        .values({ groupName: parsed.name, url: parsed.url, lastChecked: Date.now() - 60 * 60 * 1000 })
-        .returning({ id: sources.id });
-      sourceId = created?.id;
-    }
+      if (source && mine.some((group) => group.sourceId === source.id)) {
+        return Response.json({ error: "duplicate" }, { status: 400 });
+      }
 
-    if (mine.some((g) => g.sourceId === sourceId)) {
-      return Response.json({ error: "duplicate" }, { status: 400 });
-    }
+      if (visibility === "private") {
+        const sourceById = new Map(knownSources.map((row) => [row.id, row]));
+        const privateCount = mine.filter(
+          (group) => group.sourceId && sourceById.get(group.sourceId)?.visibility === "private"
+        ).length;
+        const privateLimit = privateGroupLimit(profile?.plan);
+        if (privateCount >= privateLimit) {
+          return Response.json({ error: "private_limit", limit: privateLimit }, { status: 400 });
+        }
+      }
 
-    await db.insert(groups).values({
-      userId: user.id,
-      name: parsed.name,
-      sourceId,
-      status: sourceId ? "watching" : "pending",
+      const { id: sourceId, active } = await ensureClassifiedSource({
+        groupName: checked.name || parsed.name,
+        url: parsedUrl,
+        visibility,
+        existingSourceId: source?.id,
+      });
+
+      let status = active ? "watching" : visibility === "private" ? "paused_private" : "paused";
+      if (active && visibility === "private") {
+        const [health] = await db
+        .select({ status: privateGroupStates.status })
+        .from(privateGroupStates)
+        .where(eq(privateGroupStates.sourceId, sourceId))
+        .limit(1);
+        if (health?.status !== "healthy") status = "waiting_for_access";
+      }
+
+      await db.insert(groups).values({
+        userId: user.id,
+        name: parsed.name,
+        sourceId,
+        status,
+      });
+      return Response.json({ ok: true, visibility, status });
     });
-    return Response.json({ ok: true });
+    if (locked.busy) {
+      return Response.json({ error: "group_update_busy" }, { status: 409 });
+    }
+    return locked.value;
   }
 
   /**

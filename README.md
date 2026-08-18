@@ -1,7 +1,7 @@
 # RooWatch
 
-RooWatch watches public Facebook groups for Australian tradies and emails them
-the moment somebody asks for their service.
+RooWatch checks public and private Facebook groups for Australian tradies. It
+sends matching posts by email and text.
 
 A plumber posts nothing. A homeowner posts *"our hot water died, who is a good
 plumber near Dee Why?"*. RooWatch sees it within minutes and emails the plumber
@@ -31,10 +31,8 @@ order:
 Facebook groups
       |
       v
-  cron every 5 minutes  ......  app/api/cron/scan/route.ts
-      |
-      v
-  scraper  ..................  db/pipeline.ts (Apify today, Bright Data next)
+  public: Bright Data  .......  app/api/cron/scan/route.ts
+  private: VPS + Playwright  .  services/private-scraper/
       |
       v
   dedup against seen_posts  ..  db/pipeline.ts
@@ -59,7 +57,8 @@ brief. Matches become alerts.
 |---|---|---|
 | Runtime | Cloudflare Workers via [vinext](https://github.com/cloudflare/vinext) | Next.js App Router in a Worker sandbox |
 | Database | Cloudflare D1 (`roowatch-db`) | SQLite at the edge, accessed with Drizzle |
-| Scraper | Apify (paused) → Bright Data | see [docs/scraper-decision.md](docs/scraper-decision.md) |
+| Public scraper | Bright Data | see [docs/scraper-decision.md](docs/scraper-decision.md) |
+| Private scraper | Node.js, Playwright and a residential proxy | see [services/private-scraper/README.md](services/private-scraper/README.md) |
 | Matching | Claude Haiku 4.5 | `claude-haiku-4-5-20251001` |
 | Email | Resend | sends from `notify@roowatch.com.au` |
 | Payments | Stripe | three live plans, see below |
@@ -70,11 +69,14 @@ brief. Matches become alerts.
 Defined once in [db/plans.ts](db/plans.ts). Every group limit in the app reads
 from there.
 
-| Plan | Groups | Alert speed | Price AUD | Stripe price id |
-|---|---|---|---|---|
-| Local | 10 | 5 min | $297 | `price_1U4sCe9HOJbWqVToqrNBDaIp` |
-| Growth | 25 | 5 min | $597 | `price_1U4sCg9HOJbWqVToRKrBxw6W` |
-| Scale | 100 | 3 min | $1,997 | `price_1U4sCh9HOJbWqVToU4GpQFTO` |
+| Plan | Groups | Private groups | Price AUD |
+|---|---:|---:|---:|
+| Local | 10 | Up to 4 | $197 |
+| Growth | 25 | Up to 10 | $397 |
+| Scale | 100 | Up to 40 | $1,497 |
+
+Every group can be public. Private groups are checked once an hour. Public
+groups keep their existing Bright Data schedule.
 
 A member's plan lives in `profiles.plan` and defaults to `local`. Ross changes
 it from the Marketing tab of the dashboard.
@@ -104,6 +106,8 @@ db/
   suburbs.ts              Australian suburbs by state
   fbgroups.ts             Facebook URL parsing
   website.ts              reads a member's website from the Worker
+services/
+  private-scraper/         the private group VPS service and its runbook
 drizzle/                  migrations, applied by hand (see operations.md)
 docs/                     the documents listed at the top
 ```
@@ -130,6 +134,8 @@ about 6 minutes. There is no GitHub Action in this repo.
 ## Current state, 16 August 2026
 
 - The site, signup, dashboard and setup wizard are live and working.
+- Private monitoring is built on this feature branch. It is not live until the
+  controlled Facebook, proxy and billing test in its runbook passes.
 - **The scanner is paused.** All rows in `sources` have `active = 0`. This was
   deliberate. See [docs/scraper-decision.md](docs/scraper-decision.md).
 - One paying customer: none yet. Ross runs his own business (Perth Solar Panel

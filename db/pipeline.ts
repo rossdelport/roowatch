@@ -82,8 +82,10 @@ export type GroupFacts = {
   name: string;
   /** Why we got nothing, in Facebook's words. Empty when all is well. */
   error: string;
-  /** True when Facebook says only members may read it. It will never work. */
+  /** True when public Bright Data says only members may read it. Route to VPS. */
   private: boolean;
+  /** A row explicitly referred to this input, including a no-post response. */
+  answered: boolean;
 };
 
 /**
@@ -158,14 +160,15 @@ function readFacts(
 ): Map<string, GroupFacts> {
   const facts = new Map<string, GroupFacts>();
   for (const url of sourceUrls) {
-    facts.set(groupSlug(url), { name: "", error: "", private: false });
+    facts.set(groupSlug(url), { name: "", error: "", private: false, answered: false });
   }
 
   for (const row of rows) {
     const input = row.input as { url?: string } | undefined;
-    const from = String(input?.url ?? row.group_url ?? row.url ?? "");
+    const from = String(input?.url ?? row.input_url ?? row.group_url ?? row.url ?? "");
     const fact = facts.get(groupSlug(from));
     if (!fact) continue;
+    fact.answered = true;
 
     const name = String(row.group_name ?? "").trim();
     if (name) fact.name = name;
@@ -590,7 +593,10 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
 /** Pick the most overdue active sources for a cron tick. */
 export async function dueSources(limit: number) {
   const db = getDb();
-  const all = await db.select().from(sources).where(eq(sources.active, 1));
+  const all = await db
+    .select()
+    .from(sources)
+    .where(and(eq(sources.active, 1), eq(sources.visibility, "public")));
   const selected = [];
   const urls = new Set<string>();
   for (const source of all.sort((a, b) => a.lastChecked - b.lastChecked)) {

@@ -102,7 +102,50 @@ async function sendViaClickSend(to: string, body: string): Promise<SmsResult> {
     const detail = await res.text().catch(() => "");
     return { ok: false, provider: "clicksend", error: `${res.status} ${detail.slice(0, 200)}` };
   }
+  const payload = (await res.json().catch(() => null)) as {
+    response_code?: string;
+    data?: {
+      queued_count?: number;
+      messages?: { status?: string }[];
+    };
+  } | null;
+  const code = String(payload?.response_code || "UNKNOWN").toUpperCase();
+  const queued = Number(payload?.data?.queued_count ?? 0);
+  const messages = payload?.data?.messages ?? [];
+  if (
+    code !== "SUCCESS" ||
+    queued < 1 ||
+    (messages.length > 0 && messages.some((message) => String(message.status).toUpperCase() !== "SUCCESS"))
+  ) {
+    const messageCode = messages.find(
+      (message) => String(message.status).toUpperCase() !== "SUCCESS"
+    )?.status;
+    return {
+      ok: false,
+      provider: "clicksend",
+      error: `clicksend_${String(messageCode || code).slice(0, 80)}`,
+    };
+  }
   return { ok: true, provider: "clicksend" };
+}
+
+/** Emergency operations alerts always use Ross's configured ClickSend account. */
+export async function sendClickSendSms(rawTo: string, body: string): Promise<SmsResult> {
+  if (!process.env.CLICKSEND_USERNAME || !process.env.CLICKSEND_API_KEY) {
+    return { ok: false, provider: "clicksend", error: "clicksend_not_configured" };
+  }
+  const to = toE164(rawTo);
+  if (!to) return { ok: false, provider: "clicksend", error: "bad_number" };
+  const text = body.length > 320 ? `${body.slice(0, 317)}...` : body;
+  try {
+    return await sendViaClickSend(to, text);
+  } catch (err) {
+    return {
+      ok: false,
+      provider: "clicksend",
+      error: err instanceof Error ? err.message : "send_failed",
+    };
+  }
 }
 
 export function smsProvider(): "twilio" | "clicksend" | null {

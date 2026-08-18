@@ -30,12 +30,13 @@ export function parseGroupInput(raw: string): ParsedGroup | null {
 
   const match = input.match(GROUP_RE);
   if (match) {
-    const slug = match[1].replace(/\/$/, "");
+    const pastedSlug = match[1].replace(/\/$/, "");
+    const slug = pastedSlug.toLowerCase();
     if (!slug) return null;
     return {
       slug,
       url: `https://www.facebook.com/groups/${slug}`,
-      name: labelFromSlug(slug),
+      name: labelFromSlug(pastedSlug),
     };
   }
 

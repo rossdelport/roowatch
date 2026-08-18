@@ -71,19 +71,76 @@ type Source = {
   lastMatches: number;
   lastError: string;
   watchers: number;
+  visibility?: GroupVisibility;
 };
+type GroupVisibility = "public" | "private" | "unknown";
 type Group = {
   id: number;
   name: string;
   status: string;
   url?: string;
+  visibility?: GroupVisibility;
+  accessStatus?: string;
+  lastPrivateCheckAt?: number;
+  lastPrivateSuccessAt?: number;
+  privateError?: string;
   /** Why we cannot read it, in Facebook's words. Empty when all is well. */
   problem?: string;
 };
 
-/** Facebook lets nobody but members read a private group, us included. */
-function isPrivate(group: { problem?: string }) {
-  return /private/i.test(group.problem ?? "");
+/** Older rows only recorded Facebook's error text. Keep them clear in the UI
+ *  while the visibility migration fills the explicit field. */
+function groupVisibility(group: { visibility?: GroupVisibility; problem?: string }): GroupVisibility {
+  if (group.visibility === "public" || group.visibility === "private") return group.visibility;
+  return /private/i.test(group.problem ?? "") ? "private" : "unknown";
+}
+
+function isPrivate(group: { visibility?: GroupVisibility; problem?: string }) {
+  return groupVisibility(group) === "private";
+}
+
+function groupState(group: Group) {
+  const visibility = groupVisibility(group);
+  const memberStatus = group.status.toLowerCase();
+  const status = (visibility === "private" && group.accessStatus ? group.accessStatus : group.status).toLowerCase();
+  const problem = group.privateError || group.problem || "";
+
+  if (memberStatus === "budget_paused_private" && visibility === "private") {
+    return { label: "Private watch paused", tone: "warn", detail: "Your private watch budget is full for this billing cycle. Public groups still run." };
+  }
+  if (memberStatus === "paused_private_payment" && visibility === "private") {
+    return { label: "Payment paused", tone: "warn", detail: "Private monitoring is paused until your plan is active again." };
+  }
+  if (memberStatus === "paused_private" && visibility === "private") {
+    return { label: "Private watch paused", tone: "warn", detail: "RooWatch has paused this private group. Public groups still run." };
+  }
+  if (memberStatus === "plan_limit_private" && visibility === "private") {
+    return { label: "Over private group limit", tone: "bad", detail: "This group is saved, but it is not watched. Remove another private group or change your plan to start it." };
+  }
+  if (memberStatus === "paused") {
+    return { label: "Paused", tone: "pending", detail: problem || "Monitoring is paused." };
+  }
+  if (status === "waiting_access" || status === "waiting_for_access" || status === "pending_access") {
+    return { label: "Waiting for access", tone: "pending", detail: "Our watch account is waiting for the group admin to let it in." };
+  }
+  if (status === "access_lost") {
+    return { label: "Access lost", tone: "bad", detail: problem || "Our watch account can no longer open this group." };
+  }
+  if (status === "group_unavailable" || status === "unavailable" || status === "deleted") {
+    return { label: "Group not found", tone: "bad", detail: problem || "The group may have been removed or hidden." };
+  }
+  if (["session_expired", "login_required", "checkpoint", "disabled", "error", "failed"].includes(status)) {
+    return { label: "Needs help", tone: "bad", detail: problem || "Private monitoring needs help." };
+  }
+  if (status === "watching" || status === "healthy") {
+    return {
+      label: visibility === "private" ? "Watching each hour" : "Watching",
+      tone: "ok",
+      detail: visibility === "private" ? "Private groups are checked once an hour." : "Public monitoring is on.",
+    };
+  }
+  if (status === "paused") return { label: "Paused", tone: "pending", detail: problem || "Monitoring is paused." };
+  return { label: visibility === "unknown" ? "Checking group type" : "Setting up", tone: "pending", detail: problem || "We are setting this group up." };
 }
 type Alert = {
   id: number;
@@ -153,6 +210,147 @@ type StripeRow = {
   name: string | null;
 };
 
+type PrivateMonitoring = {
+  generatedAt?: string;
+  summary?: {
+    status?: string;
+    lastHeartbeatAt?: string | null;
+    activeAccounts?: number;
+    healthyAccounts?: number;
+    privateGroups?: number;
+    groupsDue?: number;
+    openIncidents?: number;
+    bytesThisCycle?: number;
+    audMicrosThisCycle?: number;
+    lastSmsAt?: string | null;
+    costWindow?: string;
+    scheduleMinutes?: number;
+    lookbackMinutes?: number;
+    cutoffMinutes?: number;
+  };
+  workers?: {
+    id: string | number;
+    name?: string;
+    status?: string;
+    proxyStatus?: string;
+    version?: string;
+    estimatedMaxCostAudMicros?: number;
+    lastHeartbeatAt?: string | null;
+    lastError?: string | null;
+  }[];
+  accounts?: {
+    id: string | number;
+    label?: string;
+    status?: string;
+    sessionStatus?: string;
+    proxyStatus?: string;
+    groupsAssigned?: number;
+    lastHealthCheckAt?: string | null;
+    lastScanAt?: string | null;
+    nextScanAt?: string | null;
+    cookieSavedAt?: string | null;
+    sessionExpiresAt?: string | null;
+    healthValidationDue?: boolean | number;
+    bytesTransferred?: number;
+    audMicros?: number;
+    proxyAudMicros?: number;
+    vpsAudMicros?: number;
+    consecutiveFailures?: number;
+    latestErrorCode?: string | null;
+    latestError?: string | null;
+  }[];
+  groups?: {
+    id: string | number;
+    name?: string;
+    status?: string;
+    accessStatus?: string;
+    accountLabel?: string | null;
+    lastScanAt?: string | null;
+    lastSuccessAt?: string | null;
+    nextScanAt?: string | null;
+    bytesTransferred?: number;
+    audMicros?: number;
+    postsCollected?: number;
+    latestErrorCode?: string | null;
+    latestError?: string | null;
+    watchers?: number;
+  }[];
+  customers?: {
+    id: string;
+    email?: string;
+    planName?: string;
+    planPriceAudMicros?: number;
+    budgetStatus?: string;
+    privateGroups?: number;
+    publicGroups?: number;
+    actualAudMicros?: number;
+    reservedAudMicros?: number;
+    forecastAudMicros?: number;
+    budgetAudMicros?: number;
+    warningAudMicros?: number;
+    safetyCutoffAudMicros?: number;
+    remainingAudMicros?: number;
+    billingCycleEndsAt?: string | null;
+    pausedPrivateGroups?: number;
+  }[];
+  checks?: {
+    id: string | number;
+    kind?: string;
+    groupName?: string;
+    accountLabel?: string;
+    status?: string;
+    startedAt?: string | null;
+    durationMs?: number;
+    bytesTransferred?: number;
+    postsCollected?: number;
+    audMicros?: number;
+    errorCode?: string | null;
+    errorDetail?: string | null;
+    chronologicalVerified?: boolean | number;
+    boundaryReached?: boolean | number;
+    feedEndReached?: boolean | number;
+  }[];
+  hours?: {
+    hour: string | number;
+    checks?: number;
+    posts?: number;
+    bytesTransferred?: number;
+    audMicros?: number;
+    failures?: number;
+  }[];
+  incidents?: {
+    id: string | number;
+    severity?: string;
+    status?: string;
+    kind?: string;
+    title?: string;
+    detail?: string;
+    createdAt?: string | null;
+    lastAlertAt?: string | null;
+    resolvedAt?: string | null;
+    smsState?: string;
+    emailState?: string;
+    recoveryState?: string;
+  }[];
+  actions?: {
+    id: string | number;
+    kind?: string;
+    message?: string;
+    status?: string;
+    createdAt?: string | null;
+  }[];
+  aggregate?: {
+    window?: string;
+    checks?: number;
+    posts?: number;
+    bytesTransferred?: number;
+    audMicros?: number;
+    failures?: number;
+  };
+};
+
+type AdminTab = "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel" | "private";
+
 const I = {
   grid: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="18" height="18"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>,
   eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
@@ -177,8 +375,10 @@ export default function DashboardApp() {
   const [tab, setTab] = useState("overview");
   const [leadsView, setLeadsView] = useState<"leads" | "posts">("leads");
   const [celebrate, setCelebrate] = useState(false);
-  const [adminTab, setAdminTab] = useState<null | "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel">(null);
+  const [adminTab, setAdminTab] = useState<null | AdminTab>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
+  const [privateMonitoring, setPrivateMonitoring] = useState<PrivateMonitoring | null>(null);
+  const [privateMonitoringError, setPrivateMonitoringError] = useState("");
   const [usageDays, setUsageDays] = useState(14);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [waiting, setWaiting] = useState(0);
@@ -223,6 +423,36 @@ export default function DashboardApp() {
     };
   }, []);
 
+  const loadPrivateMonitoring = useCallback(async () => {
+    if (!adminPass) return;
+    const res = await fetch("/api/admin/private-monitoring", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: adminPass, action: "status" }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setPrivateMonitoringError("Could not load private monitoring.");
+      return;
+    }
+    const data = (await res.json().catch(() => null)) as PrivateMonitoring | null;
+    if (!data) {
+      setPrivateMonitoringError("Private monitoring sent a bad response.");
+      return;
+    }
+    setPrivateMonitoringError("");
+    setPrivateMonitoring(data);
+  }, [adminPass]);
+
+  useEffect(() => {
+    if (adminTab !== "private" || !adminPass) return;
+    const first = window.setTimeout(loadPrivateMonitoring, 0);
+    const timer = window.setInterval(loadPrivateMonitoring, 15_000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [adminTab, adminPass, loadPrivateMonitoring]);
+
   useEffect(() => {
     // Stripe sends them back here the moment checkout completes, card and
     // all. That is the real conversion, so this is where the pixel fires,
@@ -248,7 +478,7 @@ export default function DashboardApp() {
   }
 
   async function unlockAdmin(
-    target: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel",
+    target: AdminTab,
     days = funnelDays,
     uDays = usageDays
   ) {
@@ -354,6 +584,29 @@ export default function DashboardApp() {
     return res.ok;
   }
 
+  async function privateMonitoringAction(payload: Record<string, unknown>) {
+    try {
+      const res = await fetch("/api/admin/private-monitoring", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, password: adminPass }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+        setAdminFlash(data.message || `That did not work (${data.error || res.status}).`);
+        return false;
+      }
+      const data = (await res.json().catch(() => null)) as PrivateMonitoring | null;
+      setPrivateMonitoringError("");
+      if (data?.summary || data?.accounts || data?.groups) setPrivateMonitoring(data);
+      else await loadPrivateMonitoring();
+      return true;
+    } catch {
+      setAdminFlash("Could not reach private monitoring.");
+      return false;
+    }
+  }
+
   if (!me) return <div className="dash"><style>{CSS}</style><div className="boot">Loading</div></div>;
 
   if (!me.user) {
@@ -425,6 +678,7 @@ export default function DashboardApp() {
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
               stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
+              privateMonitoring={privateMonitoring} privateMonitoringError={privateMonitoringError} onRefreshPrivate={loadPrivateMonitoring} onPrivateAction={privateMonitoringAction}
             />
           ) : (
             <MemberView
@@ -496,90 +750,16 @@ type FeedPost = {
   groupName: string;
 };
 
-/**
- * The scan card.
- *
- * The scanner really does run every minute, so this is a picture of something
- * true rather than a decorative spinner: the bar fills across the gap between
- * runs, then the card works through what a pass actually does.
- *
- * It exists because the product is invisible. Between leads there is nothing
- * to look at, and nothing to look at reads as nothing happening.
- */
-const SCAN_SECONDS = 60;
-const SCAN_STEPS = [
-  "Scanning all groups",
-  "Reading posts",
-  "Updating database",
-  "Checking for new leads",
-  "Done",
-];
-const STEP_MS = 1000;
-
+/** Show the real schedules without pretending a browser animation is a scan. */
 function ScanCard() {
-  // step -1 is the wait between passes, 0 upwards walks what a pass does.
-  // prev and token live alongside it so the label swap is decided in the one
-  // place the step changes, rather than worked out again further down.
-  const [phase, setPhase] = useState({ step: -1, prev: "", token: 0 });
-  const label = phase.step < 0 ? "Waiting for next scan" : SCAN_STEPS[phase.step];
-
-  useEffect(() => {
-    const last = phase.step >= SCAN_STEPS.length - 1;
-    const delay = phase.step < 0 ? SCAN_SECONDS * 1000 : STEP_MS;
-
-    const timer = setTimeout(() => {
-      setPhase((p) => {
-        const was = p.step < 0 ? "Waiting for next scan" : SCAN_STEPS[p.step];
-        // Past the last step it goes back to waiting, and the new token
-        // remounts the bar, which is what replays it from empty.
-        const step = last ? -1 : p.step + 1;
-        return { step, prev: was, token: p.token + 1 };
-      });
-    }, delay);
-
-    return () => clearTimeout(timer);
-  }, [phase.step, phase.token]);
-
-  const working = phase.step >= 0;
-
   return (
-    <div className={working ? "tile scan working" : "tile scan"}>
+    <div className="tile scan">
       <div className="scan-top">
-        <span className="scan-face">
-          {working ? <span className="scan-spin" /> : <span className="scan-dot" />}
-        </span>
-        <Roll text={label} prev={phase.prev} token={phase.token} />
+        <span className="scan-face"><span className="scan-dot" /></span>
+        <span className="scan-label">Monitoring is on</span>
       </div>
-      <div className="scan-track">
-        {working ? (
-          <i className="scan-full" />
-        ) : (
-          <i
-            key={phase.token}
-            className="scan-fill"
-            style={{ animationDuration: `${SCAN_SECONDS}s` }}
-          />
-        )}
-      </div>
+      <p className="scan-times">Public often. Private each hour.</p>
     </div>
-  );
-}
-
-/**
- * Swaps one line of text for another: the old one rolls down and out of the
- * way, the new one rolls up into its place.
- *
- * Both sit in the box together for the length of the swap. That is the only
- * way to get the old line leaving rather than simply blinking out.
- */
-function Roll({ text, prev, token }: { text: string; prev: string; token: number }) {
-  return (
-    <span className="roll">
-      {prev && prev !== text && (
-        <span className="roll-out" key={`out-${token}`}>{prev}</span>
-      )}
-      <span className="roll-in" key={`in-${token}`}>{text}</span>
-    </span>
   );
 }
 
@@ -597,7 +777,7 @@ function Roll({ text, prev, token }: { text: string; prev: string; token: number
  */
 function LiveFeed({ groups, onGo }: {
   groups: Group[];
-  onGo: (tab: string, view?: string) => void;
+  onGo: (tab: string, view?: "leads" | "posts") => void;
 }) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [shown, setShown] = useState(0);
@@ -606,7 +786,7 @@ function LiveFeed({ groups, onGo }: {
   const known = useRef(new Set<string>());
   const dealt = useRef(false);
 
-  const watching = groups.filter((g) => g.status === "watching").length;
+  const watching = groups.filter((g) => groupState(g).tone === "ok").length;
 
   useEffect(() => {
     let alive = true;
@@ -748,22 +928,21 @@ function SetupScore({ me, groups, alerts, onGo }: {
   me: Me;
   groups: Group[];
   alerts: Alert[];
-  onGo: (tab: string, view?: string) => void;
+  onGo: (tab: string, view?: "leads" | "posts") => void;
 }) {
   const limit = me.plan?.groups ?? 10;
-  const watching = groups.filter((g) => g.status === "watching");
-  const privates = groups.filter(isPrivate);
+  const watching = groups.filter((g) => groupState(g).tone === "ok");
+  const needsHelp = groups.filter((g) => groupState(g).tone !== "ok" && g.status !== "paused");
   const brief = (me.profile?.brief ?? "").trim();
   const texts = me.profile?.smsEnabled === 1 && Boolean(me.profile?.alertPhone);
 
   const jobs = [
     {
-      key: "private",
-      done: privates.length === 0,
-      // The one that costs them real leads, so it goes first when it applies.
-      label: privates.length
-        ? `${privates.length} ${privates.length === 1 ? "group is" : "groups are"} private, swap ${privates.length === 1 ? "it" : "them"}`
-        : "No private groups",
+      key: "ready",
+      done: needsHelp.length === 0,
+      label: needsHelp.length
+        ? `${needsHelp.length} ${needsHelp.length === 1 ? "group needs" : "groups need"} help`
+        : "All group links are ready",
       go: () => onGo("groups"),
     },
     {
@@ -962,7 +1141,34 @@ function Login() {
   );
 }
 
-type WizardGroup = { url: string; name: string };
+type WizardGroup = { url: string; name: string; visibility?: GroupVisibility };
+type GroupAddResult = { ok: boolean; visibility?: GroupVisibility; message: string };
+
+async function classifyFacebookGroup(url: string) {
+  for (let attempt = 0; attempt < 36; attempt += 1) {
+    const res = await fetch("/api/onboarding/check-group", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      checking?: boolean;
+      visibility?: GroupVisibility;
+      name?: string;
+      limit?: number;
+    };
+    if (res.status === 202 && data.checking) {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      continue;
+    }
+    return { res, data };
+  }
+  return {
+    res: new Response(null, { status: 503 }),
+    data: { error: "visibility_unknown" } as { error?: string; checking?: boolean; visibility?: GroupVisibility; name?: string; limit?: number },
+  };
+}
 type Stage = "business" | "trade" | "suburbs" | "jobs" | "groups" | "review";
 const STAGES: Stage[] = ["business", "trade", "suburbs", "jobs", "groups", "review"];
 
@@ -1017,11 +1223,15 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const briefTried = useRef(Boolean(draft.brief));
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checkingGroup, setCheckingGroup] = useState(false);
   const [toast, setToast] = useState("");
   const [help, setHelp] = useState(false);
 
   const chosenTrade = trade === OTHER_TRADE ? tradeOther.trim() : trade;
-  const planGroups = me.plan?.groups ?? 10;
+  const plan = me.plan ?? PLANS.local;
+  const planGroups = plan.groups;
+  const planPrivateGroups = plan.privateGroups;
+  const privateGroupsUsed = groupList.filter(isPrivate).length;
   const step = STAGES.indexOf(stage);
 
   function say(message: string) {
@@ -1145,36 +1355,50 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
 
   async function addGroup(raw: string) {
     const parsed = parseGroupInput(raw);
-    if (!parsed?.url) return false;
-    if (groupList.some((g) => g.url === parsed.url)) {
+    if (!parsed?.url) return { ok: false, message: "Paste the whole Facebook group link" };
+    const parsedUrl = parsed.url;
+    if (groupList.some((g) => groupSlug(g.url) === groupSlug(parsedUrl))) {
       say("This group is already on your list");
-      return false;
+      return { ok: false, message: "This group is already on your list" };
     }
     if (groupList.length >= planGroups) {
       say(`Your plan covers ${planGroups} groups`);
-      return false;
+      return { ok: false, message: `Your plan covers ${planGroups} groups` };
     }
-    // Turn a private group away here rather than let somebody finish setup
-    // and wonder for a week why that one never sends anything.
     try {
-      const res = await fetch("/api/onboarding/check-group", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: parsed.url }),
-      });
+      const { res, data } = await classifyFacebookGroup(parsedUrl);
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (data.error === "private") {
-          say("Sorry, we cannot watch private groups");
-          return false;
-        }
+        const message = data.error === "private_limit"
+          ? `Your plan can have up to ${data.limit ?? planPrivateGroups} private groups`
+          : data.error === "plan_limit"
+          ? `Your plan covers ${data.limit ?? planGroups} groups`
+          : data.error === "group_check_limit"
+          ? "Too many group links were checked today. Try again tomorrow."
+          : data.error === "visibility_unknown" || data.error === "check_failed"
+          ? "We could not tell if that group is public or private. Please try again."
+          : "We could not check that group. Please try again.";
+        say(message);
+        return { ok: false, message };
       }
+      if (data.visibility !== "public" && data.visibility !== "private") {
+        const message = "We could not tell if that group is public or private. Please try again.";
+        say(message);
+        return { ok: false, message };
+      }
+      if (data.visibility === "private" && privateGroupsUsed >= planPrivateGroups) {
+        const message = `Your plan can have up to ${planPrivateGroups} private groups`;
+        say(message);
+        return { ok: false, message };
+      }
+      setGroupList([...groupList, { url: parsedUrl, name: data.name || parsed.name, visibility: data.visibility }]);
+      const message = `${data.visibility === "private" ? "Private" : "Public"} group added`;
+      say(message);
+      return { ok: true, visibility: data.visibility, message };
     } catch {
-      // If the check itself fails, let them add it. The scan settles it.
+      const message = "We could not check that group. Please try again.";
+      say(message);
+      return { ok: false, message };
     }
-    setGroupList([...groupList, { url: parsed.url, name: parsed.name }]);
-    say("Group added");
-    return true;
   }
 
   async function finish() {
@@ -1195,7 +1419,16 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         }),
       });
       if (!res.ok) {
-        setNote("We could not save that. Please check every step and try again.");
+        const data = (await res.json().catch(() => ({}))) as { error?: string; limit?: number };
+        setNote(
+          data.error === "private_limit"
+            ? `Your plan can have up to ${data.limit ?? planPrivateGroups} private groups.`
+            : data.error === "plan_limit"
+            ? `Your plan covers ${data.limit ?? planGroups} groups.`
+            : data.error === "group_check_required"
+            ? "One group type check is not ready. Go back and add that group again."
+            : "We could not save that. Please check every step and try again."
+        );
         return;
       }
       onDone();
@@ -1327,13 +1560,13 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         {stage === "groups" && (
           <>
             <h2>Which Facebook groups should we watch?</h2>
-            <p className="muted">We read these groups day and night and tell you when a job comes up. Public groups only. Nobody outside a private group can read it, us included.</p>
-            <GroupAdder onAdd={addGroup} />
+            <p className="muted">Add public and private groups. Public groups are checked often. Private groups are checked once an hour.</p>
+            <GroupAdder onAdd={addGroup} onCheckingChange={setCheckingGroup} />
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} />
             <p className="tiny">
               {groupList.length === 0
-                ? ""
-                : `${groupList.length} of ${planGroups} groups added.`}
+                ? `Your plan covers ${planGroups} groups. Up to ${planPrivateGroups} can be private.`
+                : `${groupList.length} of ${planGroups} groups added. ${privateGroupsUsed} of ${planPrivateGroups} private spots used.`}
             </p>
           </>
         )}
@@ -1346,6 +1579,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
               <div className="kv"><span>Trade</span><strong>{chosenTrade || "not set"}</strong></div>
               <div className="kv"><span>Suburbs</span><strong>{suburbs.join(", ") || "not set"}</strong></div>
               <div className="kv"><span>Groups</span><strong>{groupList.length} to watch</strong></div>
+              <div className="kv"><span>Private groups</span><strong>{privateGroupsUsed} of {planPrivateGroups} private spots used</strong></div>
             </div>
             <label className="lbl">The jobs you want</label>
             <p className="review-brief">{brief}</p>
@@ -1364,7 +1598,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
           ) : stage === "review" ? (
             <button className="btn primary" disabled={busy} onClick={finish}>{busy ? "Saving" : "Start watching"}</button>
           ) : (
-            <button className="btn primary" disabled={!canGo[stage] || thinking} onClick={goNext}>Continue</button>
+            <button className="btn primary" disabled={!canGo[stage] || thinking || checkingGroup} onClick={goNext}>{checkingGroup ? "Checking group" : "Continue"}</button>
           )}
         </div>
 
@@ -1455,9 +1689,13 @@ function SuburbPicker({ state, chosen, onChange, onSay }: {
 }
 
 /** The add box, with a live tick or cross so nobody pastes the wrong thing. */
-function GroupAdder({ onAdd }: { onAdd: (raw: string) => Promise<boolean> }) {
+function GroupAdder({ onAdd, onCheckingChange }: {
+  onAdd: (raw: string) => Promise<GroupAddResult>;
+  onCheckingChange: (checking: boolean) => void;
+}) {
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<GroupAddResult | null>(null);
   const typed = value.trim();
   const good = Boolean(groupSlug(typed));
   const bad = typed.length > 0 && !good;
@@ -1465,10 +1703,15 @@ function GroupAdder({ onAdd }: { onAdd: (raw: string) => Promise<boolean> }) {
   async function submit() {
     if (!good || checking) return;
     setChecking(true);
+    onCheckingChange(true);
+    setResult(null);
     try {
-      if (await onAdd(typed)) setValue("");
+      const next = await onAdd(typed);
+      setResult(next);
+      if (next.ok) setValue("");
     } finally {
       setChecking(false);
+      onCheckingChange(false);
     }
   }
 
@@ -1480,14 +1723,25 @@ function GroupAdder({ onAdd }: { onAdd: (raw: string) => Promise<boolean> }) {
           <input
             placeholder="https://facebook.com/groups/123456789/"
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => { setValue(e.target.value); setResult(null); }}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           {good && <span className="mark ok">{I.tick}</span>}
           {bad && <span className="mark no">&times;</span>}
         </div>
-        <button className="btn primary" disabled={!good || checking} onClick={submit}>{checking ? "Checking" : "Add group"}</button>
+        <button className="btn primary" disabled={!good || checking} onClick={submit}>{checking ? "Checking type" : "Add group"}</button>
       </div>
+      {checking && (
+        <div className="group-check">
+          <span className="spinner" />
+          <span><strong>Bright Data is checking this group</strong><small>This can take a minute or two.</small></span>
+        </div>
+      )}
+      {!checking && result && (
+        <p className={result.ok ? "group-check-result ok" : "group-check-result bad"}>
+          {result.ok ? I.tick : "×"} {result.message}
+        </p>
+      )}
       {bad && (
         <p className="error">
           Paste the whole link. It has to look like facebook.com/groups/123456789/
@@ -1506,7 +1760,7 @@ function GroupTable({ rows, onChange, onSay }: {
     return (
       <div className="empty tight">
         <p><strong>No groups yet.</strong></p>
-        <p className="muted">Add a group and we start watching it the moment you finish.</p>
+        <p className="muted">Add a group and we set it up when you finish.</p>
       </div>
     );
   }
@@ -1515,12 +1769,13 @@ function GroupTable({ rows, onChange, onSay }: {
     <div className="table-wrap">
       <table className="wiz-table">
         <thead>
-          <tr><th>Group</th><th>Link</th><th aria-label="Actions" /></tr>
+          <tr><th>Group</th><th>Type</th><th>Link</th><th aria-label="Actions" /></tr>
         </thead>
         <tbody>
           {rows.map((g, i) => (
             <tr key={g.url}>
               <td><strong>{g.name}</strong></td>
+              <td><span className={`chip-status ${g.visibility === "private" ? "warn" : g.visibility === "public" ? "ok" : "pending"}`}>{g.visibility === "private" ? "Private" : g.visibility === "public" ? "Public" : "Checking"}</span></td>
               <td className="link-cell">{g.url.replace("https://www.facebook.com/groups/", "")}</td>
               <td className="act-cell">
                 {/* No edit here. A wrong link is faster to delete and repaste
@@ -1566,12 +1821,13 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
             <p className="tiny">Also try: &ldquo;[your suburb] community&rdquo;, &ldquo;[your suburb] buy swap sell&rdquo;, &ldquo;[your area] tradies&rdquo;.</p>
           </li>
           <li>
-            <strong>Check it says Public group.</strong>
-            <p className="muted">Look under the group name. A private group can only be read by its members, so we cannot read it for you.</p>
+            <strong>Public or private is fine.</strong>
+            <p className="muted">We check the group type after you paste the link.</p>
           </li>
           <li>
-            <strong>Join the group.</strong>
-            <p className="muted">Press Join on the group page. Wait for the admin to let you in.</p>
+            <strong>Private groups need access.</strong>
+            <p className="muted">Our watch account must be let in before private checks can start.</p>
+            <p className="muted">We never ask for your Facebook password.</p>
           </li>
           <li>
             <strong>Copy the whole link.</strong>
@@ -1589,7 +1845,7 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
 
         <div className="help-warn">
           <p><span className="no-mark">&times;</span> The group name on its own will not work.</p>
-          <p><span className="no-mark">&times;</span> Private groups will not work. Only their members can read them.</p>
+          <p><span className="yes-mark">{I.tick}</span> Private groups work when our watch account is let in.</p>
           <p><span className="yes-mark">{I.tick}</span> Paste the whole link: https://facebook.com/groups/123456789/</p>
         </div>
 
@@ -1741,6 +1997,8 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
   const alerts = me.alerts ?? [];
   const user = me.user!;
   const plan = me.plan ?? PLANS.local;
+  const privateLimit = plan.privateGroups;
+  const privateCount = groups.filter(isPrivate).length;
 
   async function pickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -1771,12 +2029,12 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
             <h1>G&apos;day{firstName ? `, ${firstName}` : ""}</h1>
             <p className="muted">Your leads land here and on your phone.</p>
           </div>
-          <span className="live"><i /> Watching live</span>
+          <span className="live"><i /> Monitoring on</span>
         </header>
         {alerts.length === 0 && <FirstLead me={me} />}
 
         <div className="tiles">
-          <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></button>
+          <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{groups.filter((g) => groupState(g).tone === "ok").length}</span><span className="tile-label">Groups watching</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{leadsThisMonth}</span><span className="tile-label">Leads this month</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "posts")}><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></button>
           <ScanCard />
@@ -1790,7 +2048,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
               <h3>Latest leads</h3>
               {alerts.length === 0 ? (
                 <div className="empty small">
-                  <p className="muted">Nothing yet. The moment a job comes up we text you.</p>
+                  <p className="muted">Nothing yet. When we find a matching job, we text you.</p>
                 </div>
               ) : (
                 alerts.slice(0, 3).map((a) => <AlertRow key={a.id} alert={a} />)
@@ -1803,7 +2061,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
   }
 
   if (tab === "groups") {
-    return <GroupsTab groups={groups} limit={plan.groups} onRefresh={onRefresh} />;
+    return <GroupsTab groups={groups} plan={plan} onRefresh={onRefresh} />;
   }
 
   if (tab === "alerts") return <LeadsPage me={me} view={leadsView} setView={setLeadsView} />;
@@ -1827,7 +2085,8 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
         <h3>Your plan</h3>
         <div className="kv"><span>Plan</span><strong>{plan.name}. ${plan.priceAud} a month.</strong></div>
         <div className="kv"><span>Groups watched</span><strong>{groups.length} of {plan.groups}</strong></div>
-        <div className="kv"><span>Alert speed</span><strong>Under 60 seconds</strong></div>
+        <div className="kv"><span>Private groups</span><strong>{privateCount} of {privateLimit} private spots used</strong></div>
+        <div className="kv"><span>Check times</span><strong>Public groups often. Private groups once an hour.</strong></div>
         <div className="kv"><span>Posts checked this month</span><strong>{(me.postsUsed ?? 0).toLocaleString()} of {plan.postsPerMonth.toLocaleString()}</strong></div>
         <div className="kv"><span>Guarantee</span><strong>A lead this month or we refund you</strong></div>
         <p className="tiny">Need to change anything? Email ross@roowatch.com.au and we sort it same day.</p>
@@ -1871,7 +2130,8 @@ function LeadsPage({ me, view, setView }: {
     let live = true;
     fetch("/api/member/posts")
       .then((r) => r.json())
-      .then((d: { posts?: ReadPost[]; total?: number }) => {
+      .then((raw) => {
+        const d = raw as { posts?: ReadPost[]; total?: number };
         if (!live) return;
         setPosts(d.posts ?? []);
         setTotal(d.total ?? 0);
@@ -2338,18 +2598,52 @@ function SupportView({ threads, flash, onAction }: {
   );
 }
 
-function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: number; onRefresh: () => void }) {
+function GroupsTab({ groups, plan, onRefresh }: { groups: Group[]; plan: Plan; onRefresh: () => void }) {
   const [name, setName] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checkingType, setCheckingType] = useState(false);
+  const [checkedType, setCheckedType] = useState<GroupVisibility | null>(null);
   const [error, setError] = useState("");
-  const LIMIT = limit;
+  const limit = plan.groups;
+  const privateLimit = plan.privateGroups;
+  const privateCount = groups.filter(isPrivate).length;
 
   async function call(payload: Record<string, unknown>) {
     setBusy(true);
     setError("");
+    setCheckedType(null);
+    let addedVisibility: GroupVisibility | null = null;
     try {
+      if (payload.action === "add") {
+        if (groups.length >= limit) {
+          setError(`Your plan covers ${limit} groups. Remove one first.`);
+          return;
+        }
+        const parsed = parseGroupInput(String(payload.name ?? ""));
+        if (parsed?.url) {
+          const parsedUrl = parsed.url;
+          if (groups.some((group) => groupSlug(group.url ?? "") === groupSlug(parsedUrl))) {
+            setError("That group is already on your list.");
+            return;
+          }
+          setCheckingType(true);
+          const { res: checkRes, data: check } = await classifyFacebookGroup(parsedUrl);
+          setCheckingType(false);
+          if (!checkRes.ok || (check.visibility !== "public" && check.visibility !== "private")) {
+            setError(check.error === "group_check_limit"
+              ? "Too many group links were checked today. Try again tomorrow."
+              : "We could not tell if that group is public or private. Please try again.");
+            return;
+          }
+          if (check.visibility === "private" && privateCount >= privateLimit) {
+            setError(`Your plan can have up to ${privateLimit} private groups. Remove one first.`);
+            return;
+          }
+          addedVisibility = check.visibility;
+        }
+      }
       const res = await fetch("/api/member/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2361,18 +2655,26 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
           d.error === "need_url"
             ? "Paste the whole Facebook link, like facebook.com/groups/123456789. A name on its own cannot be watched."
             : d.error === "plan_limit"
-            ? `Your plan covers ${LIMIT} groups. Remove one first.`
+            ? `Your plan covers ${limit} groups. Remove one first.`
+            : d.error === "private_limit"
+            ? `Your plan can have up to ${privateLimit} private groups. Remove one first.`
             : d.error === "duplicate"
             ? "That group is already on your list."
-            : d.error === "private"
-            ? "Sorry, we cannot watch private groups. Only their members can read them."
+            : d.error === "visibility_unknown" || d.error === "check_failed"
+            ? "We could not tell if that group is public or private. Please try again."
+            : d.error === "group_check_required"
+            ? "The group type check is not ready yet. Please try again."
             : "Could not save that."
         );
         return;
       }
       setName("");
+      setCheckedType(addedVisibility);
       onRefresh();
+    } catch {
+      setError("We could not check that group. Please try again.");
     } finally {
+      setCheckingType(false);
       setBusy(false);
     }
   }
@@ -2387,15 +2689,23 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
   return (
     <div className="page">
       <header className="page-head">
-        <div><h1>Groups watching</h1><p className="muted">The groups we read for you, day and night. Public groups only.</p></div>
-        <span className="tiny">{groups.length} of {LIMIT}</span>
+        <div><h1>Groups watching</h1><p className="muted">Public groups are checked often. Private groups are checked once an hour.</p></div>
+        <span className="tiny">{groups.length} of {limit}</span>
       </header>
+      <div className="group-limits">
+        <span><strong>{groups.length}</strong> of {limit} total groups</span>
+        <span><strong>{privateCount}</strong> of {privateLimit} private spots</span>
+        <span>Public groups can use every open spot.</span>
+      </div>
       <div className="card">
         {groups.length === 0 ? (
           <div className="empty"><p><strong>No groups yet.</strong></p><p className="muted">Add the local groups your customers use. We take it from there.</p></div>
         ) : (
-          groups.map((g) => (
-            <div className="group-row" key={g.id}>
+          groups.map((g) => {
+            const visibility = groupVisibility(g);
+            const state = groupState(g);
+            return (
+            <div className="group-row group-row-status" key={g.id}>
               {editingId === g.id ? (
                 <input
                   className="name-edit"
@@ -2409,7 +2719,11 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                   }}
                 />
               ) : (
-                <span className="group-name">{g.name}</span>
+                <span className="group-copy">
+                  <span className="group-name">{g.name}</span>
+                  <span className="tiny">{state.detail}</span>
+                  {visibility === "private" && Boolean(g.lastPrivateSuccessAt) && <span className="tiny">Last good check: {privateTime(new Date(g.lastPrivateSuccessAt!).toISOString())}</span>}
+                </span>
               )}
               <span className="row gap">
                 {editingId === g.id ? (
@@ -2419,11 +2733,8 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                   </>
                 ) : (
                   <>
-                    {isPrivate(g) ? (
-                      <span className="chip-status bad" title={g.problem}>Private, we cannot read it</span>
-                    ) : (
-                      <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
-                    )}
+                    <span className={`chip-status ${visibility === "private" ? "warn" : visibility === "public" ? "ok" : "pending"}`}>{visibility === "private" ? "Private" : visibility === "public" ? "Public" : "Type not set"}</span>
+                    <span className={`chip-status ${state.tone}`} title={state.detail}>{state.label}</span>
                     <GroupMenu
                       group={g}
                       busy={busy}
@@ -2434,15 +2745,18 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                 )}
               </span>
             </div>
-          ))
+            );
+          })
         )}
         <div className="row gap mt">
           <input placeholder="Paste the Facebook group link" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && name.trim() && call({ action: "add", name })} />
-          <button className="btn ghost square" disabled={busy || !name.trim()} onClick={() => call({ action: "add", name })}>Add</button>
+          <button className="btn ghost square" disabled={busy || !name.trim()} onClick={() => call({ action: "add", name })}>{busy ? "Checking" : "Add"}</button>
         </div>
+        {checkingType && <div className="group-check"><span className="spinner" /><span><strong>Bright Data is checking this group</strong><small>This can take a minute or two.</small></span></div>}
+        {!checkingType && checkedType && <p className="group-check-result ok">{I.tick} {checkedType === "private" ? "Private" : "Public"} group added</p>}
         {error && <p className="error">{error}</p>}
       </div>
-      <p className="tiny">Open the group on Facebook and copy the address from your browser. We start watching it straight away.</p>
+      <p className="tiny">Paste the whole Facebook link. We check if it is public or private before we add it.</p>
     </div>
   );
 }
@@ -2647,7 +2961,7 @@ function ManageSubscription({ plan, trialEndsAt, cancelAt, status }: {
         {PLAN_KEYS.map((k) => (
           <span key={k} className={plan.key === k ? "sub-plan on" : "sub-plan"}>
             <strong>{PLANS[k].name}</strong>
-            <span>${PLANS[k].priceAud} &middot; {PLANS[k].groups} groups</span>
+            <span>${PLANS[k].priceAud} &middot; {PLANS[k].groups} groups &middot; up to {PLANS[k].privateGroups} private</span>
             {plan.key === k && <em>Your plan</em>}
           </span>
         ))}
@@ -3083,6 +3397,8 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
   const [alertReason, setAlertReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState("");
+  const [groupStatus, setGroupStatus] = useState("");
+  const [checkingGroupType, setCheckingGroupType] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [newName, setNewName] = useState("");
 
@@ -3101,11 +3417,44 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
   }
 
   async function addGroup() {
-    if (!member || !groupName.trim()) return;
+    if (!member || !groupName.trim() || busy) return;
+    const parsed = parseGroupInput(groupName);
+    if (!parsed?.url) {
+      setGroupStatus("Paste the full Facebook group link.");
+      return;
+    }
+    if (member.groups.length >= member.planGroups) {
+      setGroupStatus(`This plan covers ${member.planGroups} groups. Remove one first.`);
+      return;
+    }
     setBusy(true);
-    await onAction("/api/admin/groups", { action: "add", userId: member.id, name: groupName });
-    setGroupName("");
-    setBusy(false);
+    setCheckingGroupType(true);
+    setGroupStatus("");
+    try {
+      const { res, data } = await classifyFacebookGroup(parsed.url);
+      if (!res.ok || (data.visibility !== "public" && data.visibility !== "private")) {
+        setGroupStatus("We could not tell if this group is public or private. Try again.");
+        return;
+      }
+      const privateLimit = PLANS[member.plan as keyof typeof PLANS]?.privateGroups ?? PLANS.local.privateGroups;
+      const privateCount = member.groups.filter(isPrivate).length;
+      if (data.visibility === "private" && privateCount >= privateLimit) {
+        setGroupStatus(`This plan can have up to ${privateLimit} private groups. Remove one first.`);
+        return;
+      }
+      const ok = await onAction("/api/admin/groups", { action: "add", userId: member.id, name: parsed.url });
+      if (!ok) {
+        setGroupStatus("That group was not added. Check the plan limit and try again.");
+        return;
+      }
+      setGroupName("");
+      setGroupStatus(`${data.visibility === "private" ? "Private" : "Public"} group added.`);
+    } catch {
+      setGroupStatus("We could not check that group. Try again.");
+    } finally {
+      setCheckingGroupType(false);
+      setBusy(false);
+    }
   }
 
   async function sendAlert() {
@@ -3154,7 +3503,7 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
 
       {members.map((m) => (
         <div className="card" key={m.id}>
-          <div className="member-head" onClick={() => { setOpen(open === m.id ? null : m.id); setAlertGroup(m.groups[0]?.name ?? ""); }}>
+          <div className="member-head" onClick={() => { setOpen(open === m.id ? null : m.id); setAlertGroup(m.groups[0]?.name ?? ""); setGroupName(""); setGroupStatus(""); }}>
             <div>
               <strong>{m.name || m.email}</strong>
               <span className="tiny block">{m.email} · {PLANS[(m.plan as keyof typeof PLANS)]?.name ?? "Local"} · {m.groups.length} of {m.planGroups} groups · {m.alertCount} leads sent</span>
@@ -3189,19 +3538,26 @@ function MembersView({ members, onAction }: { members: Member[]; onAction: (path
               <div className="kv"><span>Their brief</span><strong>{m.brief || "-"}</strong></div>
 
               <h3 className="mt">Their groups</h3>
-              {m.groups.map((g) => (
-                <div className="group-row" key={g.id}>
-                  <span className="group-name">{g.name}</span>
-                  <span className="row gap">
-                    <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "paused" ? "Paused" : g.status}</span>
-                    <button className="mini" onClick={() => onAction("/api/admin/groups", { action: "remove", groupId: g.id })}>Remove</button>
-                  </span>
-                </div>
-              ))}
+              {m.groups.map((g) => {
+                const state = groupState(g);
+                const visibility = groupVisibility(g);
+                return (
+                  <div className="group-row" key={g.id}>
+                    <span className="group-name">{g.name}</span>
+                    <span className="row gap">
+                      <span className={`chip-status ${visibility === "private" ? "warn" : visibility === "public" ? "ok" : "pending"}`}>{visibility === "private" ? "Private" : visibility === "public" ? "Public" : "Unknown type"}</span>
+                      <span className={`chip-status ${state.tone}`}>{state.label}</span>
+                      <button className="mini" onClick={() => onAction("/api/admin/groups", { action: "remove", groupId: g.id })}>Remove</button>
+                    </span>
+                  </div>
+                );
+              })}
               <div className="row gap mt">
-                <input placeholder="Add a group name" value={groupName} onChange={(e) => setGroupName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} />
-                <button className="btn ghost" onClick={addGroup} disabled={busy}>Add</button>
+                <input placeholder="Paste the full Facebook group link" value={groupName} onChange={(e) => setGroupName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} />
+                <button className="btn ghost" onClick={addGroup} disabled={busy}>{checkingGroupType ? "Checking" : "Add"}</button>
               </div>
+              {checkingGroupType && <div className="group-check"><span className="spinner" /><span><strong>Bright Data is checking this group</strong><small>This can take a minute or two.</small></span></div>}
+              {!checkingGroupType && groupStatus && <p className="tiny">{groupStatus}</p>}
 
               <h3 className="mt">Send them a lead</h3>
               <div className="form-grid">
@@ -3244,10 +3600,30 @@ function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
   async function add() {
     if (!groupName.trim() || !url.trim()) return;
     setBusy(true);
-    await onAction("/api/admin/sources", { action: "add", groupName, url });
-    setGroupName("");
-    setUrl("");
-    setBusy(false);
+    setFlash("Bright Data is checking the group type.");
+    try {
+      const { res, data } = await classifyFacebookGroup(url);
+      if (!res.ok || (data.visibility !== "public" && data.visibility !== "private")) {
+        setFlash("We could not tell if this group is public or private.");
+        return;
+      }
+      if (data.visibility === "private") {
+        setFlash("That group is private. Add it to a member. It will appear in Private monitoring.");
+        return;
+      }
+      const ok = await onAction("/api/admin/sources", { action: "add", groupName, url });
+      if (!ok) {
+        setFlash("That public source was not added.");
+        return;
+      }
+      setGroupName("");
+      setUrl("");
+      setFlash("Public source added.");
+    } catch {
+      setFlash("We could not check that group.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function scan(id: number) {
@@ -3308,7 +3684,7 @@ function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
           <input placeholder="Group name (must match what members type)" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
           <input placeholder="https://www.facebook.com/groups/..." value={url} onChange={(e) => setUrl(e.target.value)} />
         </div>
-        <button className="btn primary mt" disabled={busy} onClick={add}>Add source</button>
+        <button className="btn primary mt" disabled={busy} onClick={add}>{busy ? "Checking type" : "Add source"}</button>
       </div>
 
       <div className="card">
@@ -3324,16 +3700,21 @@ function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
                 {s.lastError && <span className="tiny block err">Error: {s.lastError}</span>}
               </div>
               <span className="row gap">
+                <span className={`chip-status ${s.visibility === "private" ? "warn" : s.visibility === "public" ? "ok" : "pending"}`}>{s.visibility === "private" ? "Private" : s.visibility === "public" ? "Public" : "Type not set"}</span>
                 <span className={s.active ? "chip-status ok" : "chip-status pending"}>{s.active ? "Active" : "Paused"}</span>
-                <button className="mini" disabled={busy} onClick={() => scan(s.id)}>Run now</button>
-                <button className="mini" onClick={() => onAction("/api/admin/sources", { action: "update", sourceId: s.id, active: !s.active })}>{s.active ? "Pause" : "Resume"}</button>
-                <button className="mini" onClick={() => onAction("/api/admin/sources", { action: "remove", sourceId: s.id })}>Delete</button>
+                {s.visibility === "public" ? (
+                  <>
+                    <button className="mini" disabled={busy} onClick={() => scan(s.id)}>Run now</button>
+                    <button className="mini" onClick={() => onAction("/api/admin/sources", { action: "update", sourceId: s.id, active: !s.active })}>{s.active ? "Pause" : "Resume"}</button>
+                    <button className="mini" onClick={() => onAction("/api/admin/sources", { action: "remove", sourceId: s.id })}>Delete</button>
+                  </>
+                ) : <span className="tiny">{s.visibility === "private" ? "Use Private monitoring" : "Check the group type first"}</span>}
               </span>
             </div>
           ))
         )}
       </div>
-      <p className="tiny">The pipeline runs itself every 10 minutes. Run now is for testing a single group.</p>
+      <p className="tiny">Public monitoring runs here. Private checks and private costs live in the Private monitoring tab.</p>
     </div>
   );
 }
@@ -3411,9 +3792,451 @@ function shrinkImage(file: File): Promise<string> {
   });
 }
 
+const audMicros = (value: number | undefined) => {
+  if (typeof value !== "number") return "Not measured";
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    minimumFractionDigits: value < 10_000_000 ? 2 : 0,
+    maximumFractionDigits: value < 10_000_000 ? 4 : 2,
+  }).format(value / 1_000_000);
+};
+
+const dataSize = (value: number | undefined) => {
+  if (typeof value !== "number") return "Not measured";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+};
+
+const measuredCount = (value: number | undefined) =>
+  typeof value === "number" ? value.toLocaleString("en-AU") : "Not reported";
+
+const budgetUsed = (actual: number | undefined, reserved: number | undefined, budget: number | undefined) => {
+  if (typeof actual !== "number" || typeof reserved !== "number" || typeof budget !== "number" || budget <= 0) return "Not measured";
+  return `${(((actual + reserved) / budget) * 100).toFixed(1)}%`;
+};
+
+const privateTime = (value: string | number | null | undefined) => {
+  if (typeof value === "undefined") return "Not reported";
+  if (value === null || value === "" || value === 0) return "Not yet";
+  const raw = typeof value === "number" && value < 1_000_000_000_000 ? value * 1000 : value;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("en-AU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+};
+
+const privateHour = (value: string | number) =>
+  typeof value === "number"
+    ? `${String(value).padStart(2, "0")}:00 Perth time`
+    : privateTime(value);
+
+const privateCostWindow = (value: string | undefined) =>
+  value === "last_30_days" ? "last 30 days" : value === "billing_cycle" ? "billing cycle" : "window not reported";
+
+const elapsed = (value: number | undefined) => {
+  if (typeof value !== "number") return "Not measured";
+  return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(1)} sec`;
+};
+
+function privateStateLabel(value: string | null | undefined) {
+  const state = (value || "unknown").toLowerCase();
+  const labels: Record<string, string> = {
+    healthy: "Healthy",
+    success: "Success",
+    succeeded: "Success",
+    active: "Active",
+    ready: "Ready",
+    at_risk: "Near cap",
+    recovered: "Recovered",
+    resolved: "Resolved",
+    degraded: "Needs a check",
+    offline: "Offline",
+    stale: "Session is stale",
+    login_required: "Login needed",
+    blocked: "Account blocked",
+    disabled: "Account disabled",
+    challenge: "Facebook check needed",
+    failed: "Failed",
+    error: "Error",
+    queued: "Queued",
+    reserved: "Reserved",
+    running: "Running",
+    processing: "Processing",
+    allocating: "Setting up",
+    completed: "Complete",
+    cancelled: "Cancelled",
+    expired: "Expired",
+    paused: "Paused",
+    waiting_for_access: "Waiting for access",
+    waiting_access: "Waiting for access",
+    access_lost: "Access lost",
+    unavailable: "Not available",
+    deleted: "Group deleted",
+    unknown: "Not reported",
+    open: "Open",
+    acknowledged: "Seen",
+    sent: "Sent",
+    pending: "Pending",
+    skipped_budget: "Skipped for budget",
+    budget_paused_private: "Private watch paused",
+    paused_private_payment: "Payment paused",
+    plan_limit_private: "Over private group limit",
+    cycle_unknown: "Billing cycle missing",
+    not_configured: "Not set up",
+  };
+  return labels[state] || state.replaceAll("_", " ");
+}
+
+function privateStateTone(value: string | null | undefined) {
+  const state = (value || "unknown").toLowerCase();
+  if (["healthy", "success", "succeeded", "completed", "active", "ready", "running", "recovered", "resolved", "sent"].includes(state)) return "ok";
+  if (["degraded", "stale", "at_risk", "queued", "reserved", "allocating", "processing", "paused", "pending", "waiting_for_access", "waiting_access", "unknown", "acknowledged", "skipped_budget", "budget_paused_private", "paused_private_payment", "plan_limit_private", "cycle_unknown", "not_configured"].includes(state)) return "warn";
+  return "bad";
+}
+
+function privateErrorLabel(value: string | null | undefined) {
+  if (typeof value === "undefined") return "Not reported";
+  if (!value) return "None";
+  const labels: Record<string, string> = {
+    chronology_unverified: "Newest-first order could not be proved",
+    chronological_unverified: "Newest-first order could not be proved",
+    cutoff_unverified: "The 65-minute stop could not be proved",
+    timestamp_unverified: "A post time could not be proved",
+    transfer_limit_exceeded: "The data limit was reached",
+    reservation_too_low: "The cost reserve was too low",
+    overlapping_run: "The last run was still working",
+    proxy_failed: "The residential proxy failed",
+    budget_unavailable: "The private customer budget was not available",
+    cost_guard_missing: "A measured cost guard was not available",
+    cost_measurement_missing: "The exact private scraper cost was not reported",
+    cost_reservation_exceeded: "The measured cost was above its reserve",
+    job_deadline_missed: "The worker did not return this check in time",
+    reservation_failed: "The private cost could not be reserved",
+  };
+  return labels[value] || value.replaceAll("_", " ");
+}
+
+function PrivateState({ value }: { value: string | null | undefined }) {
+  return <span className={`chip-status ${privateStateTone(value)}`}>{privateStateLabel(value)}</span>;
+}
+
+function PrivateProof({ value, status, needed = true, yes, no }: {
+  value: boolean | number | undefined;
+  status: string | undefined;
+  needed?: boolean;
+  yes: string;
+  no: string;
+}) {
+  if (!needed) return <span className="chip-status pending">Not needed</span>;
+  if (typeof value === "undefined" || !["success", "failed"].includes((status || "").toLowerCase())) {
+    return <span className="chip-status pending">Not reported</span>;
+  }
+  return <span className={`chip-status ${value ? "ok" : "bad"}`}>{value ? yes : no}</span>;
+}
+
+function PrivateStopProof({ boundary, feedEnd, status, needed = true }: {
+  boundary: boolean | number | undefined;
+  feedEnd: boolean | number | undefined;
+  status: string | undefined;
+  needed?: boolean;
+}) {
+  if (!needed) return <span className="chip-status pending">Not needed</span>;
+  if (!["success", "failed"].includes((status || "").toLowerCase())) return <span className="chip-status pending">Not reported</span>;
+  if (feedEnd) return <span className="chip-status ok">Feed ended early</span>;
+  if (boundary) return <span className="chip-status ok">{typeof feedEnd === "undefined" ? "Cut-off proved" : "65m reached"}</span>;
+  if (typeof boundary === "undefined" && typeof feedEnd === "undefined") return <span className="chip-status pending">Not reported</span>;
+  return <span className="chip-status bad">Not proved</span>;
+}
+
+function PrivateMonitoringView({ data, error, onRefresh, onAction }: {
+  data: PrivateMonitoring | null;
+  error: string;
+  onRefresh: () => Promise<void>;
+  onAction: (payload: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [busy, setBusy] = useState("");
+  const [flash, setFlash] = useState("");
+
+  async function act(action: string, targetType: string, targetId: string | number, label: string, confirmText?: string) {
+    if (confirmText && !confirm(confirmText)) return;
+    const key = `${action}:${targetId}`;
+    setBusy(key);
+    setFlash("");
+    try {
+      const ok = await onAction({ action, targetType, targetId });
+      setFlash(ok ? `${label} was sent.` : `${label} did not work.`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const summary = data?.summary;
+  const workers = data?.workers ?? [];
+  const accounts = data?.accounts ?? [];
+  const groups = data?.groups ?? [];
+  const customers = data?.customers ?? [];
+  const checks = data?.checks ?? [];
+  const hours = data?.hours ?? [];
+  const incidents = data?.incidents ?? [];
+  const actions = data?.actions ?? [];
+  const aggregate = data?.aggregate;
+  const costWindow = aggregate?.window ?? summary?.costWindow;
+  const openIncidents = incidents.filter((row) => !["resolved", "recovered"].includes((row.status || "").toLowerCase()));
+  const schedule = typeof summary?.scheduleMinutes === "number"
+    ? summary.scheduleMinutes === 60 ? "Once an hour" : `Every ${summary.scheduleMinutes} minutes`
+    : "Not reported";
+  const lookback = typeof summary?.lookbackMinutes === "number"
+    ? `${summary.lookbackMinutes} minutes`
+    : "Not reported";
+
+  return (
+    <div className="subview private-monitor">
+      <header className="subhead pm-head">
+        <div>
+          <p className="muted">Live health and real private scraper costs. This page refreshes every 15 seconds.</p>
+          <p className="tiny">Last dashboard update: {privateTime(data?.generatedAt)}</p>
+        </div>
+        <button className="btn ghost" onClick={onRefresh}>Refresh now</button>
+      </header>
+
+      {flash && <p className="flash mb">{flash}</p>}
+      {error && <p className="error mb">{error} Press refresh to try again.</p>}
+
+      {!data ? (
+        <div className="card">
+          <div className="empty">
+            <span className="spinner" />
+            <p><strong>Loading private monitoring.</strong></p>
+            <p className="muted">Waiting for the server.</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="tiles">
+            <div className={privateStateTone(summary?.status) === "ok" ? "tile tile-accent" : "tile tile-warn"}>
+              <span className="tile-num pm-state">{privateStateLabel(summary?.status)}</span>
+              <span className="tile-label">Private scraper</span>
+            </div>
+            <div className="tile">
+              <span className="tile-num pm-state">{privateTime(summary?.lastHeartbeatAt)}</span>
+              <span className="tile-label">Last VPS heartbeat</span>
+            </div>
+            <div className="tile">
+              <span className="tile-num">{summary?.privateGroups ?? groups.length}</span>
+              <span className="tile-label">Private groups</span>
+            </div>
+            <div className={openIncidents.length || summary?.openIncidents ? "tile tile-warn" : "tile"}>
+              <span className="tile-num">{summary?.openIncidents ?? openIncidents.length}</span>
+              <span className="tile-label">Open incidents</span>
+            </div>
+            <div className="tile">
+              <span className="tile-num pm-state">{dataSize(aggregate?.bytesTransferred ?? summary?.bytesThisCycle)}</span>
+              <span className="tile-label">Private data, {privateCostWindow(costWindow)}</span>
+            </div>
+            <div className="tile">
+              <span className="tile-num pm-state">{audMicros(aggregate?.audMicros ?? summary?.audMicrosThisCycle)}</span>
+              <span className="tile-label">Private cost, {privateCostWindow(costWindow)}</span>
+            </div>
+          </div>
+
+          <div className="pm-rules">
+            <span><strong>Private check time.</strong> {schedule}.</span>
+            <span><strong>Lookback.</strong> {lookback}.</span>
+            <span><strong>Measured totals.</strong> {privateCostWindow(aggregate?.window)}: {measuredCount(aggregate?.checks)} checks, {measuredCount(aggregate?.posts)} posts and {measuredCount(aggregate?.failures)} failed.</span>
+            <span><strong>Safe stop.</strong> A check fails if post order or post times cannot be proved.</span>
+            <span><strong>Data target.</strong> A normal group check should use about 1 MB or less. The real amount is shown below.</span>
+            <span><strong>Private budget only.</strong> Public Bright Data monitoring never pauses here.</span>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><h3>Customer private budgets</h3><span className="tiny">AUD. Measured private scraper costs only.</span></div>
+            {customers.length === 0 ? (
+              <div className="empty tight"><p className="muted">No customer budget records yet.</p></div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Customer</th><th>Plan price</th><th>Groups</th><th>Actual</th><th>Reserved</th><th>Forecast</th><th>Warn at</th><th>Stop new checks</th><th>25% cap</th><th>Used</th><th>Left</th><th>State</th><th>Resets</th></tr></thead>
+                  <tbody>
+                    {customers.map((row) => (
+                      <tr key={row.id}>
+                        <td><strong>{row.email || row.id}</strong><span className="tiny block">{row.planName || "Plan not reported"}</span></td>
+                        <td>{audMicros(row.planPriceAudMicros)}</td>
+                        <td>{measuredCount(row.publicGroups)} public<br />{measuredCount(row.privateGroups)} private</td>
+                        <td>{audMicros(row.actualAudMicros)}</td>
+                        <td>{audMicros(row.reservedAudMicros)}</td>
+                        <td>{audMicros(row.forecastAudMicros)}</td>
+                        <td>{audMicros(row.warningAudMicros)}</td>
+                        <td>{audMicros(row.safetyCutoffAudMicros)}</td>
+                        <td>{audMicros(row.budgetAudMicros)}</td>
+                        <td>{budgetUsed(row.actualAudMicros, row.reservedAudMicros, row.budgetAudMicros)}</td>
+                        <td>{audMicros(row.remainingAudMicros)}</td>
+                        <td><PrivateState value={row.budgetStatus} />{Boolean(row.pausedPrivateGroups) && <span className="tiny block">{row.pausedPrivateGroups} private paused</span>}</td>
+                        <td>{privateTime(row.billingCycleEndsAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-head"><h3>Watch accounts and sessions</h3><span className="tiny">Costs and data are per account.</span></div>
+            {accounts.length === 0 ? (
+              <div className="empty tight"><p className="muted">No Facebook watch account has reported yet.</p></div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Account</th><th>State</th><th>Session</th><th>Proxy</th><th>Groups</th><th>Health check</th><th>Last scan</th><th>Next scan</th><th>Cookie saved</th><th>Session ends</th><th>Data</th><th>Proxy AUD</th><th>VPS AUD</th><th>Total AUD</th><th>Issue</th><th /></tr></thead>
+                  <tbody>
+                    {accounts.map((row) => (
+                      <tr key={row.id}>
+                        <td><strong>{row.label || row.id}</strong></td>
+                        <td><PrivateState value={row.status} /></td>
+                        <td><PrivateState value={row.sessionStatus} />{Boolean(row.healthValidationDue) && <span className="tiny block">Daily check due</span>}</td>
+                        <td><PrivateState value={row.proxyStatus} /></td>
+                        <td>{measuredCount(row.groupsAssigned)}</td>
+                        <td>{privateTime(row.lastHealthCheckAt)}</td>
+                        <td>{privateTime(row.lastScanAt)}</td>
+                        <td>{privateTime(row.nextScanAt)}</td>
+                        <td>{privateTime(row.cookieSavedAt)}</td>
+                        <td>{privateTime(row.sessionExpiresAt)}</td>
+                        <td>{dataSize(row.bytesTransferred)}</td>
+                        <td>{audMicros(row.proxyAudMicros)}</td>
+                        <td>{audMicros(row.vpsAudMicros)}</td>
+                        <td>{audMicros(row.audMicros)}</td>
+                        <td>{row.latestError || (row.latestErrorCode ? privateErrorLabel(row.latestErrorCode) : typeof row.consecutiveFailures === "number" ? row.consecutiveFailures ? `${row.consecutiveFailures} failed checks` : "None" : "Not reported")}</td>
+                        <td><button className="mini" disabled={Boolean(busy)} onClick={() => act("validate_session", "account", row.id, "Session check")}>{busy === `validate_session:${row.id}` ? "Sending" : "Check session"}</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="tiny">Fresh cookies are saved after each good check. If Facebook asks for a login, code or CAPTCHA, replace the session on the VPS. Cookies are never shown here.</p>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><h3>Private groups</h3><span className="tiny">One shared group is scraped once.</span></div>
+            {groups.length === 0 ? (
+              <div className="empty tight"><p className="muted">No private groups are set up yet.</p></div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Group</th><th>Access</th><th>Account</th><th>Last check</th><th>Last good</th><th>Next check</th><th>Posts</th><th>Data</th><th>Cost</th><th>Issue</th><th /></tr></thead>
+                  <tbody>
+                    {groups.map((row) => {
+                      const paused = (row.status || "").toLowerCase() === "paused";
+                      return (
+                        <tr key={row.id}>
+                          <td><strong>{row.name || row.id}</strong><span className="tiny block">{measuredCount(row.watchers)} customer watchers</span></td>
+                          <td><PrivateState value={row.accessStatus || row.status} /></td>
+                          <td>{row.accountLabel || "Not assigned"}</td>
+                          <td>{privateTime(row.lastScanAt)}</td>
+                          <td>{privateTime(row.lastSuccessAt)}</td>
+                          <td>{privateTime(row.nextScanAt)}</td>
+                          <td>{measuredCount(row.postsCollected)}</td>
+                          <td>{dataSize(row.bytesTransferred)}</td>
+                          <td>{audMicros(row.audMicros)}</td>
+                          <td>{row.latestError || privateErrorLabel(row.latestErrorCode)}</td>
+                          <td>
+                            <span className="pm-actions">
+                              <button className="mini" disabled={Boolean(busy)} onClick={() => act("retry_check", "source", row.id, "Group check")}>{busy === `retry_check:${row.id}` ? "Sending" : "Run now"}</button>
+                              <button className="mini" disabled={Boolean(busy)} onClick={() => act(paused ? "resume_source" : "pause_source", "source", row.id, paused ? "Resume" : "Pause", `${paused ? "Resume" : "Pause"} private monitoring for ${row.name || "this group"}?${!paused && row.watchers ? ` This stops it for all ${row.watchers} customer watchers.` : ""}`)}>{paused ? "Resume" : "Pause"}</button>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="pm-grid">
+            <div className="card">
+              <h3>VPS workers</h3>
+              {workers.length === 0 ? <p className="muted">No worker heartbeat yet.</p> : workers.map((row) => (
+                <div className="spend-row" key={row.id}>
+                  <span><strong>{row.name || row.id}</strong><small>{privateTime(row.lastHeartbeatAt)}{row.version ? ` · v${row.version}` : ""}{row.lastError ? ` · ${row.lastError}` : ""}</small><small>Estimated max next check: {audMicros(row.estimatedMaxCostAudMicros)}</small></span>
+                  <span className="pm-actions"><PrivateState value={row.status} /><PrivateState value={row.proxyStatus} /></span>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <h3>Emergency texts</h3>
+              <div className="kv"><span>Last text</span><strong>{privateTime(summary?.lastSmsAt)}</strong></div>
+              <div className="kv"><span>Open incidents</span><strong>{summary?.openIncidents ?? openIncidents.length}</strong></div>
+              <p className="tiny">One text is sent when a serious fault starts. A recovery text is sent when it is fixed.</p>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head"><h3>Checks by hour</h3><span className="tiny">Measured posts, data and AUD cost.</span></div>
+            {hours.length === 0 ? (
+              <div className="empty tight"><p className="muted">No hourly measurements yet.</p></div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Hour</th><th>Checks</th><th>Posts</th><th>Data</th><th>AUD cost</th><th>Failed</th></tr></thead>
+                  <tbody>{hours.map((row) => <tr key={row.hour}><td>{privateHour(row.hour)}</td><td>{measuredCount(row.checks)}</td><td>{measuredCount(row.posts)}</td><td>{dataSize(row.bytesTransferred)}</td><td>{audMicros(row.audMicros)}</td><td>{measuredCount(row.failures)}</td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-head"><h3>Latest checks</h3><span className="tiny">Lookback: {lookback}.</span></div>
+            {checks.length === 0 ? (
+              <div className="empty tight"><p className="muted">No checks have been recorded yet.</p></div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Started</th><th>Group</th><th>Account</th><th>State</th><th>Newest first</th><th>65m cut-off</th><th>Posts</th><th>Data</th><th>Time</th><th>AUD cost</th><th>Error</th></tr></thead>
+                  <tbody>{checks.slice(0, 50).map((row) => {
+                    const groupCheck = !row.kind || row.kind === "scan_group";
+                    return <tr key={row.id}><td>{privateTime(row.startedAt)}</td><td>{row.groupName || "Unknown group"}</td><td>{row.accountLabel || "Not assigned"}</td><td><PrivateState value={row.status} /></td><td><PrivateProof value={row.chronologicalVerified} status={row.status} needed={groupCheck} yes="Proved" no="Not proved" /></td><td><PrivateStopProof boundary={row.boundaryReached} feedEnd={row.feedEndReached} status={row.status} needed={groupCheck} /></td><td>{measuredCount(row.postsCollected)}</td><td>{dataSize(row.bytesTransferred)}</td><td>{elapsed(row.durationMs)}</td><td>{audMicros(row.audMicros)}</td><td>{row.errorDetail || privateErrorLabel(row.errorCode)}</td></tr>;
+                  })}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="pm-grid">
+            <div className="card">
+              <h3>Incidents</h3>
+              {incidents.length === 0 ? <p className="muted">No incidents recorded.</p> : incidents.slice(0, 30).map((row) => (
+                <div className="pm-log-row" key={row.id}>
+                  <div>
+                    <strong>{row.title || privateStateLabel(row.kind)}</strong>
+                    <p>{row.detail || "No extra detail."}</p>
+                    <span className="tiny">Started {privateTime(row.createdAt)} · Text {privateStateLabel(row.smsState)} · Email {privateStateLabel(row.emailState)} · Recovery {privateStateLabel(row.recoveryState)}</span>
+                  </div>
+                  <span className="pm-actions"><PrivateState value={row.status} />{!["resolved", "recovered", "acknowledged"].includes((row.status || "").toLowerCase()) && <button className="mini" disabled={Boolean(busy)} onClick={() => act("acknowledge_incident", "incident", row.id, "Incident update")}>Mark seen</button>}</span>
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <h3>Live actions</h3>
+              {actions.length === 0 ? <p className="muted">No actions recorded.</p> : actions.slice(0, 40).map((row) => (
+                <div className="pm-log-row compact" key={row.id}>
+                  <div><strong>{row.message || privateStateLabel(row.kind)}</strong><span className="tiny block">{privateTime(row.createdAt)}</span></div>
+                  <PrivateState value={row.status} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MarketingView(props: {
-  active: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel";
-  setActive: (t: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel") => void;
+  active: AdminTab;
+  setActive: (t: AdminTab) => void;
   usage: Usage | null;
   usageDays: number;
   onUsageDays: (days: number) => void;
@@ -3435,10 +4258,15 @@ function MarketingView(props: {
   sources: Source[]; uncovered: string[]; keys: { apify: boolean; anthropic: boolean };
   onScan: (id: number) => Promise<{ ok: boolean; matches?: number; posts?: number; error?: string }>;
   stripeRows: StripeRow[]; stripeOn: boolean; onRefreshStripe: () => void; adminBusy: boolean;
+  privateMonitoring: PrivateMonitoring | null;
+  privateMonitoringError: string;
+  onRefreshPrivate: () => Promise<void>;
+  onPrivateAction: (payload: Record<string, unknown>) => Promise<boolean>;
 }) {
-  const tabs: { key: "users" | "support" | "usage" | "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
+  const tabs: { key: AdminTab; label: string }[] = [
     { key: "users", label: "Users" },
     { key: "usage", label: "Usage" },
+    { key: "private", label: "Private monitoring" },
     { key: "support", label: props.waiting ? `Support (${props.waiting})` : "Support" },
     { key: "funnel", label: "Ad funnel" },
     { key: "members", label: "Members" },
@@ -3446,11 +4274,11 @@ function MarketingView(props: {
     { key: "stripe", label: "Payments" },
   ];
   return (
-    <div className={props.active === "support" ? "page admin wide" : "page admin"}>
+    <div className={props.active === "support" || props.active === "private" ? "page admin wide" : "page admin"}>
       <header className="page-head">
         <div>
-          <h1>Marketing</h1>
-          <p className="muted">Your funnel, members, pipeline and payments in one place.</p>
+          <h1>{props.active === "private" ? "Private monitoring" : "Marketing"}</h1>
+          <p className="muted">{props.active === "private" ? "Private groups, watch accounts, health and real costs." : "Your funnel, members, pipeline and payments in one place."}</p>
         </div>
       </header>
       <div className="subtabs" role="tablist">
@@ -3461,6 +4289,7 @@ function MarketingView(props: {
       <div className="subpanel">
         {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} days={props.funnelDays} onDays={props.onFunnelDays} onStatus={props.onLeadStatus} />}
         {props.active === "usage" && <UsageView usage={props.usage} days={props.usageDays} onDays={props.onUsageDays} />}
+        {props.active === "private" && <PrivateMonitoringView data={props.privateMonitoring} error={props.privateMonitoringError} onRefresh={props.onRefreshPrivate} onAction={props.onPrivateAction} />}
         {props.active === "support" && <SupportView threads={props.threads} flash={props.flash} onAction={props.adminCall} />}
         {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} adminPassword={props.adminPassword} />}
         {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
@@ -3694,7 +4523,7 @@ function UsageView({ usage, days, onDays }: {
 function FunnelView({ rows, signupRows, signups, trades, days, onDays, onStatus }: {
   rows: { label: string; count: number; rate: number }[];
   signupRows: { label: string; count: number; rate: number }[];
-  signups: { email: string; name: string; phone: string; trade: string; createdAt: string }[];
+  signups: { email: string; name: string; phone: string; trade: string; status?: string; createdAt: string }[];
   trades: { slug: string; views: number; signups: number; rate: number }[];
   days: number;
   onDays: (days: number) => void;
@@ -3841,37 +4670,17 @@ const CSS = `
 .tile:hover{box-shadow:var(--shadow);transform:translateY(-3px);}
 .tile:nth-child(2){animation-delay:.05s}.tile:nth-child(3){animation-delay:.1s}.tile:nth-child(4){animation-delay:.15s}
 
-/* The scan card. White like the rest of the row, and busy on purpose: it is
-   the only thing on this page that proves the machine is running while a
-   member has no leads to look at. */
+/* Monitoring schedule card. It does not pretend to be a live scan clock. */
 .scan{align-content:space-between;gap:0;min-height:96px;}
 .scan-top{align-items:center;display:flex;gap:9px;}
 .scan-face{align-items:center;display:inline-flex;flex:none;height:16px;justify-content:center;width:16px;}
 .scan-dot{background:var(--mint);border-radius:99px;height:8px;width:8px;animation:scanBreathe 2.4s var(--ease) infinite;}
-.scan-spin{animation:scanSpin .8s linear infinite;border:2px solid var(--line);border-radius:99px;border-top-color:var(--coral);height:15px;width:15px;}
-.scan-track{background:var(--line);border-radius:99px;height:6px;margin-top:14px;overflow:hidden;}
-.scan-track i{border-radius:99px;display:block;height:100%;}
-.scan-fill{animation:scanFill linear forwards;background:linear-gradient(90deg,var(--mint),#54c79c);width:0;}
-.scan-full{animation:scanBusy 1s var(--ease) infinite;background:linear-gradient(90deg,var(--coral),#ffa46d);width:100%;}
-@keyframes scanFill{from{width:0;}to{width:100%;}}
-@keyframes scanSpin{to{transform:rotate(360deg);}}
+.scan-label{color:var(--ink);font-size:12.5px;font-weight:700;}
+.scan-times{color:var(--muted);font-size:12px;line-height:1.35;margin:10px 0 0;}
 @keyframes scanBreathe{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.82);}}
-@keyframes scanBusy{0%,100%{opacity:1;}50%{opacity:.55;}}
-
-/* One line of text leaving downwards while the next rolls up behind it. */
-.roll{display:block;flex:1;height:17px;line-height:17px;min-width:0;overflow:hidden;position:relative;}
-.roll > span{color:var(--muted);display:block;font-size:12.5px;font-weight:600;left:0;line-height:17px;overflow:hidden;position:absolute;text-overflow:ellipsis;top:0;white-space:nowrap;width:100%;}
-.roll-in{animation:rollIn .38s var(--ease) both;}
-.roll-out{animation:rollOut .38s var(--ease) both;}
-.scan.working .roll > span{color:var(--ink);}
-@keyframes rollIn{from{opacity:0;transform:translateY(100%);}to{opacity:1;transform:none;}}
-@keyframes rollOut{from{opacity:1;transform:none;}to{opacity:0;transform:translateY(-100%);}}
 
 @media(prefers-reduced-motion:reduce){
-  .scan-fill,.scan-full,.scan-spin,.scan-dot{animation:none;}
-  .scan-fill{width:100%;}
-  .roll-in,.roll-out{animation:none;}
-  .roll-out{display:none;}
+  .scan-dot{animation:none;}
 }
 .tile-num{font-size:24px;font-weight:800;letter-spacing:-.02em;}
 .tile-label{color:var(--muted);font-size:12.5px;font-weight:600;}
@@ -4379,6 +5188,14 @@ const CSS = `
 .mark{position:absolute;right:13px;top:50%;transform:translateY(-50%);}
 .mark.ok{color:var(--mint);display:flex;}
 .mark.no{color:var(--coral-deep);font-size:19px;font-weight:800;line-height:1;}
+.group-check{align-items:center;background:#faf7f2;border:1px solid var(--line);border-radius:11px;display:flex;gap:11px;margin-top:10px;padding:10px 12px;}
+.group-check>span:last-child{display:grid;gap:2px;}
+.group-check strong{font-size:13px;}
+.group-check small{color:var(--muted);font-size:11.5px;}
+.group-check-result{align-items:center;display:flex;font-size:12.5px;font-weight:700;gap:7px;margin:9px 2px 0;}
+.group-check-result.ok{color:#14724f;}
+.group-check-result.bad{color:var(--coral-deep);}
+.group-check-result svg{flex:none;}
 
 .wiz-table{border-collapse:collapse;font-size:13.5px;margin-top:16px;width:100%;}
 .wiz-table th{border-bottom:1px solid var(--line);color:#8b93a7;font-size:11px;letter-spacing:.05em;padding:8px 10px;text-align:left;text-transform:uppercase;}
@@ -4387,6 +5204,12 @@ const CSS = `
 .wiz-table .act-cell{text-align:right;white-space:nowrap;}
 .mini.danger:hover{color:var(--coral-deep);}
 .empty.tight{padding:22px 0;text-align:center;}
+.group-limits{background:#fff;border:1px solid var(--line);border-radius:12px;display:flex;flex-wrap:wrap;font-size:12.5px;gap:8px 18px;margin-bottom:14px;padding:11px 14px;}
+.group-limits span{color:var(--muted);}
+.group-limits strong{color:var(--ink);}
+.group-copy{display:grid;gap:3px;min-width:0;}
+.group-copy .tiny{margin:0;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.group-row-status{align-items:flex-start;}
 
 .review{margin:4px 0 6px;}
 .review-brief{background:#faf7f2;border:1px solid var(--line);border-radius:11px;color:#3c465e;font-size:14px;line-height:1.55;margin:0;padding:13px 15px;white-space:pre-wrap;}
@@ -4420,6 +5243,8 @@ const CSS = `
   .adder-input{flex:1 1 100%;}
   .adder-row .btn{flex:1;}
   .toast{bottom:auto;top:-52px;}
+  .group-row-status{align-items:stretch;flex-direction:column;}
+  .group-row-status>.row{justify-content:flex-end;}
 }
 
 .funnel-chart{display:grid;gap:14px;padding:4px 0;}
@@ -4436,4 +5261,27 @@ const CSS = `
   .fbar-label{font-size:13px;}
   .fbar-drop{justify-self:start;}
 }
+
+/* ---- private monitoring ---- */
+.pm-head{align-items:flex-start;display:flex;gap:16px;justify-content:space-between;}
+.pm-head .tiny{margin:4px 0 0;}
+.tile-num.pm-state{font-size:18px;line-height:1.2;}
+.pm-rules{background:#fff;border:1px solid var(--line);border-radius:14px;display:grid;font-size:13px;gap:8px;margin:16px 0;padding:14px 16px;}
+.pm-rules span{color:var(--muted);}
+.pm-rules strong{color:var(--ink);}
+.pm-grid{display:grid;gap:16px;grid-template-columns:repeat(2,minmax(0,1fr));}
+.private-monitor .card{margin-bottom:16px;}
+.private-monitor td{vertical-align:top;}
+.private-monitor td .chip-status{display:inline-flex;}
+.private-monitor .spend-row>span:first-child{display:grid;gap:3px;min-width:0;}
+.private-monitor .spend-row small{color:var(--muted);font-size:11.5px;overflow-wrap:anywhere;}
+.pm-actions{align-items:center;display:flex;gap:6px;}
+.pm-log-row{align-items:flex-start;border-top:1px solid #f4efe7;display:flex;gap:14px;justify-content:space-between;padding:13px 0;}
+.pm-log-row:first-of-type{border-top:0;}
+.pm-log-row>div{min-width:0;}
+.pm-log-row strong{display:block;font-size:13.5px;}
+.pm-log-row p{color:var(--muted);font-size:12.5px;line-height:1.45;margin:4px 0;overflow-wrap:anywhere;}
+.pm-log-row.compact{align-items:center;}
+@media(max-width:900px){.pm-grid{grid-template-columns:1fr;}}
+@media(max-width:640px){.pm-head{align-items:stretch;flex-direction:column;}.pm-actions{flex-wrap:wrap;}}
 `;
