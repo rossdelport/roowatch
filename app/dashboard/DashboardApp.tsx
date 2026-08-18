@@ -2561,7 +2561,7 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                 ) : (
                   <>
                     {isPrivate(g) ? (
-                      <span className="chip-status bad" title={g.problem}>Private, we cannot read it</span>
+                      <span className="chip-status pending" title={g.problem}>Access getting approved</span>
                     ) : (
                       <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
                     )}
