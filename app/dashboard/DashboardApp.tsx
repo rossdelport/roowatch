@@ -742,7 +742,6 @@ function FirstLead({ me }: { me: Me }) {
   if (hours >= TARGET_HOURS) return null;
 
   const pct = Math.min(100, (hours / TARGET_HOURS) * 100);
-  const left = Math.max(1, Math.ceil(TARGET_HOURS - hours));
 
   return (
     <div className="firstlead">
@@ -756,9 +755,6 @@ function FirstLead({ me }: { me: Me }) {
       <div className="fl-track">
         <i style={{ width: `${Math.max(2, pct)}%` }} />
       </div>
-      <p className="tiny fl-foot">
-        Typically {left} {left === 1 ? "hour" : "hours"} to go. You do not need to do anything.
-      </p>
     </div>
   );
 }
@@ -4204,10 +4200,9 @@ const CSS = `
 .fl-top strong{font-size:15.5px;letter-spacing:-.01em;}
 .fl-top .tiny{color:#a9b8d4;margin:3px 0 0;}
 .fl-count{background:rgba(255,255,255,.12);border-radius:99px;flex:none;font-size:11.5px;font-weight:800;padding:5px 11px;}
-.fl-track{background:rgba(255,255,255,.14);border-radius:99px;height:7px;margin:14px 0 9px;overflow:hidden;position:relative;}
+.fl-track{background:rgba(255,255,255,.14);border-radius:99px;height:7px;margin:16px 0 2px;overflow:hidden;position:relative;}
 .fl-track i{background:linear-gradient(90deg,var(--coral),#ffa46d);border-radius:99px;display:block;height:100%;position:relative;transition:width .8s var(--ease);}
 .fl-track i:after{animation:flPulse 2.2s var(--ease) infinite;background:rgba(255,255,255,.65);border-radius:99px;content:"";inset:0 0 0 auto;position:absolute;width:7px;}
-.fl-foot{color:#a9b8d4;margin:0;position:relative;}
 @keyframes flPulse{0%,100%{opacity:.25;}50%{opacity:1;}}
 @media(prefers-reduced-motion:reduce){.fl-track i:after{animation:none;}.feed-row{animation:none;}}
 
