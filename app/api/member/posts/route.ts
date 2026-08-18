@@ -30,12 +30,27 @@ export async function GET(request: Request) {
   const asked = Number(url.searchParams.get("limit") ?? 300);
   const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 300, 1), 300);
 
-  // The overview ticker asks for today only. Yesterday's posts are not proof
-  // that anything is running now, and holding 14 days in memory to show five
-  // rows is waste. The Posts tab still asks for the lot.
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
+  /**
+   * The ticker asks for today only. Yesterday's posts are not proof that
+   * anything is running now, and holding 14 days in memory to show five rows
+   * is waste.
+   *
+   * "Today" has to mean the member's today, not the server's. This runs on
+   * Cloudflare, which is UTC, and UTC midnight lands at 10am in Queensland.
+   * So between midnight and 10am a Queensland tradie saw an almost empty
+   * ticker, and at 10am their day silently reset and wiped the morning.
+   *
+   * The browser is the only thing that knows their real timezone, so it sends
+   * its own midnight. The UTC fallback covers a caller that sends none.
+   */
   const todayOnly = url.searchParams.get("today") === "1";
+  const sent = Number(url.searchParams.get("since") ?? 0);
+  const utcMidnight = new Date();
+  utcMidnight.setUTCHours(0, 0, 0, 0);
+  const since =
+    Number.isFinite(sent) && sent > Date.now() - 15 * 864e5 && sent <= Date.now()
+      ? sent
+      : utcMidnight.getTime();
 
   const rows = await getDb()
     .select({
@@ -49,7 +64,7 @@ export async function GET(request: Request) {
     .from(seenPosts)
     .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
     .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))
-    .where(todayOnly ? sql`${seenPosts.seenAt} >= ${midnight.getTime()}` : sql`1 = 1`)
+    .where(todayOnly ? sql`${seenPosts.seenAt} >= ${since}` : sql`1 = 1`)
     .orderBy(desc(seenPosts.seenAt))
     .limit(limit);
 
@@ -61,15 +76,14 @@ export async function GET(request: Request) {
     n: number;
   }[];
 
-  // Posts read since midnight, their time near enough. The overview says it
-  // out loud, because "we read 47 posts today" is the proof that the thing
-  // they are paying for is actually running.
+  // Counted from the same boundary as the list above, or the headline would
+  // disagree with the rows underneath it.
   const [todayRow] = (await getDb()
     .select({ n: sql<number>`count(*)` })
     .from(seenPosts)
     .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
     .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))
-    .where(sql`${seenPosts.seenAt} >= ${midnight.getTime()}`)) as { n: number }[];
+    .where(sql`${seenPosts.seenAt} >= ${since}`)) as { n: number }[];
 
   return Response.json({
     ok: true,

@@ -526,7 +526,15 @@ function LiveFeed({ groups, onGo }: {
 
     async function pull() {
       try {
-        const res = await fetch("/api/member/posts?limit=40&today=1");
+        // The browser is the only thing that knows the member's timezone, so
+        // it tells the server where their day actually starts. Without this a
+        // Queensland tradie gets the server's UTC day, which begins at 10am
+        // their time and wipes the whole morning.
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const res = await fetch(
+          `/api/member/posts?limit=40&today=1&since=${dayStart.getTime()}`
+        );
         const data = (await res.json()) as { posts?: FeedPost[]; today?: number };
         if (!alive) return;
         const rows = data.posts ?? [];
