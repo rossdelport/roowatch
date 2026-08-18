@@ -81,6 +81,22 @@ type Group = {
   problem?: string;
 };
 
+/**
+ * True while a group is still showing the number out of its own web address.
+ *
+ * Facebook only tells us a group's real name inside a post, so a group that
+ * has not posted since it was added has no name we could know. It fixes
+ * itself on the first post. Saying so beats leaving somebody to wonder why
+ * their dashboard is full of phone numbers.
+ *
+ * Only numeric addresses are affected. A group at /groups/cairnsnoticeboard
+ * already reads well enough.
+ */
+function stillNumbers(group: { name: string; url?: string }) {
+  const slug = groupSlug(group.url ?? "");
+  return /^\d+$/.test(slug) && group.name.includes(slug);
+}
+
 /** Facebook lets nobody but members read a private group, us included. */
 function isPrivate(group: { problem?: string }) {
   return /private/i.test(group.problem ?? "");
@@ -2527,7 +2543,14 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                   }}
                 />
               ) : (
-                <span className="group-name">{g.name}</span>
+                <span className="group-stack">
+                  <span className="group-name">{g.name}</span>
+                  {stillNumbers(g) && (
+                    <span className="group-waiting">
+                      <i className="spinner tiny" /> Group name will update automatically
+                    </span>
+                  )}
+                </span>
               )}
               <span className="row gap">
                 {editingId === g.id ? (
@@ -4004,6 +4027,9 @@ const CSS = `
 .group-row{align-items:center;border-top:1px solid #f4efe7;display:flex;font-size:14.5px;justify-content:space-between;padding:12px 2px;}
 .group-row:first-of-type{border-top:0;}
 .group-name{font-weight:600;}
+.group-stack{display:grid;gap:3px;min-width:0;}
+.group-waiting{align-items:center;color:var(--muted);display:flex;font-size:11.5px;gap:6px;}
+.spinner.tiny{border-width:2px;height:11px;width:11px;}
 .chip-status{border-radius:99px;font-size:11.5px;font-weight:800;padding:5px 11px;white-space:nowrap;}
 .chip-status.ok{background:#e2f6ec;color:#1d8a63;}
 .chip-status.pending{background:#fff3d8;color:#8a5a00;}
