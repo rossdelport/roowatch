@@ -497,6 +497,93 @@ type FeedPost = {
 };
 
 /**
+ * The scan card.
+ *
+ * The scanner really does run every minute, so this is a picture of something
+ * true rather than a decorative spinner: the bar fills across the gap between
+ * runs, then the card works through what a pass actually does.
+ *
+ * It exists because the product is invisible. Between leads there is nothing
+ * to look at, and nothing to look at reads as nothing happening.
+ */
+const SCAN_SECONDS = 60;
+const SCAN_STEPS = [
+  "Scanning all groups",
+  "Reading posts",
+  "Updating database",
+  "Checking for new leads",
+  "Done",
+];
+const STEP_MS = 1000;
+
+function ScanCard() {
+  // step -1 is the wait between passes, 0 upwards walks what a pass does.
+  // prev and token live alongside it so the label swap is decided in the one
+  // place the step changes, rather than worked out again further down.
+  const [phase, setPhase] = useState({ step: -1, prev: "", token: 0 });
+  const label = phase.step < 0 ? "Waiting for next scan" : SCAN_STEPS[phase.step];
+
+  useEffect(() => {
+    const last = phase.step >= SCAN_STEPS.length - 1;
+    const delay = phase.step < 0 ? SCAN_SECONDS * 1000 : STEP_MS;
+
+    const timer = setTimeout(() => {
+      setPhase((p) => {
+        const was = p.step < 0 ? "Waiting for next scan" : SCAN_STEPS[p.step];
+        // Past the last step it goes back to waiting, and the new token
+        // remounts the bar, which is what replays it from empty.
+        const step = last ? -1 : p.step + 1;
+        return { step, prev: was, token: p.token + 1 };
+      });
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [phase.step, phase.token]);
+
+  const working = phase.step >= 0;
+
+  return (
+    <div className={working ? "tile scan working" : "tile scan"}>
+      <div className="scan-top">
+        <span className="scan-face">
+          {working ? <span className="scan-spin" /> : <span className="scan-dot" />}
+        </span>
+        <Roll text={label} prev={phase.prev} token={phase.token} />
+      </div>
+      <div className="scan-track">
+        {working ? (
+          <i className="scan-full" />
+        ) : (
+          <i
+            key={phase.token}
+            className="scan-fill"
+            style={{ animationDuration: `${SCAN_SECONDS}s` }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Swaps one line of text for another: the old one rolls down and out of the
+ * way, the new one rolls up into its place.
+ *
+ * Both sit in the box together for the length of the swap. That is the only
+ * way to get the old line leaving rather than simply blinking out.
+ */
+function Roll({ text, prev, token }: { text: string; prev: string; token: number }) {
+  return (
+    <span className="roll">
+      {prev && prev !== text && (
+        <span className="roll-out" key={`out-${token}`}>{prev}</span>
+      )}
+      <span className="roll-in" key={`in-${token}`}>{text}</span>
+    </span>
+  );
+}
+
+/**
  * The posts we have actually read, arriving on screen.
  *
  * A member who has no leads yet has no way of telling whether they are paying
@@ -1650,7 +1737,6 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
   onRefresh: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [now] = useState(() => Date.now());
   const groups = me.groups ?? [];
   const alerts = me.alerts ?? [];
   const user = me.user!;
@@ -1670,6 +1756,14 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
 
   if (tab === "overview") {
     const firstName = (user.name || "").split(" ")[0];
+    // Counted from the first of the month where the member is, not where the
+    // server is. Same reason the ticker takes its day start from the browser.
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const leadsThisMonth = alerts.filter(
+      (a) => whenMs(a.sentAt) >= monthStart.getTime()
+    ).length;
     return (
       <div className="page">
         <header className="page-head">
@@ -1683,10 +1777,9 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
 
         <div className="tiles">
           <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></button>
-          <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{alerts.length}</span><span className="tile-label">Leads sent to you</span></button>
-          <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{alerts.filter((a) => now - new Date(a.sentAt + "Z").getTime() < 7 * 864e5).length}</span><span className="tile-label">Leads this week</span></button>
+          <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{leadsThisMonth}</span><span className="tile-label">Leads this month</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "posts")}><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></button>
-          <div className="tile tile-accent"><span className="tile-num">&lt;60 sec</span><span className="tile-label">Alert speed</span></div>
+          <ScanCard />
         </div>
 
         <div className="ov-split">
@@ -3747,6 +3840,39 @@ const CSS = `
 .tile.tap:active{transform:translateY(-1px);}
 .tile:hover{box-shadow:var(--shadow);transform:translateY(-3px);}
 .tile:nth-child(2){animation-delay:.05s}.tile:nth-child(3){animation-delay:.1s}.tile:nth-child(4){animation-delay:.15s}
+
+/* The scan card. White like the rest of the row, and busy on purpose: it is
+   the only thing on this page that proves the machine is running while a
+   member has no leads to look at. */
+.scan{align-content:space-between;gap:0;min-height:96px;}
+.scan-top{align-items:center;display:flex;gap:9px;}
+.scan-face{align-items:center;display:inline-flex;flex:none;height:16px;justify-content:center;width:16px;}
+.scan-dot{background:var(--mint);border-radius:99px;height:8px;width:8px;animation:scanBreathe 2.4s var(--ease) infinite;}
+.scan-spin{animation:scanSpin .8s linear infinite;border:2px solid var(--line);border-radius:99px;border-top-color:var(--coral);height:15px;width:15px;}
+.scan-track{background:var(--line);border-radius:99px;height:6px;margin-top:14px;overflow:hidden;}
+.scan-track i{border-radius:99px;display:block;height:100%;}
+.scan-fill{animation:scanFill linear forwards;background:linear-gradient(90deg,var(--mint),#54c79c);width:0;}
+.scan-full{animation:scanBusy 1s var(--ease) infinite;background:linear-gradient(90deg,var(--coral),#ffa46d);width:100%;}
+@keyframes scanFill{from{width:0;}to{width:100%;}}
+@keyframes scanSpin{to{transform:rotate(360deg);}}
+@keyframes scanBreathe{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.82);}}
+@keyframes scanBusy{0%,100%{opacity:1;}50%{opacity:.55;}}
+
+/* One line of text leaving downwards while the next rolls up behind it. */
+.roll{display:block;flex:1;height:17px;line-height:17px;min-width:0;overflow:hidden;position:relative;}
+.roll > span{color:var(--muted);display:block;font-size:12.5px;font-weight:600;left:0;line-height:17px;overflow:hidden;position:absolute;text-overflow:ellipsis;top:0;white-space:nowrap;width:100%;}
+.roll-in{animation:rollIn .38s var(--ease) both;}
+.roll-out{animation:rollOut .38s var(--ease) both;}
+.scan.working .roll > span{color:var(--ink);}
+@keyframes rollIn{from{opacity:0;transform:translateY(100%);}to{opacity:1;transform:none;}}
+@keyframes rollOut{from{opacity:1;transform:none;}to{opacity:0;transform:translateY(-100%);}}
+
+@media(prefers-reduced-motion:reduce){
+  .scan-fill,.scan-full,.scan-spin,.scan-dot{animation:none;}
+  .scan-fill{width:100%;}
+  .roll-in,.roll-out{animation:none;}
+  .roll-out{display:none;}
+}
 .tile-num{font-size:24px;font-weight:800;letter-spacing:-.02em;}
 .tile-label{color:var(--muted);font-size:12.5px;font-weight:600;}
 .tile-accent{background:var(--navy);border-color:var(--navy);color:#fff;}
