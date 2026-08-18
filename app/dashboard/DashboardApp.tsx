@@ -6,7 +6,7 @@ import Link from "next/link";
 import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
 import { OTHER_TRADE, TRADES } from "../../db/trades";
-import { PLAN_KEYS, PLANS, type Plan } from "../../db/plans";
+import { PLAN_KEYS, PLANS, type Plan, type PlanKey } from "../../db/plans";
 import { BRIEF_MAX, BRIEF_MIN } from "../../db/brief";
 import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
 
@@ -224,10 +224,13 @@ export default function DashboardApp() {
   }, []);
 
   useEffect(() => {
-    // Stripe sends them back here the moment checkout completes, card and
-    // all. That is the real conversion, so this is where the pixel fires,
-    // not the signup form where anyone who abandons at the card step would
-    // still have counted.
+    // Stripe sends them back here the moment checkout completes, card and all.
+    //
+    // This fires Purchase, not CompleteRegistration. Signup fires that one.
+    // Two separate events on purpose: Meta needs roughly fifty conversions a
+    // week before it stops guessing, and paying customers will not reach that
+    // for months. Signups will. So signups teach it who to look for, and
+    // Purchase tells it who was actually worth finding.
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") !== "success") return;
     params.delete("checkout");
@@ -235,10 +238,12 @@ export default function DashboardApp() {
     window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
 
     startPixel();
-    (window as unknown as { fbq?: Pixel }).fbq?.("track", "CompleteRegistration", {
-      content_name: "RooWatch account",
+    (window as unknown as { fbq?: Pixel }).fbq?.("track", "Purchase", {
+      content_name: "RooWatch subscription",
+      value: PLANS[(me.profile?.plan ?? "local") as PlanKey]?.firstMonthAud ?? 50,
+      currency: "AUD",
     });
-  }, []);
+  }, [me.profile?.plan]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });

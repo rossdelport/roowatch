@@ -7,12 +7,20 @@ import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
 
 const PIXEL_ID = "4105570149577363";
 
+/** What the first month is worth on each plan, for the pixel. */
+const PLAN_FIRST_MONTH: Record<PlanKey, number> = { local: 50, growth: 100, scale: 375 };
+
 type Pixel = ((...args: unknown[]) => void) & {
   queue?: unknown[];
   callMethod?: (...args: unknown[]) => void;
   loaded?: boolean;
   version?: string;
 };
+
+/** The pixel, once the snippet above has run. */
+function pixel() {
+  return (window as unknown as { fbq?: Pixel }).fbq;
+}
 
 /** The standard Meta snippet, written once when the page opens. */
 function startPixel() {
@@ -122,9 +130,19 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
       }
 
       if (mode === "signup") {
-        // The pixel's CompleteRegistration event fires on the dashboard once
-        // Stripe checkout actually completes, not here. Firing it this early
-        // would count someone who abandons at the card form as a conversion.
+        // The only conversion event RooWatch fires. Without it Meta has no
+        // idea which clicks turned into customers, so it cannot go and find
+        // more of them. Fired here, on a confirmed account, not on a button
+        // press, so the number means something.
+        pixel()?.("track", "CompleteRegistration", {
+          content_name: "RooWatch signup",
+          value: PLAN_FIRST_MONTH[plan],
+          currency: "AUD",
+        });
+
+        // Purchase is the other half, and it fires on the dashboard when
+        // Stripe actually takes the card. Two events on purpose: this one has
+        // the volume Meta needs to learn from, that one has the truth.
         // Checkout is built on our side so the intro discount and the trial
         // come from the plan, not from a link anyone could edit.
         const checkout = await fetch("/api/checkout", {
