@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { sendEmail } from "../../../../db/auth";
 import { PLAN_KEYS, planForPrice, type PlanKey } from "../../../../db/plans";
+import { enforcePrivatePlanLimits } from "../../../../db/private-monitoring";
 import { groups, profiles, sources, users } from "../../../../db/schema";
 
 /**
@@ -89,18 +90,34 @@ async function billingPortalUrl(customerId: string): Promise<string> {
  */
 async function pauseMember(userId: string) {
   const db = getDb();
-  const paused = await db
+  const pausedWatching = await db
     .update(groups)
     .set({ status: "paused" })
     .where(and(eq(groups.userId, userId), eq(groups.status, "watching")))
     .returning({ sourceId: groups.sourceId });
+  const pausedAccess = await db
+    .update(groups)
+    .set({ status: "paused_private_payment" })
+    .where(and(eq(groups.userId, userId), eq(groups.status, "waiting_for_access")))
+    .returning({ sourceId: groups.sourceId });
 
-  const sourceIds = [...new Set(paused.map((g) => g.sourceId).filter((id): id is number => id != null))];
+  const sourceIds = [
+    ...new Set(
+      [...pausedWatching, ...pausedAccess]
+        .map((g) => g.sourceId)
+        .filter((id): id is number => id != null)
+    ),
+  ];
   for (const sourceId of sourceIds) {
     const [stillWatched] = await db
       .select({ id: groups.id })
       .from(groups)
-      .where(and(eq(groups.sourceId, sourceId), eq(groups.status, "watching")))
+      .where(
+        and(
+          eq(groups.sourceId, sourceId),
+          inArray(groups.status, ["watching", "waiting_for_access"])
+        )
+      )
       .limit(1);
     if (!stillWatched) {
       await db
@@ -115,13 +132,24 @@ async function pauseMember(userId: string) {
  *  reason, so it never overrides a deliberate manual pause. */
 async function reactivateMember(userId: string) {
   const db = getDb();
-  const reactivated = await db
+  const reactivatedWatching = await db
     .update(groups)
     .set({ status: "watching" })
     .where(and(eq(groups.userId, userId), eq(groups.status, "paused")))
     .returning({ sourceId: groups.sourceId });
+  const reactivatedAccess = await db
+    .update(groups)
+    .set({ status: "waiting_for_access" })
+    .where(and(eq(groups.userId, userId), eq(groups.status, "paused_private_payment")))
+    .returning({ sourceId: groups.sourceId });
 
-  const sourceIds = [...new Set(reactivated.map((g) => g.sourceId).filter((id): id is number => id != null))];
+  const sourceIds = [
+    ...new Set(
+      [...reactivatedWatching, ...reactivatedAccess]
+        .map((g) => g.sourceId)
+        .filter((id): id is number => id != null)
+    ),
+  ];
   for (const sourceId of sourceIds) {
     await db
       .update(sources)
@@ -155,31 +183,53 @@ type CheckoutSession = {
  */
 async function planFromSession(
   session: CheckoutSession
-): Promise<{ plan?: PlanKey; trialEndsAt: number }> {
+): Promise<{
+  plan?: PlanKey;
+  trialEndsAt: number;
+  billingPeriodStart: number;
+  billingPeriodEnd: number;
+}> {
   const fromMetadata = session.metadata?.plan;
   const known = PLAN_KEYS.includes(fromMetadata as PlanKey)
     ? (fromMetadata as PlanKey)
     : undefined;
 
   const subscriptionId = String(session.subscription || "");
-  if (!subscriptionId) return { plan: known, trialEndsAt: 0 };
+  if (!subscriptionId) {
+    return { plan: known, trialEndsAt: 0, billingPeriodStart: 0, billingPeriodEnd: 0 };
+  }
 
   try {
     // Fetched even when metadata already told us the plan, because this is
     // also where the trial end comes from.
     const subscription = (await stripeApi(`subscriptions/${subscriptionId}`)) as {
       trial_end?: number | null;
-      items?: { data?: { price?: { id?: string } }[] };
+      current_period_start?: number | null;
+      current_period_end?: number | null;
+      items?: {
+        data?: {
+          price?: { id?: string };
+          current_period_start?: number | null;
+          current_period_end?: number | null;
+        }[];
+      };
     };
-    const priceId = subscription.items?.data?.[0]?.price?.id ?? "";
+    const item = subscription.items?.data?.[0];
+    const priceId = item?.price?.id ?? "";
     return {
       plan: known ?? planForPrice(priceId),
       trialEndsAt: Number(subscription.trial_end ?? 0),
+      billingPeriodStart: Number(
+        subscription.current_period_start ?? item?.current_period_start ?? 0
+      ),
+      billingPeriodEnd: Number(
+        subscription.current_period_end ?? item?.current_period_end ?? 0
+      ),
     };
   } catch {
     // Leave the plan alone rather than guess. Ross can set it by hand from the
     // Marketing tab, and the payment itself is already recorded.
-    return { plan: known, trialEndsAt: 0 };
+    return { plan: known, trialEndsAt: 0, billingPeriodStart: 0, billingPeriodEnd: 0 };
   }
 }
 
@@ -197,7 +247,8 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
   const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
   if (!user) return;
 
-  const { plan, trialEndsAt } = await planFromSession(session);
+  const { plan, trialEndsAt, billingPeriodStart, billingPeriodEnd } =
+    await planFromSession(session);
 
   await db
     .update(profiles)
@@ -205,6 +256,8 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
       stripeCustomerId: customerId,
       subscriptionStatus: trialEndsAt ? "trialing" : "active",
       trialEndsAt,
+      ...(billingPeriodStart ? { billingPeriodStart } : {}),
+      ...(billingPeriodEnd ? { billingPeriodEnd } : {}),
       ...(plan ? { plan } : {}),
     })
     .where(eq(profiles.userId, user.id));
@@ -217,7 +270,14 @@ type Subscription = {
   cancel_at?: number | null;
   cancel_at_period_end?: boolean;
   current_period_end?: number | null;
-  items?: { data?: { price?: { id?: string } }[] };
+  current_period_start?: number | null;
+  items?: {
+    data?: {
+      price?: { id?: string };
+      current_period_start?: number | null;
+      current_period_end?: number | null;
+    }[];
+  };
 };
 
 /** "24 August", the way a person writes it. */
@@ -257,6 +317,7 @@ async function handleSubscriptionChange(subscription: Subscription) {
   const fromPrice = planForPrice(priceId);
   if (fromPrice) {
     await db.update(profiles).set({ plan: fromPrice }).where(eq(profiles.userId, row.userId));
+    await enforcePrivatePlanLimits();
   }
 
   // Follow the trial end as well. Upgrading mid trial keeps the trial running,
@@ -270,9 +331,20 @@ async function handleSubscriptionChange(subscription: Subscription) {
       (subscription.cancel_at_period_end ? subscription.current_period_end ?? 0 : 0) ??
       0
   );
+  const periodStart = Number(
+    subscription.current_period_start ?? subscription.items?.data?.[0]?.current_period_start ?? 0
+  );
+  const periodEnd = Number(
+    subscription.current_period_end ?? subscription.items?.data?.[0]?.current_period_end ?? 0
+  );
   await db
     .update(profiles)
-    .set({ trialEndsAt: Number(subscription.trial_end ?? 0), cancelAt })
+    .set({
+      trialEndsAt: Number(subscription.trial_end ?? 0),
+      cancelAt,
+      ...(periodStart ? { billingPeriodStart: periodStart } : {}),
+      ...(periodEnd ? { billingPeriodEnd: periodEnd } : {}),
+    })
     .where(eq(profiles.userId, row.userId));
 
   // Only on the tick where it is newly scheduled, or Stripe's other updates

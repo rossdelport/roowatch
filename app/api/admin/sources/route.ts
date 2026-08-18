@@ -1,6 +1,16 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { requireAdmin } from "../../../../db/admin";
+import { parseGroupInput } from "../../../../db/fbgroups";
+import {
+  checkGroupVisibility,
+  knownGroupVisibility,
+} from "../../../../db/group-visibility";
+import {
+  ensureClassifiedSource,
+  routeGroupsForVisibility,
+} from "../../../../db/group-mutations";
+import { enforcePrivatePlanLimits } from "../../../../db/private-monitoring";
 import { groups, sources } from "../../../../db/schema";
 
 export async function POST(request: Request) {
@@ -11,6 +21,7 @@ export async function POST(request: Request) {
     groupName?: string;
     url?: string;
     active?: boolean;
+    visibility?: "public" | "private" | "unknown";
   };
   const denied = await requireAdmin(body);
   if (denied) return denied;
@@ -19,47 +30,88 @@ export async function POST(request: Request) {
 
   if (body.action === "add") {
     const groupName = (body.groupName ?? "").trim();
-    const url = (body.url ?? "").trim();
-    if (!groupName || !url.startsWith("http")) {
+    const parsed = parseGroupInput(body.url ?? "");
+    if (!groupName || !parsed?.url) {
       return Response.json({ error: "bad_request" }, { status: 400 });
+    }
+    const url = parsed.url;
+    const checked = await knownGroupVisibility(url);
+    if (!checked || checked.status !== "ready") {
+      return Response.json({ error: "group_check_required" }, { status: 409 });
+    }
+    if (checked.visibility !== "public") {
+      return Response.json({ error: "private_source_use_private_monitoring" }, { status: 400 });
     }
 
     // Reuse an existing source for the same URL. Source IDs are part of the
     // post de-duplication key, so duplicate rows would process every post
     // twice and send duplicate leads.
-    const [existing] = await db
-      .select({ id: sources.id })
-      .from(sources)
-      .where(eq(sources.url, url))
-      .limit(1);
-    let sourceId = existing?.id;
-    if (sourceId) {
-      await db
-        .update(sources)
-        .set({ groupName, active: 1, lastError: "" })
-        .where(eq(sources.id, sourceId));
-    } else {
-      const [created] = await db
-        .insert(sources)
-        .values({ groupName, url })
-        .returning({ id: sources.id });
-      sourceId = created?.id;
-    }
+    const { id: sourceId, active } = await ensureClassifiedSource({
+      groupName,
+      url,
+      visibility: "public",
+    });
 
     // A member asked for this group by name, so start watching it for them.
     if (sourceId) {
       await db
         .update(groups)
-        .set({ status: "watching", sourceId })
+        .set({ status: active ? "watching" : "paused", sourceId })
         .where(sql`lower(${groups.name}) = lower(${groupName})`);
     }
   }
 
   if (body.action === "update" && body.sourceId) {
     const patch: Record<string, unknown> = {};
-    if (typeof body.url === "string") patch.url = body.url.trim();
+    let urlVisibility: "public" | "private" | null = null;
+    let previousVisibility = "unknown";
+    if (typeof body.url === "string") {
+      const parsed = parseGroupInput(body.url);
+      if (!parsed?.url) {
+        return Response.json({ error: "bad_group_url" }, { status: 400 });
+      }
+      const checked = await checkGroupVisibility(parsed.url);
+      if (checked.status === "checking") {
+        return Response.json(
+          { error: "group_check_pending", checking: true },
+          { status: 202 }
+        );
+      }
+      if (checked.status !== "ready" || checked.visibility === "unknown") {
+        return Response.json({ error: "group_check_failed" }, { status: 503 });
+      }
+      const [duplicate] = await db
+        .select({ id: sources.id })
+        .from(sources)
+        .where(eq(sources.url, parsed.url))
+        .limit(1);
+      if (duplicate && duplicate.id !== body.sourceId) {
+        return Response.json({ error: "duplicate_source" }, { status: 409 });
+      }
+      const [current] = await db
+        .select({ visibility: sources.visibility })
+        .from(sources)
+        .where(eq(sources.id, body.sourceId))
+        .limit(1);
+      if (!current) return Response.json({ error: "source_not_found" }, { status: 404 });
+      previousVisibility = current.visibility;
+      patch.url = parsed.url;
+      patch.visibility = checked.visibility;
+      patch.visibilityCheckedAt = Date.now();
+      patch.lastError = "";
+      patch.lastChecked = checked.visibility === "public" ? Date.now() - 60 * 60 * 1000 : 0;
+      urlVisibility = checked.visibility;
+    }
     if (typeof body.groupName === "string") patch.groupName = body.groupName.trim();
     if (typeof body.active === "boolean") {
+      const [source] = await db
+        .select({ visibility: sources.visibility })
+        .from(sources)
+        .where(eq(sources.id, body.sourceId))
+        .limit(1);
+      if (source?.visibility !== "public") {
+        return Response.json({ error: "private_source_use_private_monitoring" }, { status: 400 });
+      }
       patch.active = body.active ? 1 : 0;
       await db
         .update(groups)
@@ -68,6 +120,10 @@ export async function POST(request: Request) {
     }
     if (Object.keys(patch).length) {
       await db.update(sources).set(patch).where(eq(sources.id, body.sourceId));
+      if (urlVisibility) {
+        await routeGroupsForVisibility(body.sourceId, previousVisibility, urlVisibility);
+      }
+      if (urlVisibility) await enforcePrivatePlanLimits();
     }
   }
 
@@ -93,6 +149,7 @@ export async function POST(request: Request) {
     lastCount: s.lastCount,
     lastMatches: s.lastMatches,
     lastError: s.lastError,
+    visibility: s.visibility,
     watchers: allGroups.filter(
       (g) =>
         g.sourceId === s.id || g.name.toLowerCase() === s.groupName.toLowerCase()

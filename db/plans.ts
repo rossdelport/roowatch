@@ -11,6 +11,8 @@ export type Plan = {
   key: PlanKey;
   name: string;
   groups: number;
+  /** Private groups are optional and may use up to 40% of all group slots. */
+  privateGroups: number;
   /**
    * Fair use, and also our cost ceiling. We pay per post read, so this number
    * is the most a single member can ever cost us in a month. Do not remove it.
@@ -44,6 +46,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     key: "local",
     name: "Local",
     groups: 10,
+    privateGroups: 4,
     postsPerMonth: 10_000,
     smsPerMonth: 150,
     alertMinutes: 5,
@@ -57,6 +60,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     key: "growth",
     name: "Growth",
     groups: 25,
+    privateGroups: 10,
     postsPerMonth: 25_000,
     smsPerMonth: 375,
     alertMinutes: 5,
@@ -70,6 +74,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     key: "scale",
     name: "Scale",
     groups: 100,
+    privateGroups: 40,
     postsPerMonth: 100_000,
     smsPerMonth: 1_500,
     alertMinutes: 3,
@@ -92,6 +97,35 @@ export function planFor(value: string | null | undefined): Plan {
 /** How many groups this member may watch. */
 export function groupLimit(value: string | null | undefined): number {
   return planFor(value).groups;
+}
+
+/** Maximum private groups. Public groups may use every plan slot. */
+export function privateGroupLimit(value: string | null | undefined): number {
+  return planFor(value).privateGroups;
+}
+
+/** Exact private scraper ceiling in AUD micros: 25% of the standard price. */
+export function privateScrapingBudgetAudMicros(
+  value: string | null | undefined
+): number {
+  return planFor(value).priceAud * 250_000;
+}
+
+/**
+ * New jobs stop at 90% of the hard budget. The last 10% is a conservative
+ * buffer for a supplier measurement arriving slightly above its reservation.
+ */
+export function privateScrapingSafetyCutoffAudMicros(
+  value: string | null | undefined
+): number {
+  return Math.floor(privateScrapingBudgetAudMicros(value) * 9 / 10);
+}
+
+/** Ross gets a warning at 80% of the hard budget, before dispatch stops. */
+export function privateScrapingWarningAudMicros(
+  value: string | null | undefined
+): number {
+  return Math.floor(privateScrapingBudgetAudMicros(value) * 4 / 5);
 }
 
 /** How many posts we will read for this member in one month. */

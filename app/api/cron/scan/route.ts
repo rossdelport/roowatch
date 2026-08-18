@@ -1,7 +1,11 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bdCollect, bdProgress, bdTrigger, dueSources, processSource, type GroupFacts } from "../../../../db/pipeline";
 import { groupSlug } from "../../../../db/fbgroups";
+import {
+  enforcePrivatePlanLimits,
+  sweepPrivateMonitoringHealth,
+} from "../../../../db/private-monitoring";
 import { groups, scanJobs, sources } from "../../../../db/schema";
 
 /**
@@ -97,9 +101,12 @@ function chunk<T>(items: T[], size: number): T[][] {
 async function collectJob(job: Job) {
   const db = getDb();
   const ids: number[] = JSON.parse(job.sourceIds);
-  const rows = ids.length
+  const selected = ids.length
     ? await db.select().from(sources).where(inArray(sources.id, ids))
     : [];
+  // A type check can finish while an older Bright Data snapshot is in flight.
+  // Never feed a newly private source back through the public collector.
+  const rows = selected.filter((source) => source.visibility === "public");
 
   if (!rows.length) {
     await db.delete(scanJobs).where(eq(scanJobs.id, job.id));
@@ -134,8 +141,8 @@ async function collectJob(job: Job) {
  * dashboard. Facebook hands us the real name with every post, so the first
  * post a group produces is enough to fix its name for good.
  *
- * And a private group can never be read, no matter how long we watch it.
- * Saying so beats leaving somebody to wonder why that one is always quiet.
+ * A private answer moves the source to the authenticated VPS collector.
+ * Keeping that routing durable stops Bright Data being charged again.
  */
 async function learnAbout(
   source: { id: number; groupName: string; url: string; lastError: string },
@@ -144,6 +151,20 @@ async function learnAbout(
 ) {
   if (!fact) return;
   const db = getDb();
+
+  if (fact.private) {
+    await db
+      .update(sources)
+      .set({ visibility: "private", visibilityCheckedAt: Date.now() })
+      .where(eq(sources.id, source.id));
+    await db
+      .update(groups)
+      .set({ status: "waiting_for_access" })
+      .where(
+        and(eq(groups.sourceId, source.id), eq(groups.status, "watching"))
+      );
+    await enforcePrivatePlanLimits();
+  }
 
   if (fact.name && fact.name !== source.groupName) {
     await db.update(sources).set({ groupName: fact.name }).where(eq(sources.id, source.id));
@@ -222,8 +243,16 @@ export async function POST(request: Request) {
   if (!secret || request.headers.get("x-cron-secret") !== secret) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
+  let privateHealth: { enabled: boolean; expired?: number } | null = null;
+  try {
+    privateHealth = await sweepPrivateMonitoringHealth();
+  } catch (err) {
+    // Public monitoring must keep running if the private health ledger has a
+    // transient problem. The failure remains visible in Worker logs.
+    console.error("private_health_sweep_failed", err);
+  }
   if (!process.env.BRIGHTDATA_API_KEY) {
-    return Response.json({ ok: true, skipped: "brightdata_not_configured" });
+    return Response.json({ ok: true, skipped: "brightdata_not_configured", privateHealth });
   }
 
   const db = getDb();
@@ -239,14 +268,14 @@ export async function POST(request: Request) {
 
   const slots = MAX_INFLIGHT - stillRunning.length;
   if (slots <= 0) {
-    return Response.json({ ok: true, collected, inflight: stillRunning.length, triggered: 0 });
+    return Response.json({ ok: true, collected, inflight: stillRunning.length, triggered: 0, privateHealth });
   }
 
   const due = (await dueSources(SOURCES_PER_TICK)).filter(
     (s) => !busy.has(s.id) && Date.now() - s.lastChecked > MIN_GAP_MINUTES * 60 * 1000
   );
   if (!due.length) {
-    return Response.json({ ok: true, collected, inflight: stillRunning.length, triggered: 0 });
+    return Response.json({ ok: true, collected, inflight: stillRunning.length, triggered: 0, privateHealth });
   }
 
   const batches = chunk(due, GROUPS_PER_BATCH).slice(0, slots);
@@ -300,5 +329,6 @@ export async function POST(request: Request) {
     groups: due.length,
     batches: batches.length,
     inflight: stillRunning.length + waiting.length,
+    privateHealth,
   });
 }

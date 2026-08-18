@@ -2,7 +2,14 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ADMIN_RETURN_COOKIE, currentUser, isAdminEmail, readCookie } from "../../../db/auth";
 import { planFor } from "../../../db/plans";
-import { alerts, groups, profiles, sources, supportMessages } from "../../../db/schema";
+import {
+  alerts,
+  groups,
+  privateGroupStates,
+  profiles,
+  sources,
+  supportMessages,
+} from "../../../db/schema";
 
 export async function GET(request: Request) {
   const user = await currentUser(request);
@@ -27,12 +34,18 @@ export async function GET(request: Request) {
       // Facebook's own words when a group cannot be read, so a member is told
       // their group is private rather than left wondering why it is quiet.
       problem: sql<string>`coalesce(${sources.lastError}, '')`,
+      visibility: sql<string>`coalesce(${sources.visibility}, 'unknown')`,
+      accessStatus: sql<string>`coalesce(${privateGroupStates.status}, '')`,
+      lastPrivateCheckAt: sql<number>`coalesce(${privateGroupStates.lastCheckAt}, 0)`,
+      lastPrivateSuccessAt: sql<number>`coalesce(${privateGroupStates.lastSuccessAt}, 0)`,
+      privateError: sql<string>`coalesce(${privateGroupStates.latestError}, '')`,
     })
     .from(groups)
     .leftJoin(
       sources,
       sql`(${groups.sourceId} = ${sources.id} OR (${groups.sourceId} IS NULL AND lower(${groups.name}) = lower(${sources.groupName})))`
     )
+    .leftJoin(privateGroupStates, eq(privateGroupStates.sourceId, sources.id))
     .where(eq(groups.userId, user.id))
     .orderBy(groups.id);
 

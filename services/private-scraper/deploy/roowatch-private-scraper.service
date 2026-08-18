@@ -1,0 +1,44 @@
+[Unit]
+Description=RooWatch private Facebook group scraper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=roowatch-scraper
+Group=roowatch-scraper
+WorkingDirectory=/opt/roowatch/private-scraper
+EnvironmentFile=/etc/roowatch/private-scraper.env
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/roowatch/pw-browsers
+Environment=XDG_CACHE_HOME=/var/lib/roowatch-private-scraper/cache
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=90s
+KillSignal=SIGTERM
+UMask=0077
+
+StateDirectory=roowatch-private-scraper
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/roowatch-private-scraper
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

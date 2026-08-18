@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RooWatch - Instant lead generation",
+  title: "RooWatch | Facebook group lead alerts",
   description:
-    "RooWatch watches the Facebook groups your customers already use and alerts you to the posts worth replying to.",
+    "RooWatch checks public and private Facebook groups for local leads and sends matching posts by email and text.",
   icons: {
     icon: [
       { url: "/favicon.svg?v=2", type: "image/svg+xml" },
@@ -32,7 +32,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en-AU">
       <body className={`${interTight.variable} ${geistMono.variable}`}>
         {children}
       </body>

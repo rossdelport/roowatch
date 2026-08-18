@@ -156,7 +156,7 @@
   }
   .hero-lede { color: var(--muted); font-size: 18px; line-height: 1.65; margin: 30px auto 0; max-width: 620px; }
 
-  /* rotating niche ticker — 10 words x 2.5s = 25s cycle */
+  /* rotating niche ticker: 10 words x 2.5s = 25s cycle */
   .ticker { display: inline-grid; margin-top: 12px; perspective: 600px; }
   .ticker-word {
     animation: tickerFlip 25s cubic-bezier(.35, 0, .25, 1) infinite;
@@ -661,15 +661,6 @@ fbq('track','PageView');
     <div class="floaty floaty-d" aria-hidden="true"><img class="floaty-tool" src="/tools/painter.png" alt=""></div>
     <div class="floaty floaty-e" aria-hidden="true"><img class="floaty-tool" src="/tools/screwdriver.png" alt=""></div>
     <div class="floaty floaty-f" aria-hidden="true"><img class="floaty-tool" src="/tools/trolley.png" alt=""></div>
-  </header>
-
-  <section class="hero" aria-labelledby="hero-title">
-    <div class="floaty floaty-a floaty-spin" aria-hidden="true"><span class="floaty-chip chip-coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span></div>
-    <div class="floaty floaty-b" aria-hidden="true"><span class="floaty-chip chip-gold"><svg viewBox="0 0 24 24" fill="none" stroke="#8a5a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span></div>
-    <div class="floaty floaty-c floaty-spin" aria-hidden="true"><span class="floaty-chip chip-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span></div>
-    <div class="floaty floaty-d" aria-hidden="true"><span class="floaty-chip chip-lavender"><svg viewBox="0 0 24 24" fill="#5b3aa8" stroke="none"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span></div>
-    <div class="floaty floaty-e" aria-hidden="true"><span class="floaty-chip chip-blue"><svg viewBox="0 0 24 24" fill="none" stroke="#274f9e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span></div>
-    <div class="floaty floaty-f" aria-hidden="true"><span class="floaty-chip chip-mint"><svg viewBox="0 0 24 24" fill="none" stroke="#14724f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span></div>
 
     <div class="pill pill-hero"><span class="pill-icon"></span> We watch, you earn <img class="pill-roo" src="/roowatch-mascot-3d.png" alt="RooWatch mascot waving"></div>
     <h1 id="hero-title">Facebook group leads for<br>
@@ -686,10 +677,10 @@ fbq('track','PageView');
         <span class="ticker-word">air con installers</span>
       </span>
     </h1>
-    <p class="hero-lede">Ready-to-pay leads are asking for your services in Facebook groups right now. RooWatch alerts you within 60 seconds, so you get to them first.</p>
+    <p class="hero-lede">Ready-to-pay leads are asking for your services in Facebook groups right now. We check public groups often and private groups each hour. When a post matches, we tell you.</p>
     <ul class="hero-proof" aria-label="RooWatch highlights">
-      <li><span>✓</span> Alerts in under 60 seconds</li>
-      <li><span>✓</span> No Facebook login needed</li>
+      <li><span>✓</span> Public and private groups</li>
+      <li><span>✓</span> No Facebook password needed</li>
       <li><span>✓</span> 7 day free trial</li>
     </ul>
     <div class="hero-actions">
@@ -721,7 +712,7 @@ fbq('track','PageView');
   <section class="section" id="leads" aria-labelledby="leads-title">
     <div class="pill"><span class="pill-icon"></span> New leads on autopilot</div>
     <h2 id="leads-title">Your leads already need <span class="highlight highlight-gold">your service</span></h2>
-    <p class="section-lede">People ask for help in Facebook groups all day. RooWatch finds the posts that sound like your customer. Then it tells you fast.</p>
+    <p class="section-lede">People ask for help in Facebook groups all day. RooWatch finds the posts that sound like your customer. Then it tells you.</p>
     <div class="wall" aria-label="Example group posts RooWatch would catch">
       <article class="wall-card">
         <div class="fb-head"><span class="avatar avatar-coral">SK</span>
@@ -787,14 +778,13 @@ fbq('track','PageView');
         <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="8">8</span></span><span>7 comments</span></div>
         <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
       </article>
-    </div></article>
     </div>
   </section>
 
   <section class="oneclick" id="setup" aria-labelledby="oneclick-title">
     <div>
-      <h2 id="oneclick-title"><span>Hot leads, up for grabs.</span> You just need to know the second they post.</h2>
-      <p class="section-lede">People near you ask for help in Facebook groups every day. Real jobs. Real money. The first business to reply usually wins. RooWatch makes sure that's you.</p>
+      <h2 id="oneclick-title"><span>Hot leads, up for grabs.</span> Know when RooWatch finds one.</h2>
+      <p class="section-lede">People near you ask for help in Facebook groups every day. Real jobs. Real money. RooWatch tells you when it finds a post that may fit your work.</p>
       <a class="button button-coral" href="/signup?plan=local">Get local leads</a>
     </div>
     <div class="setup-card" aria-label="Watchlist setup preview">
@@ -803,7 +793,7 @@ fbq('track','PageView');
       <div class="setup-input"><strong>Home Advice Melbourne</strong><em aria-hidden="true"></em></div>
       <div class="setup-chips">
         <span class="setup-chip">Home Advice Melbourne · Public</span>
-        <span class="setup-chip">Sydney Inner West Community · Public</span>
+        <span class="setup-chip">Sydney Inner West Community · Private</span>
         <span class="setup-chip">Brisbane Small Business · Public</span>
       </div>
       <div class="setup-brief"><b>What should we alert you about?</b><br>“Someone in Melbourne asking for a solar installer, a quote, panel advice, or recommendations.”</div>
@@ -877,12 +867,12 @@ fbq('track','PageView');
           <div class="step-visual-card">
             <div class="watch-head"><i></i> Watching all 10 groups</div>
             <div class="setup-chips">
-              <span class="setup-chip">Home Advice Sydney</span>
-              <span class="setup-chip">Northern Beaches Community</span>
-              <span class="setup-chip">Manly Locals</span>
+              <span class="setup-chip">Home Advice Sydney · Public</span>
+              <span class="setup-chip">Northern Beaches Community · Private</span>
+              <span class="setup-chip">Manly Locals · Public</span>
               <span class="setup-chip">+ 7 more</span>
             </div>
-            <div class="watch-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> We never use your Facebook account.</div>
+            <div class="watch-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> We use our own watch account for private groups.</div>
             <img class="watch-mascot" src="/roowatch-mascot-3d-binos.png" alt="RooWatch mascot watching through binoculars">
           </div>
         </div>
@@ -891,7 +881,7 @@ fbq('track','PageView');
       <article class="step-row">
         <div class="step-copy">
           <span class="step-num">5</span>
-          <h3>Get the lead in under 60 seconds</h3>
+          <h3>Get the lead when we find it</h3>
         </div>
         <div class="step-visual">
           <div class="step-visual-card step-alert">
@@ -950,17 +940,18 @@ fbq('track','PageView');
   <section class="section" id="pricing" aria-labelledby="pricing-title">
     <div class="pill"><span class="pill-icon"></span> Pricing</div>
     <h2 id="pricing-title">What is one job <span class="highlight highlight-gold">worth to you?</span></h2>
-    <p class="section-lede">A hot water fix. A rewire. A full repaint. Pick the plan that pays you back fastest. Free for 7 days, then a quarter price first month. No surprise fees. Cancel any time.</p>
+    <p class="section-lede">A hot water fix. A rewire. A full repaint. Pick the plan that pays you back fastest. Every group can be public. Up to 40% can be private. Free for 7 days, then a quarter price first month. All prices are AUD. No surprise fees. Cancel any time.</p>
     <div class="plans">
       <article class="plan">
         <div class="plan-head"><span class="plan-title">Local</span></div>
         <div class="plan-amount"><s class="plan-old">$197</s><strong>$50</strong><span>/ first month</span></div>
         <p class="plan-trial">7 day free trial, then $197 a month</p>
-        <p class="plan-sub"><b>10</b> groups watched for you. Leads sent to your phone.</p>
+        <p class="plan-sub"><b>10</b> groups watched for you. All can be public. Up to 4 can be private.</p>
         <a class="button button-coral" href="/signup?plan=local">Get local leads</a>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> 10 groups watched for you</li>
-          <li><span class="pf-check">✓</span> Alerts in under 60 seconds</li>
+          <li><span class="pf-check">✓</span> Up to 4 private groups</li>
+          <li><span class="pf-check">✓</span> Private groups checked each hour</li>
           <li><span class="pf-check">✓</span> Email and text alerts</li>
           <li><span class="pf-check">✓</span> Tell us what you want in plain English</li>
           <li><span class="pf-check">✓</span> Cancel any time</li>
@@ -970,12 +961,12 @@ fbq('track','PageView');
         <div class="plan-head"><span class="plan-title">Growth</span></div>
         <div class="plan-amount"><s class="plan-old">$397</s><strong>$100</strong><span>/ first month</span></div>
         <p class="plan-trial">7 day free trial, then $397 a month</p>
-        <p class="plan-sub"><b>25</b> groups watched for you. Cover more suburbs.</p>
+        <p class="plan-sub"><b>25</b> groups watched for you. All can be public. Up to 10 can be private.</p>
         <a class="button button-coral" href="/signup?plan=growth">Get local leads</a>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> Everything in Local</li>
           <li><span class="pf-check">✓</span> 25 groups watched for you</li>
-          <li><span class="pf-check">✓</span> Alerts in under 60 seconds</li>
+          <li><span class="pf-check">✓</span> Up to 10 private groups</li>
           <li><span class="pf-check">✓</span> Priority support</li>
           <li><span class="pf-check">✓</span> Cancel any time</li>
         </ul>
@@ -984,12 +975,12 @@ fbq('track','PageView');
         <div class="plan-head"><span class="plan-title">Scale</span></div>
         <div class="plan-amount"><s class="plan-old">$1,497</s><strong>$375</strong><span>/ first month</span></div>
         <p class="plan-trial">7 day free trial, then $1,497 a month</p>
-        <p class="plan-sub"><b>100</b> groups watched for you. Alerts in <b>60 seconds</b>.</p>
+        <p class="plan-sub"><b>100</b> groups watched for you. All can be public. Up to 40 can be private.</p>
         <a class="button button-dark" href="/signup?plan=scale">Talk to us</a>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> Everything in Growth</li>
           <li><span class="pf-check">✓</span> 100 groups watched for you</li>
-          <li><span class="pf-check">✓</span> Alerts in under 60 seconds</li>
+          <li><span class="pf-check">✓</span> Up to 40 private groups</li>
           <li><span class="pf-check">✓</span> We set it all up for you</li>
           <li><span class="pf-check">✓</span> Priority support</li>
         </ul>
@@ -1002,12 +993,12 @@ fbq('track','PageView');
     <div class="pill"><span class="pill-icon"></span> FAQ</div>
     <h2 id="faq-title">Questions? <span class="highlight highlight-blue">We have answers</span></h2>
     <div class="faq-list">
-      <details class="faq-item" open><summary>Do I need to give you my Facebook login?<span class="faq-x">+</span></summary><p>No. Never. We watch public groups from our side. Your account stays yours.</p></details>
-      <details class="faq-item"><summary>How fast are the alerts?<span class="faq-x">+</span></summary><p>Under 60 seconds. When a matching post goes up, we send it to you fast, while the thread is still empty.</p></details>
-      <details class="faq-item"><summary>Which groups can you watch?<span class="faq-x">+</span></summary><p>Public Facebook groups across Australia. You pick them. You can change them any time.</p></details>
+      <details class="faq-item" open><summary>Do I need to give you my Facebook login?<span class="faq-x">+</span></summary><p>No. We use our own watch account for private groups. You never give us your Facebook login or password.</p></details>
+      <details class="faq-item"><summary>How fast are the alerts?<span class="faq-x">+</span></summary><p>Public groups are checked often. Private groups are checked once an hour. We send an alert when we find a post that fits your work.</p></details>
+      <details class="faq-item"><summary>Which groups can you watch?<span class="faq-x">+</span></summary><p>Public and private Facebook groups across Australia. A private group starts after its admin lets our watch account in.</p></details>
       <details class="faq-item"><summary>How do I tell you what leads I want?<span class="faq-x">+</span></summary><p>In plain English. Like this: “Tell me when someone in Sydney asks for a solar quote.” That is all we need.</p></details>
       <details class="faq-item"><summary>Where do the alerts go?<span class="faq-x">+</span></summary><p>Email and text right now. Teams and custom channels are coming soon.</p></details>
-      <details class="faq-item"><summary>What does it cost?<span class="faq-x">+</span></summary><p>Your first month is a quarter price: $50 for Local, $100 for Growth, $375 for Scale. After that it is $197, $397 and $1,497 a month for 10, 25 and 100 groups. Every plan starts with a 7 day free trial. Cancel any time.</p></details>
+      <details class="faq-item"><summary>What does it cost?<span class="faq-x">+</span></summary><p>Your first month is a quarter price: $50 for Local, $100 for Growth, $375 for Scale. After that it is $197, $397 and $1,497 a month for 10, 25 and 100 groups. All prices are AUD. Every plan starts with a 7 day free trial. Cancel any time.</p></details>
     </div>
   </section>
 

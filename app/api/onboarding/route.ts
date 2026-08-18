@@ -1,10 +1,15 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { currentUser, sendEmail } from "../../../db/auth";
-import { groups, profiles, sources } from "../../../db/schema";
+import { groups, privateGroupStates, profiles, sources } from "../../../db/schema";
 import { groupSlug, parseGroupInput } from "../../../db/fbgroups";
+import { knownGroupVisibility, type GroupVisibility } from "../../../db/group-visibility";
+import {
+  ensureClassifiedSource,
+  withGroupMutationLock,
+} from "../../../db/group-mutations";
 import { BRIEF_MAX, BRIEF_MIN } from "../../../db/brief";
-import { groupLimit } from "../../../db/plans";
+import { groupLimit, privateGroupLimit } from "../../../db/plans";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -55,22 +60,17 @@ export async function POST(request: Request) {
     wizardDraft: "",
   };
 
+  const locked = await withGroupMutationLock(user.id, async () => {
   const [existing] = await db
     .select()
     .from(profiles)
     .where(eq(profiles.userId, user.id))
     .limit(1);
 
-  if (existing) {
-    await db.update(profiles).set(values).where(eq(profiles.userId, user.id));
-  } else {
-    await db.insert(profiles).values({ userId: user.id, ...values });
-  }
-
   // A pasted link becomes a watched source straight away. A bare name waits
   // for Ross to find the group on the welcome call.
   const existingGroups = await db
-    .select({ id: groups.id, name: groups.name })
+    .select({ id: groups.id, name: groups.name, sourceId: groups.sourceId, status: groups.status })
     .from(groups)
     .where(eq(groups.userId, user.id));
 
@@ -85,17 +85,79 @@ export async function POST(request: Request) {
     return true;
   });
 
+  const allSources = await db
+    .select({
+      id: sources.id,
+      url: sources.url,
+      active: sources.active,
+      visibility: sources.visibility,
+    })
+    .from(sources);
+  const sourceById = new Map(allSources.map((source) => [source.id, source]));
+  const existingSlugs = new Set(
+    existingGroups
+      .map((group) => group.sourceId ? sourceById.get(group.sourceId)?.url : "")
+      .map((url) => groupSlug(url ?? ""))
+      .filter(Boolean)
+  );
   const existingNames = new Set(existingGroups.map((g) => g.name.trim().toLowerCase()));
   const existingLinks = uniqueRequested.filter(
-    (g) => g.url && existingNames.has(g.name.trim().toLowerCase())
+    (g) =>
+      g.url &&
+      !existingSlugs.has(groupSlug(g.url)) &&
+      existingNames.has(g.name.trim().toLowerCase())
   );
   const newRequested = uniqueRequested.filter(
-    (g) => !existingNames.has(g.name.trim().toLowerCase())
+    (g) =>
+      !existingNames.has(g.name.trim().toLowerCase()) &&
+      (!g.url || !existingSlugs.has(groupSlug(g.url)))
   );
+
+  // The browser's answer is never trusted. Every URL must have a completed
+  // server-side Bright Data classification before it can create a source.
+  const visibilityByUrl = new Map<string, Exclude<GroupVisibility, "unknown">>();
+  for (const group of [...existingLinks, ...newRequested]) {
+    if (!group.url) continue;
+    const checked = await knownGroupVisibility(group.url);
+    if (!checked || checked.status !== "ready" || checked.visibility === "unknown") {
+      return Response.json(
+        { error: "group_check_required", group: group.name },
+        { status: 409 }
+      );
+    }
+    visibilityByUrl.set(group.url, checked.visibility);
+  }
+
   const limit = groupLimit(existing?.plan);
-  const groupSlots = Math.max(0, limit - existingGroups.length);
-  const parsed = [...existingLinks, ...newRequested.slice(0, groupSlots)];
-  const skippedGroups = newRequested.length - Math.min(newRequested.length, groupSlots);
+  if (existingGroups.length + newRequested.length > limit) {
+    return Response.json({ error: "plan_limit", limit }, { status: 400 });
+  }
+  const privateLimit = privateGroupLimit(existing?.plan);
+  const existingPrivate = existingGroups.filter(
+    (group) => group.sourceId && sourceById.get(group.sourceId)?.visibility === "private"
+  ).length;
+  const newPrivate = newRequested.filter(
+    (group) => group.url && visibilityByUrl.get(group.url) === "private"
+  ).length;
+  const convertedPrivate = existingLinks.filter((group) => {
+    if (!group.url || visibilityByUrl.get(group.url) !== "private") return false;
+    const existingGroup = existingGroups.find(
+      (row) => row.name.trim().toLowerCase() === group.name.trim().toLowerCase()
+    );
+    return !existingGroup?.sourceId || sourceById.get(existingGroup.sourceId)?.visibility !== "private";
+  }).length;
+  if (existingPrivate + newPrivate + convertedPrivate > privateLimit) {
+    return Response.json({ error: "private_limit", limit: privateLimit }, { status: 400 });
+  }
+
+  // Validation is complete. Only now is setup marked finished.
+  if (existing) {
+    await db.update(profiles).set(values).where(eq(profiles.userId, user.id));
+  } else {
+    await db.insert(profiles).values({ userId: user.id, ...values });
+  }
+
+  const parsed = [...existingLinks, ...newRequested];
 
   const wanted: string[] = [];
   let watchingNow = 0;
@@ -104,8 +166,6 @@ export async function POST(request: Request) {
   // what is already stored by a trailing slash or similar and still be the
   // exact same group. Matching on the raw string missed that and created a
   // second source scanning the same group twice.
-  const allSources = await db.select({ id: sources.id, url: sources.url, active: sources.active }).from(sources);
-
   for (const g of parsed) {
     wanted.push(g.url ? `${g.name} (${g.url})` : g.name);
 
@@ -123,37 +183,37 @@ export async function POST(request: Request) {
 
     const slug = groupSlug(g.url);
     const source = allSources.find((s) => groupSlug(s.url) === slug);
-
-    let sourceId = source?.id;
-    if (sourceId && !source.active) {
-      // Ross paused this group earlier. A member just asked for it, so it
-      // has to start scanning again or they would never get a lead.
-      await db
-        .update(sources)
-        .set({ active: 1, lastError: "" })
-        .where(eq(sources.id, sourceId));
+    const visibility = visibilityByUrl.get(g.url);
+    if (!visibility) {
+      return Response.json({ error: "group_check_required", group: g.name }, { status: 409 });
     }
-    if (!sourceId) {
-      const [created] = await db
-        .insert(sources)
-        // Backdated an hour on purpose. dueSources orders by lastChecked, so
-        // these sort to the front of the very next tick and the window comes
-        // out at an hour wide. The member watches a real hour of their own
-        // groups arrive within a minute of finishing setup, instead of an
-        // empty page and a promise.
-        .values({ groupName: g.name, url: g.url, lastChecked: Date.now() - 60 * 60 * 1000 })
-        .returning({ id: sources.id });
-      sourceId = created?.id;
-      // So a second group later in this same request that resolves to the
-      // same slug reuses it too, instead of racing another insert.
-      if (sourceId) allSources.push({ id: sourceId, url: g.url ?? "", active: 1 });
+
+    const { id: sourceId, active } = await ensureClassifiedSource({
+      groupName: g.name,
+      url: g.url,
+      visibility,
+      existingSourceId: source?.id,
+    });
+    if (!source) {
+      // A later entry in this same request reuses the new source as well.
+      allSources.push({ id: sourceId, url: g.url, active: 1, visibility });
+    }
+
+    let status = active ? "watching" : visibility === "private" ? "paused_private" : "paused";
+    if (active && visibility === "private" && sourceId) {
+      const [health] = await db
+        .select({ status: privateGroupStates.status })
+        .from(privateGroupStates)
+        .where(eq(privateGroupStates.sourceId, sourceId))
+        .limit(1);
+      if (health?.status !== "healthy") status = "waiting_for_access";
     }
 
     if (existingGroup) {
       if (sourceId) {
         await db
           .update(groups)
-          .set({ sourceId, status: "watching" })
+          .set({ sourceId, status })
           .where(eq(groups.id, existingGroup.id));
         watchingNow += 1;
       }
@@ -162,7 +222,7 @@ export async function POST(request: Request) {
 
     await db
       .insert(groups)
-      .values({ userId: user.id, name: g.name, sourceId, status: "watching" });
+      .values({ userId: user.id, name: g.name, sourceId, status });
     watchingNow += 1;
   }
 
@@ -187,5 +247,10 @@ export async function POST(request: Request) {
     ].join("\n")
   );
 
-  return Response.json({ ok: true, watching: watchingNow, skipped: skippedGroups });
+  return Response.json({ ok: true, watching: watchingNow, skipped: 0 });
+  });
+  if (locked.busy) {
+    return Response.json({ error: "group_update_busy" }, { status: 409 });
+  }
+  return locked.value;
 }
