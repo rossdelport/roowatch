@@ -240,10 +240,10 @@ export default function DashboardApp() {
     startPixel();
     (window as unknown as { fbq?: Pixel }).fbq?.("track", "Purchase", {
       content_name: "RooWatch subscription",
-      value: PLANS[(me.profile?.plan ?? "local") as PlanKey]?.firstMonthAud ?? 50,
+      value: PLANS[(me?.profile?.plan ?? "local") as PlanKey]?.firstMonthAud ?? 50,
       currency: "AUD",
     });
-  }, [me.profile?.plan]);
+  }, [me?.profile?.plan]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -371,6 +371,19 @@ export default function DashboardApp() {
   }
 
   const needsOnboarding = !me.onboarded;
+  /**
+   * Nothing in the app used to check whether a member had actually paid.
+   * Abandon the Stripe page and you still landed in a working dashboard,
+   * free forever. Three of the first four signups did exactly that.
+   *
+   * past_due is deliberately allowed through. Stripe retries a failed card
+   * for days, and locking somebody out over a bank hiccup is how you lose a
+   * customer who fully intended to pay.
+   */
+  const paid = ["trialing", "active", "past_due"].includes(me.subscriptionStatus ?? "");
+  // Ross gets in regardless, and so does a member he is signed in as, or he
+  // could never help the very people this blocks.
+  const needsCard = !paid && !me.isAdmin && !me.impersonating;
 
   return (
     <div className="dash">
@@ -444,12 +457,14 @@ export default function DashboardApp() {
           )}
         </main>
 
-        {needsOnboarding && (
+        {needsCard ? (
+          <NeedCard me={me} onRefresh={refresh} onLogout={logout} />
+        ) : needsOnboarding ? (
           <Onboarding
             me={me}
             onDone={() => { setCelebrate(true); refresh(); }}
           />
-        )}
+        ) : null}
 
         {adminPrompt && (
           <div className="overlay">
@@ -848,6 +863,104 @@ function FirstLead({ me }: { me: Me }) {
         <i style={{ width: `${Math.max(2, pct)}%` }} />
       </div>
     </div>
+  );
+}
+
+/**
+ * Shown to anybody without a card on file.
+ *
+ * The tone matters here. These are not people who failed at anything, they
+ * are people who stopped at the card form and meant to come back. So it does
+ * not say "payment failed", it says how close they are and that today is
+ * free. The plan and the real dates are spelled out because vagueness at a
+ * card form is what makes people leave in the first place.
+ *
+ * It clears itself. Stripe tells us through the webhook a second or two after
+ * the card goes through, so this polls rather than making somebody refresh a
+ * page they are already suspicious of.
+ */
+function NeedCard({ me, onRefresh, onLogout }: {
+  me: Me;
+  onRefresh: () => void;
+  onLogout: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const plan = me.plan ?? PLANS.local;
+  // Somebody who once had a subscription is a different conversation from
+  // somebody who never started one.
+  const lapsed = Boolean(me.subscriptionStatus);
+
+  useEffect(() => {
+    // Catches the member who pays in another tab, and covers the second or
+    // two between Stripe taking the card and the webhook reaching us.
+    const timer = setInterval(onRefresh, 4000);
+    return () => clearInterval(timer);
+  }, [onRefresh]);
+
+  async function pay() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: plan.key }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string };
+      if (!data.url) {
+        setError("We could not open the payment page. Please try again.");
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setError("We could not open the payment page. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Portal>
+      <div className="overlay">
+        <div className="modal needcard">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="needcard-roo" src="/roowatch-mascot-3d-binos.png" alt="" />
+          <h2>{lapsed ? "Your plan has stopped" : "One last step"}</h2>
+          <p className="muted">
+            {lapsed
+              ? "We have stopped watching your groups. Put a card back on to start again."
+              : "Add your card and we start watching your groups straight away. You are not charged today."}
+          </p>
+
+          <div className="needcard-plan">
+            <div className="needcard-row">
+              <span>{plan.name} plan</span>
+              <strong>{plan.groups} groups</strong>
+            </div>
+            <div className="needcard-row">
+              <span>Today</span>
+              <strong className="free">$0</strong>
+            </div>
+            <div className="needcard-row">
+              <span>After 7 free days</span>
+              <strong>${plan.firstMonthAud} for your first month</strong>
+            </div>
+            <div className="needcard-row muted-row">
+              <span>Then</span>
+              <span>${plan.priceAud} a month. Cancel any time.</span>
+            </div>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+          <button className="btn primary wide" disabled={busy} onClick={pay}>
+            {busy ? "Opening" : lapsed ? "Start my plan again" : "Start my 7 day free trial"}
+          </button>
+          <button className="needcard-out" onClick={onLogout}>Log out</button>
+        </div>
+      </div>
+    </Portal>
   );
 }
 
@@ -4341,6 +4454,18 @@ const CSS = `
 @media(max-width:1100px){.ov-split{grid-template-columns:1fr;}}
 
 .allset{max-width:430px;text-align:center;}
+.needcard{max-width:430px;text-align:center;}
+.needcard h2{margin-bottom:8px;}
+.needcard .muted{margin:0 auto 18px;max-width:340px;}
+.needcard-roo{display:block;height:96px;margin:0 auto 12px;object-fit:contain;width:96px;}
+.needcard-plan{background:#faf7f2;border:1px solid var(--line);border-radius:14px;display:grid;gap:9px;margin-bottom:18px;padding:15px 16px;text-align:left;}
+.needcard-row{align-items:baseline;display:flex;font-size:13.5px;gap:12px;justify-content:space-between;}
+.needcard-row span{color:var(--muted);}
+.needcard-row strong{font-size:14px;}
+.needcard-row .free{color:var(--mint);font-size:16px;}
+.needcard-row.muted-row span{font-size:12.5px;}
+.needcard-out{background:none;border:0;color:var(--muted);font-size:12.5px;font-weight:600;margin-top:12px;text-decoration:underline;}
+.needcard-out:hover{color:var(--ink);}
 .allset h2{margin-bottom:10px;}
 .allset .muted{margin:0 auto 22px;max-width:340px;}
 .allset-roo{display:block;height:120px;margin:0 auto 14px;object-fit:contain;width:120px;animation:allsetWave 2.4s var(--ease) .25s infinite;transform-origin:60% 90%;}

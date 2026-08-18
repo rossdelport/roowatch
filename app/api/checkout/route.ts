@@ -38,7 +38,10 @@ export async function POST(request: Request) {
     // The dashboard uses this to fire the Facebook pixel only once the card
     // has actually gone through, not at the signup form.
     success_url: "https://roowatch.com.au/dashboard?checkout=success",
-    cancel_url: "https://roowatch.com.au/signup",
+    // Back to the dashboard, not the signup form. They already have an
+    // account by this point, so sending them to a form that asks them to make
+    // one again reads as broken. The dashboard shows them the card screen.
+    cancel_url: "https://roowatch.com.au/dashboard",
   });
 
   try {
