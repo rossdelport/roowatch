@@ -526,7 +526,7 @@ function LiveFeed({ groups, onGo }: {
 
     async function pull() {
       try {
-        const res = await fetch("/api/member/posts?limit=40");
+        const res = await fetch("/api/member/posts?limit=40&today=1");
         const data = (await res.json()) as { posts?: FeedPost[]; today?: number };
         if (!alive) return;
         const rows = data.posts ?? [];
@@ -581,11 +581,11 @@ function LiveFeed({ groups, onGo }: {
         <div className="feed-wait"><span className="spinner" /> Opening your groups</div>
       ) : visible.length === 0 ? (
         <div className="empty small">
-          <p><strong>Nothing read yet.</strong></p>
+          <p><strong>Nothing read yet today.</strong></p>
           <p className="muted">
             {watching === 0
               ? "Add a group and posts start appearing here."
-              : "Your groups are queued. The first posts land within a few minutes."}
+              : "Your groups are quiet so far. Every new post lands here as we read it."}
           </p>
         </div>
       ) : (
@@ -692,12 +692,13 @@ function SetupScore({ me, groups, alerts, onGo }: {
   ];
 
   const done = jobs.filter((j) => j.done).length;
-  if (done === jobs.length && alerts.length > 0) return null;
+  const finished = done === jobs.length;
+  if (finished && alerts.length > 0) return null;
 
   return (
-    <div className="card score">
+    <div className={finished ? "card score all-done" : "card score"}>
       <div className="score-head">
-        <h3>Get more leads</h3>
+        <h3>{finished ? "Setup complete" : "Complete your setup"}</h3>
         <span className="score-count">{done} of {jobs.length}</span>
       </div>
       <div className="score-bar"><i style={{ width: `${(done / jobs.length) * 100}%` }} /></div>
@@ -4175,6 +4176,8 @@ const CSS = `
 .score-head{align-items:center;display:flex;justify-content:space-between;}
 .score-head h3{margin:0;}
 .score-count{color:var(--muted);font-size:12px;font-weight:800;}
+.score.all-done .score-count{color:var(--mint);}
+.score.all-done .score-head h3{color:var(--mint);}
 .score-bar{background:var(--line);border-radius:99px;height:6px;margin:12px 0 14px;overflow:hidden;}
 .score-bar i{background:var(--mint);border-radius:99px;display:block;height:100%;transition:width .5s var(--ease);}
 .score-list{display:grid;gap:2px;}

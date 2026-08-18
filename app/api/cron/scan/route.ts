@@ -164,14 +164,16 @@ async function learnAbout(
     }
   }
 
-  // Only write when we actually learned something. A snapshot that says
-  // nothing at all about a group is not evidence that it became readable, and
-  // blanking the reason on those passes made the private warning flicker on
-  // and off between scans.
+  // A snapshot that says nothing at all about a group is not evidence that it
+  // became readable, so the old reason is carried forward rather than blanked.
   const next = fact.error ? fact.error : sawPosts ? "" : source.lastError;
-  if (next !== source.lastError) {
-    await db.update(sources).set({ lastError: next }).where(eq(sources.id, source.id));
-  }
+
+  // Written every time, with no "has it changed" shortcut. source.lastError
+  // was read before processSource ran, and processSource clears the column at
+  // the end of every pass. So when nothing had changed, the guard skipped the
+  // write and the flag stayed cleared. That is how three private groups
+  // quietly went back to looking fine.
+  await db.update(sources).set({ lastError: next }).where(eq(sources.id, source.id));
 }
 
 /**

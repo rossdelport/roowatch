@@ -26,8 +26,16 @@ export async function GET(request: Request) {
 
   // The overview ticker polls this every few seconds, so it asks for a short
   // list. The Posts tab still asks for the lot.
-  const asked = Number(new URL(request.url).searchParams.get("limit") ?? 300);
+  const url = new URL(request.url);
+  const asked = Number(url.searchParams.get("limit") ?? 300);
   const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 300, 1), 300);
+
+  // The overview ticker asks for today only. Yesterday's posts are not proof
+  // that anything is running now, and holding 14 days in memory to show five
+  // rows is waste. The Posts tab still asks for the lot.
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const todayOnly = url.searchParams.get("today") === "1";
 
   const rows = await getDb()
     .select({
@@ -41,6 +49,7 @@ export async function GET(request: Request) {
     .from(seenPosts)
     .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
     .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))
+    .where(todayOnly ? sql`${seenPosts.seenAt} >= ${midnight.getTime()}` : sql`1 = 1`)
     .orderBy(desc(seenPosts.seenAt))
     .limit(limit);
 
@@ -55,8 +64,6 @@ export async function GET(request: Request) {
   // Posts read since midnight, their time near enough. The overview says it
   // out loud, because "we read 47 posts today" is the proof that the thing
   // they are paying for is actually running.
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
   const [todayRow] = (await getDb()
     .select({ n: sql<number>`count(*)` })
     .from(seenPosts)
