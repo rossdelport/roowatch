@@ -72,8 +72,8 @@ export async function endSession(request: Request) {
   }
 }
 
-/** Ross, on either of the addresses he actually logs in with. */
-const ADMIN_EMAILS = new Set(["ross@roowatch.com.au", "rossdelport1998@gmail.com"]);
+/** Only Ross's RooWatch account can open the admin command centre. */
+const ADMIN_EMAILS = new Set(["ross@roowatch.com.au"]);
 
 export function isAdminEmail(email: string) {
   return ADMIN_EMAILS.has(email.trim().toLowerCase());

@@ -89,4 +89,8 @@ test("keeps the admin command centre private without a second password", async (
   assert.match(guard, /currentUser\(request\)/);
   assert.match(guard, /isAdminEmail\(user\.email\)/);
   assert.doesNotMatch(guard, /ADMIN_PASSWORD/);
+
+  const auth = readFileSync("db/auth.ts", "utf8");
+  assert.match(auth, /new Set\(\["ross@roowatch\.com\.au"\]\)/);
+  assert.doesNotMatch(auth, /rossdelport1998@gmail\.com/);
 });
