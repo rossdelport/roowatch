@@ -115,7 +115,6 @@ async function switchStripePlan(customerId: string, priceId: string): Promise<Sw
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
-    password?: string;
     action?: "list" | "create" | "delete" | "plan" | "update" | "message";
     email?: string;
     name?: string;
@@ -126,7 +125,7 @@ export async function POST(request: Request) {
     subject?: string;
     message?: string;
   };
-  const denied = await requireAdmin(body);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   const db = getDb();

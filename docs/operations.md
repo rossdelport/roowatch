@@ -273,9 +273,9 @@ created after the change. It does not touch anyone already mid-trial.
 
 ## Admin dashboard
 
-`https://roowatch.com.au/dashboard` → Marketing tab → enter the
-`ADMIN_PASSWORD`. Gives you the funnels, the member list with plan switching,
-the pipeline view and Stripe payments.
+Sign in to `https://roowatch.com.au/dashboard` with a Ross admin email. The
+admin command centre opens on its own. It has customers, support, usage,
+payments, the pipeline, and marketing. Normal member accounts cannot open it.
 
 ---
 

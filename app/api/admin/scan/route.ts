@@ -3,10 +3,9 @@ import { processSource } from "../../../../db/pipeline";
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
-    password?: string;
     sourceId?: number;
   };
-  const denied = await requireAdmin(body);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   if (!body.sourceId) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const port = 3100 + (process.pid % 500);
@@ -66,4 +67,26 @@ test("keeps anonymous API access unauthenticated", async () => {
   const response = await fetch(`${baseUrl}/api/me`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { user: null });
+});
+
+test("keeps the admin command centre private without a second password", async () => {
+  const response = await fetch(`${baseUrl}/api/admin/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: "this must not unlock anything" }),
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "unauthorized" });
+
+  const dashboard = readFileSync("app/dashboard/DashboardApp.tsx", "utf8");
+  assert.match(dashboard, /ROSS ADMIN/);
+  assert.match(dashboard, /Command centre/);
+  assert.match(dashboard, /Customers/);
+  assert.match(dashboard, /Payments/);
+  assert.doesNotMatch(dashboard, /Master password|Master access|adminPass/);
+
+  const guard = readFileSync("db/admin.ts", "utf8");
+  assert.match(guard, /currentUser\(request\)/);
+  assert.match(guard, /isAdminEmail\(user\.email\)/);
+  assert.doesNotMatch(guard, /ADMIN_PASSWORD/);
 });

@@ -66,7 +66,7 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
 
   useEffect(() => {
     startPixel();
-    // Our own count, so the Marketing tab can show the signup funnel.
+    // Our own count, so the admin command centre can show the signup funnel.
     fetch("/api/track", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

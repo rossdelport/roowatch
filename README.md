@@ -77,7 +77,7 @@ from there.
 | Scale | 100 | 3 min | $1,997 | `price_1U4sCh9HOJbWqVToU4GpQFTO` |
 
 A member's plan lives in `profiles.plan` and defaults to `local`. Ross changes
-it from the Marketing tab of the dashboard.
+it from the Customers area of the admin command centre.
 
 ## Layout
 

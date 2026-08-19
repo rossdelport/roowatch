@@ -107,8 +107,8 @@ async function smsByDay(since: number) {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { password?: string; days?: number };
-  const denied = await requireAdmin(body);
+  const body = (await request.json().catch(() => ({}))) as { days?: number };
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   const days = Math.min(Math.max(Number(body.days ?? 14), 1), 60);
