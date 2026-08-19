@@ -3,12 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { type PlanKey } from "../../db/plans";
-import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
 
 const PIXEL_ID = "4105570149577363";
 
-/** What the first month is worth on each plan, for the pixel. */
-const PLAN_FIRST_MONTH: Record<PlanKey, number> = { local: 50, growth: 100, scale: 375 };
 
 type Pixel = ((...args: unknown[]) => void) & {
   queue?: unknown[];
@@ -45,10 +42,9 @@ function startPixel() {
   fbq("track", "PageView");
 }
 
-export default function SignupApp({ start, plan, trade: fromAd }: {
+export default function SignupApp({ start, plan }: {
   start: "signup" | "login";
   plan: PlanKey;
-  trade?: string;
 }) {
   const [mode, setMode] = useState<"signup" | "login">(start);
   const [name, setName] = useState("");
@@ -121,15 +117,11 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
       }
 
       if (mode === "signup") {
-        // The only conversion event RooWatch fires. Without it Meta has no
-        // idea which clicks turned into customers, so it cannot go and find
-        // more of them. Fired here, on a confirmed account, not on a button
-        // press, so the number means something.
-        pixel()?.("track", "CompleteRegistration", {
-          content_name: "RooWatch signup",
-          value: PLAN_FIRST_MONTH[plan],
-          currency: "AUD",
-        });
+        // Top of the funnel. Four easy fields and no commitment, so this is a
+        // Lead, not a registration. No value attached on purpose: putting a
+        // dollar figure on somebody who has done nothing but type their name
+        // would teach Meta to chase form fillers.
+        pixel()?.("track", "Lead", { content_name: "RooWatch signup" });
       }
 
       window.location.href = "/dashboard";

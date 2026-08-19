@@ -250,11 +250,10 @@ export default function DashboardApp() {
   useEffect(() => {
     // Stripe sends them back here the moment checkout completes, card and all.
     //
-    // This fires Purchase, not CompleteRegistration. Signup fires that one.
-    // Two separate events on purpose: Meta needs roughly fifty conversions a
-    // week before it stops guessing, and paying customers will not reach that
-    // for months. Signups will. So signups teach it who to look for, and
-    // Purchase tells it who was actually worth finding.
+    // The last of three. Lead fires at signup, CompleteRegistration when they
+    // finish setup and head for the card, and Purchase here, once the card has
+    // actually gone through. Three stages so Meta can be pointed at whichever
+    // one currently has enough volume to learn from.
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") !== "success") return;
     // The parameter is left in place until they close the celebration. It is
@@ -1409,6 +1408,17 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         onDone();
         return;
       }
+
+      // Setup is saved and they are on their way to the card. This is the
+      // real registration: suburbs picked, brief written, groups pasted.
+      // Fired before the checkout call rather than after it, so the beacon
+      // has the whole round trip to leave before the page navigates away.
+      startPixel();
+      (window as unknown as { fbq?: Pixel }).fbq?.("track", "CompleteRegistration", {
+        content_name: "RooWatch setup finished",
+        value: me.plan?.firstMonthAud ?? 50,
+        currency: "AUD",
+      });
 
       const checkout = await fetch("/api/checkout", {
         method: "POST",

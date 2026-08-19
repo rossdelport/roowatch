@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
+import { sendSms } from "../../../../db/sms";
 import { sendEmail } from "../../../../db/auth";
-import { PLAN_KEYS, planForPrice, type PlanKey } from "../../../../db/plans";
+import { PLAN_KEYS, PLANS, planForPrice, type PlanKey } from "../../../../db/plans";
 import { groups, profiles, sources, users } from "../../../../db/schema";
 
 /**
@@ -208,6 +209,48 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
       ...(plan ? { plan } : {}),
     })
     .where(eq(profiles.userId, user.id));
+
+  await tellRoss(user.id, email, plan);
+}
+
+/** Ross's mobile. Alerts about the business go here, not to a member. */
+const ROSS_MOBILE = "0400369865";
+
+/**
+ * Text Ross when a card actually goes through.
+ *
+ * Only from checkout.session.completed, which Stripe sends once, at the
+ * moment the card clears. Signing up and finishing setup deliberately send
+ * nothing: he asked to hear about money, not about interest.
+ *
+ * Every failure is swallowed. A texting outage must never stop a customer's
+ * subscription being written down.
+ */
+async function tellRoss(userId: string, email: string, plan?: string) {
+  try {
+    const db = getDb();
+    const [row] = await db
+      .select({ name: users.name, business: profiles.businessName, phone: profiles.alertPhone })
+      .from(users)
+      .leftJoin(profiles, eq(profiles.userId, users.id))
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    const who = row?.business?.trim() || row?.name?.trim() || email;
+    const p = plan ? PLANS[plan as PlanKey] : undefined;
+    const money = p ? `$${p.firstMonthAud} now, $${p.priceAud}/mo` : "";
+    const body = [
+      `New RooWatch customer: ${who}`,
+      p ? `${p.name} plan. ${money}` : "",
+      row?.phone ? `Call ${row.phone}` : email,
+    ]
+      .filter(Boolean)
+      .join(". ");
+
+    await sendSms(ROSS_MOBILE, body);
+  } catch {
+    // Never let a text failure break the webhook.
+  }
 }
 
 type Subscription = {

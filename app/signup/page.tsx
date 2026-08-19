@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { DEFAULT_PLAN, PLAN_KEYS, type PlanKey } from "../../db/plans";
-import { matchTrade } from "../../db/trades";
 import SignupApp from "./SignupApp";
 
 export const metadata: Metadata = {
@@ -12,15 +11,9 @@ export const metadata: Metadata = {
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string; plan?: string; trade?: string }>;
+  searchParams: Promise<{ mode?: string; plan?: string }>;
 }) {
-  const { mode, plan, trade } = await searchParams;
+  const { mode, plan } = await searchParams;
   const chosenPlan = PLAN_KEYS.includes(plan as PlanKey) ? (plan as PlanKey) : DEFAULT_PLAN;
-  return (
-    <SignupApp
-      start={mode === "login" ? "login" : "signup"}
-      plan={chosenPlan}
-      trade={matchTrade(trade ?? "")}
-    />
-  );
+  return <SignupApp start={mode === "login" ? "login" : "signup"} plan={chosenPlan} />;
 }
