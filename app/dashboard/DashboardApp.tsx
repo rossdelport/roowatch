@@ -1996,6 +1996,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
     const leadsThisMonth = alerts.filter(
       (a) => whenMs(a.sentAt) >= monthStart.getTime()
     ).length;
+    const watchingGroupCount = groups.filter((group) => group.status === "watching").length;
     return (
       <div className="page">
         <header className="page-head">
@@ -2008,7 +2009,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
         {alerts.length === 0 && <FirstLead me={me} />}
 
         <div className="tiles">
-          <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{groups.filter((g) => g.status === "watching").length}</span><span className="tile-label">Groups watching</span></button>
+          <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{watchingGroupCount}/{plan.groups}</span><span className="tile-label">Groups watching</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{leadsThisMonth}</span><span className="tile-label">Leads this month</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "posts")}><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></button>
           <ScanCard />
@@ -2978,6 +2979,8 @@ function UsersView({ members, stats, history, flash, onAction }: {
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const open = members.find((m) => m.id === openId) ?? null;
+  const leftAtStripe = members.filter((member) => checkoutJourney(member).key === "left-at-stripe").length;
+  const cardAdded = members.filter((member) => checkoutJourney(member).key === "card-added").length;
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -3011,9 +3014,13 @@ function UsersView({ members, stats, history, flash, onAction }: {
           <span className="tile-num">{stats?.total ?? 0}</span>
           <span className="tile-label">Accounts</span>
         </div>
-        <div className="tile">
-          <span className="tile-num">{stats?.onboarded ?? 0}</span>
-          <span className="tile-label">Finished setup</span>
+        <div className="tile tile-warn">
+          <span className="tile-num">{leftAtStripe}</span>
+          <span className="tile-label">Left at Stripe</span>
+        </div>
+        <div className="tile tile-success">
+          <span className="tile-num">{cardAdded}</span>
+          <span className="tile-label">Card added</span>
         </div>
       </div>
 
@@ -3035,25 +3042,29 @@ function UsersView({ members, stats, history, flash, onAction }: {
           <div className="empty tight"><p className="muted">Nobody matches that.</p></div>
         ) : (
           <div className="user-grid">
-            {shown.map((m) => (
-              <button key={m.id} className="user-card" onClick={() => setOpenId(m.id)}>
-                <div className="user-card-top">
-                  <Avatar avatar={m.avatar} name={m.businessName || m.name || m.email} />
-                  <div className="user-card-who">
-                    <strong>{m.businessName || m.name || m.email}</strong>
-                    <span>{m.email}</span>
+            {shown.map((m) => {
+              const journey = checkoutJourney(m);
+              return (
+                <button key={m.id} className={`user-card journey-${journey.key}`} onClick={() => setOpenId(m.id)}>
+                  <div className="user-card-top">
+                    <Avatar avatar={m.avatar} name={m.businessName || m.name || m.email} />
+                    <div className="user-card-who">
+                      <strong>{m.businessName || m.name || m.email}</strong>
+                      <span>{m.email}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="user-card-meta">
-                  <span className={`plan-tag plan-${m.plan}`}>{m.planName}</span>
-                  <StatusChip status={m.subscriptionStatus} />
-                </div>
-                <div className="user-card-foot">
-                  <span>{m.trade || "no trade set"}</span>
-                  <span>{m.groups.length} groups &middot; {m.alertCount} leads</span>
-                </div>
-              </button>
-            ))}
+                  <div className="user-card-meta">
+                    <span className={`plan-tag plan-${m.plan}`}>{m.planName}</span>
+                    <CheckoutJourneyChip member={m} />
+                  </div>
+                  <div className={`user-card-money ${journey.tone}`}>{journey.valueLabel}</div>
+                  <div className="user-card-foot">
+                    <span>{m.trade || "no trade set"}</span>
+                    <span>{m.groups.length} groups &middot; {m.alertCount} leads</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -3063,14 +3074,53 @@ function UsersView({ members, stats, history, flash, onAction }: {
   );
 }
 
-function StatusChip({ status }: { status: string }) {
-  if (!status) return <span className="chip-status pending">No subscription</span>;
-  const good = status === "active" || status === "trialing";
-  return (
-    <span className={good ? "chip-status ok" : "chip-status bad"}>
-      {status === "trialing" ? "On trial" : status === "active" ? "Paying" : status}
-    </span>
-  );
+type CheckoutJourney = {
+  key: "setup" | "left-at-stripe" | "card-added" | "payment-issue" | "plan-stopped";
+  label: string;
+  tone: "ok" | "pending" | "warn" | "bad";
+  valueLabel: string;
+};
+
+function checkoutJourney(member: Pick<Member, "onboarded" | "subscriptionStatus" | "stripeCustomerId" | "planPrice">): CheckoutJourney {
+  const status = member.subscriptionStatus.trim().toLowerCase();
+
+  if (!member.onboarded) {
+    return { key: "setup", label: "Still in setup", tone: "pending", valueLabel: "AUD $0 now. Setup not done." };
+  }
+  if (!status && !member.stripeCustomerId) {
+    return { key: "left-at-stripe", label: "Left at Stripe", tone: "warn", valueLabel: "AUD $0 now. No card." };
+  }
+  if (status === "trialing") {
+    return {
+      key: "card-added",
+      label: "Card added · On trial",
+      tone: "ok",
+      valueLabel: `AUD $0 now. $${member.planPrice.toLocaleString()} a month after trial.`,
+    };
+  }
+  if (status === "active") {
+    return {
+      key: "card-added",
+      label: "Card added · Paying",
+      tone: "ok",
+      valueLabel: `AUD $${member.planPrice.toLocaleString()} a month now.`,
+    };
+  }
+  if (status === "past_due") {
+    return { key: "payment-issue", label: "Card added · Payment issue", tone: "bad", valueLabel: "Card added. Payment needs help." };
+  }
+  if (status === "unpaid" || status === "canceled") {
+    return { key: "plan-stopped", label: "Plan stopped", tone: "bad", valueLabel: "AUD $0 a month. Plan stopped." };
+  }
+  if (member.stripeCustomerId) {
+    return { key: "payment-issue", label: "Card added · Check Stripe", tone: "bad", valueLabel: "Card added. Check Stripe." };
+  }
+  return { key: "left-at-stripe", label: "Left at Stripe", tone: "warn", valueLabel: "AUD $0 now. No card." };
+}
+
+function CheckoutJourneyChip({ member }: { member: Member }) {
+  const journey = checkoutJourney(member);
+  return <span className={`chip-status ${journey.tone}`}>{journey.label}</span>;
 }
 
 /** Two lines on one grid: accounts and MRR. Drawn by hand, no chart library. */
@@ -3149,8 +3199,7 @@ function UserModal({ member, onClose, onAction }: {
             <section className="um-section">
               <div className="um-badges">
                 <span className={`plan-tag plan-${member.plan}`}>{member.planName} &middot; ${member.planPrice}/mo</span>
-                <StatusChip status={member.subscriptionStatus} />
-                <span className="chip-status pending">{member.onboarded ? "Set up" : "Setup not finished"}</span>
+                <CheckoutJourneyChip member={member} />
               </div>
 
               <div className="um-stats">
@@ -4125,6 +4174,8 @@ const CSS = `
 .tile-label{color:var(--muted);font-size:12.5px;font-weight:600;}
 .tile-accent{background:var(--navy);border-color:var(--navy);color:#fff;}
 .tile-accent .tile-label{color:#8fa1c0;}
+.tile-success{background:#e2f6ec;border-color:#c8ead9;color:#14724f;}
+.tile-success .tile-label{color:#1d8a63;}
 
 .card{animation:dRise .5s .1s var(--ease) both;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-soft);margin-bottom:18px;padding:22px 24px;}
 .card h3{font-size:15px;letter-spacing:.02em;margin:0 0 14px;}
@@ -4314,6 +4365,14 @@ const CSS = `
 .user-card-who strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .user-card-who span{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .user-card-meta{display:flex;flex-wrap:wrap;gap:7px;}
+.user-card.journey-left-at-stripe{border-left:4px solid #e0a80f;}
+.user-card.journey-card-added{border-left:4px solid var(--mint);}
+.user-card.journey-payment-issue,.user-card.journey-plan-stopped{border-left:4px solid var(--coral-deep);}
+.user-card-money{border-radius:9px;font-size:12px;font-weight:800;padding:8px 10px;}
+.user-card-money.ok{background:#e2f6ec;color:#14724f;}
+.user-card-money.pending{background:#eef1f6;color:#4a5468;}
+.user-card-money.warn{background:#fff3d8;color:#8a5a00;}
+.user-card-money.bad{background:#fdece8;color:var(--coral-deep);}
 .user-card-foot{color:var(--muted);display:flex;font-size:12px;gap:10px;justify-content:space-between;}
 .plan-tag{border-radius:99px;font-size:11px;font-weight:800;padding:4px 10px;}
 .plan-local{background:#eef1f6;color:#4a5468;}
