@@ -84,9 +84,9 @@ test("keeps the admin command centre private without a second password", async (
   assert.match(dashboard, /Customers/);
   assert.match(dashboard, /Payments/);
   assert.match(dashboard, /\{watchingGroupCount\}\/\{plan\.groups\}/);
-  assert.match(dashboard, /Left at Stripe/);
-  assert.match(dashboard, /Card added · On trial/);
-  assert.match(dashboard, /Card added · Paying/);
+  assert.match(dashboard, /Setup complete, no card/);
+  assert.match(dashboard, /Card accepted, on trial/);
+  assert.match(dashboard, /Card accepted, paying/);
   assert.match(dashboard, /!status && !member\.stripeCustomerId/);
   assert.match(dashboard, /journey-left-at-stripe/);
   assert.match(dashboard, /journey-card-added/);

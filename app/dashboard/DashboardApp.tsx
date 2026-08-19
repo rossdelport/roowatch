@@ -3016,11 +3016,11 @@ function UsersView({ members, stats, history, flash, onAction }: {
         </div>
         <div className="tile tile-warn">
           <span className="tile-num">{leftAtStripe}</span>
-          <span className="tile-label">Left at Stripe</span>
+          <span className="tile-label">Setup complete, no card</span>
         </div>
         <div className="tile tile-success">
           <span className="tile-num">{cardAdded}</span>
-          <span className="tile-label">Card added</span>
+          <span className="tile-label">Card accepted</span>
         </div>
       </div>
 
@@ -3085,37 +3085,37 @@ function checkoutJourney(member: Pick<Member, "onboarded" | "subscriptionStatus"
   const status = member.subscriptionStatus.trim().toLowerCase();
 
   if (!member.onboarded) {
-    return { key: "setup", label: "Still in setup", tone: "pending", valueLabel: "AUD $0 now. Setup not done." };
+    return { key: "setup", label: "Setup not finished", tone: "pending", valueLabel: "No Stripe checkout yet." };
   }
   if (!status && !member.stripeCustomerId) {
-    return { key: "left-at-stripe", label: "Left at Stripe", tone: "warn", valueLabel: "AUD $0 now. No card." };
+    return { key: "left-at-stripe", label: "Setup complete, no card", tone: "warn", valueLabel: "Finished setup. No card added." };
   }
   if (status === "trialing") {
     return {
       key: "card-added",
-      label: "Card added · On trial",
+      label: "Card accepted, on trial",
       tone: "ok",
-      valueLabel: `AUD $0 now. $${member.planPrice.toLocaleString()} a month after trial.`,
+      valueLabel: `Card accepted. $${member.planPrice.toLocaleString()} a month after trial.`,
     };
   }
   if (status === "active") {
     return {
       key: "card-added",
-      label: "Card added · Paying",
+      label: "Card accepted, paying",
       tone: "ok",
-      valueLabel: `AUD $${member.planPrice.toLocaleString()} a month now.`,
+      valueLabel: `Card accepted. $${member.planPrice.toLocaleString()} a month now.`,
     };
   }
   if (status === "past_due") {
-    return { key: "payment-issue", label: "Card added · Payment issue", tone: "bad", valueLabel: "Card added. Payment needs help." };
+    return { key: "payment-issue", label: "Card accepted, payment issue", tone: "bad", valueLabel: "Card is saved. Payment needs help." };
   }
   if (status === "unpaid" || status === "canceled") {
-    return { key: "plan-stopped", label: "Plan stopped", tone: "bad", valueLabel: "AUD $0 a month. Plan stopped." };
+    return { key: "plan-stopped", label: "Plan stopped", tone: "bad", valueLabel: "No active plan." };
   }
   if (member.stripeCustomerId) {
-    return { key: "payment-issue", label: "Card added · Check Stripe", tone: "bad", valueLabel: "Card added. Check Stripe." };
+    return { key: "payment-issue", label: "Card accepted, check Stripe", tone: "bad", valueLabel: "Card is saved. Check Stripe." };
   }
-  return { key: "left-at-stripe", label: "Left at Stripe", tone: "warn", valueLabel: "AUD $0 now. No card." };
+  return { key: "left-at-stripe", label: "Setup complete, no card", tone: "warn", valueLabel: "Finished setup. No card added." };
 }
 
 function CheckoutJourneyChip({ member }: { member: Member }) {
