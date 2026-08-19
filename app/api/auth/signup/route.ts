@@ -3,8 +3,8 @@ import { getDb } from "../../../../db";
 import { createSession, sendEmail, sessionCookie } from "../../../../db/auth";
 import { hashPassword, passwordProblem } from "../../../../db/password";
 import { profiles, users } from "../../../../db/schema";
+import { PLAN_KEYS, type PlanKey } from "../../../../db/plans";
 import { toE164 } from "../../../../db/sms";
-import { isKnownState } from "../../../../db/trades";
 
 const NOTIFY = ["ross@roowatch.com.au", "rossdelport1998@gmail.com"];
 
@@ -22,6 +22,8 @@ export async function POST(request: Request) {
   const phone = clean(body.phone, 40);
   const trade = clean(body.trade, 60);
   const state = clean(body.state, 60);
+  const wanted = clean(body.plan, 20).toLowerCase();
+  const plan = PLAN_KEYS.includes(wanted as PlanKey) ? wanted : "local";
 
   if (!/.+@.+\..+/.test(email)) {
     return Response.json({ error: "bad_email" }, { status: 400 });
@@ -29,10 +31,11 @@ export async function POST(request: Request) {
   const weak = passwordProblem(password);
   if (weak) return Response.json({ error: "weak_password", message: weak }, { status: 400 });
   if (name.length < 2) return Response.json({ error: "bad_name" }, { status: 400 });
-  if (businessName.length < 2) return Response.json({ error: "bad_business" }, { status: 400 });
   if (!toE164(phone)) return Response.json({ error: "bad_phone" }, { status: 400 });
-  if (trade.length < 2) return Response.json({ error: "bad_trade" }, { status: 400 });
-  if (!isKnownState(state)) return Response.json({ error: "bad_state" }, { status: 400 });
+  // Business name, trade and state are no longer asked here. Seven fields was
+  // costing about nine in every ten people who reached this form. Setup asks
+  // for all three anyway, and the website scan fills most of them in, so they
+  // are collected once somebody is already invested rather than at the door.
 
   const db = getDb();
   const [taken] = await db
@@ -64,6 +67,9 @@ export async function POST(request: Request) {
     // the product for someone up a ladder. Settings has the off switch.
     smsEnabled: 1,
     location: state,
+    // Remembered from the plan they clicked on the ad page, because checkout
+    // now happens at the end of setup rather than here.
+    plan,
   });
 
   const token = await createSession(id);

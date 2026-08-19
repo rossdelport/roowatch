@@ -52,14 +52,10 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
 }) {
   const [mode, setMode] = useState<"signup" | "login">(start);
   const [name, setName] = useState("");
-  const [businessName, setBusinessName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [trade, setTrade] = useState(fromAd ?? "");
-  const [tradeOther, setTradeOther] = useState("");
-  const [state, setState] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [linkSent, setLinkSent] = useState(false);
@@ -77,15 +73,10 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
 
   const emailOk = /.+@.+\..+/.test(email.trim());
   const phoneOk = phone.replace(/[^\d]/g, "").length >= 9;
-  const chosenTrade = trade === OTHER_TRADE ? tradeOther.trim() : trade;
+  // Four fields. Business name, trade and state moved into setup, where the
+  // website scan fills most of them in anyway.
   const signupOk =
-    name.trim().length > 1 &&
-    businessName.trim().length > 1 &&
-    emailOk &&
-    phoneOk &&
-    password.length >= 8 &&
-    chosenTrade.length > 1 &&
-    state.length > 1;
+    name.trim().length > 1 && emailOk && phoneOk && password.length >= 8;
   const loginOk = emailOk && password.length > 0;
 
   function swap(next: "signup" | "login") {
@@ -105,12 +96,12 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
         mode === "signup"
           ? {
               name: name.trim(),
-              businessName: businessName.trim(),
               email: email.trim(),
               phone: phone.trim(),
               password,
-              trade: chosenTrade,
-              state,
+              // Carried through so the checkout at the end of setup bills the
+              // plan they actually picked on the ad page.
+              plan,
             }
           : { email: email.trim(), password };
 
@@ -139,21 +130,8 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
           value: PLAN_FIRST_MONTH[plan],
           currency: "AUD",
         });
-
-        // Purchase is the other half, and it fires on the dashboard when
-        // Stripe actually takes the card. Two events on purpose: this one has
-        // the volume Meta needs to learn from, that one has the truth.
-        // Checkout is built on our side so the intro discount and the trial
-        // come from the plan, not from a link anyone could edit.
-        const checkout = await fetch("/api/checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plan }),
-        });
-        const session = (await checkout.json().catch(() => ({}))) as { url?: string };
-        window.location.href = session.url || "/dashboard";
-        return;
       }
+
       window.location.href = "/dashboard";
     } catch {
       setError("Something went wrong. Please try again.");
@@ -238,27 +216,7 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
                       autoComplete="name"
                     />
                   </Field>
-                  <Field label="Business name">
-                    <input
-                      value={businessName}
-                      onChange={(e) => setBusinessName(e.target.value)}
-                      placeholder="Smith Plumbing"
-                      autoComplete="organization"
-                    />
-                  </Field>
-                </div>
-
-                <div className="pair">
-                  <Field label="Email">
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@business.com.au"
-                      autoComplete="email"
-                    />
-                  </Field>
-                  <Field label="Mobile">
+                  <Field label="Mobile" hint="Where we text your leads.">
                     <input
                       type="tel"
                       value={phone}
@@ -268,6 +226,16 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
                     />
                   </Field>
                 </div>
+
+                <Field label="Email">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@business.com.au"
+                    autoComplete="email"
+                  />
+                </Field>
 
                 <Field label="Password" hint="8 letters or more.">
                   <div className="pass">
@@ -284,41 +252,6 @@ export default function SignupApp({ start, plan, trade: fromAd }: {
                     </button>
                   </div>
                 </Field>
-
-                <div className="pair">
-                  <Field label="What do you do?">
-                    <select value={trade} onChange={(e) => setTrade(e.target.value)}>
-                      <option value="">Pick your trade</option>
-                      {TRADES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                      <option value={OTHER_TRADE}>{OTHER_TRADE}</option>
-                    </select>
-                  </Field>
-                  <Field label="Which state?">
-                    <select value={state} onChange={(e) => setState(e.target.value)}>
-                      <option value="">Pick your state</option>
-                      {STATES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
-
-                {trade === OTHER_TRADE && (
-                  <Field label="Tell us your trade">
-                    <input
-                      value={tradeOther}
-                      onChange={(e) => setTradeOther(e.target.value)}
-                      placeholder="Blind and curtain fitting"
-                      autoFocus
-                    />
-                  </Field>
-                )}
 
                 {error && <p className="err">{error}</p>}
 

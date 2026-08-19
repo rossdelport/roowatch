@@ -15,6 +15,10 @@ export type Plan = {
    * Fair use, and also our cost ceiling. We pay per post read, so this number
    * is the most a single member can ever cost us in a month. Do not remove it.
    * 1,000 posts costs about $1.50 USD to fetch and about $0.65 USD to read.
+   *
+   * Doubled with the group counts on 19 Aug 2026. A measured group produces
+   * about 23 posts a day, so 20 groups runs near 14,000 a month and the old
+   * 10,000 cap would have cut a member off on about day 22.
    */
   postsPerMonth: number;
   /**
@@ -43,8 +47,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   local: {
     key: "local",
     name: "Local",
-    groups: 10,
-    postsPerMonth: 10_000,
+    groups: 20,
+    postsPerMonth: 20_000,
     smsPerMonth: 150,
     alertMinutes: 5,
     priceAud: 197,
@@ -56,8 +60,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   growth: {
     key: "growth",
     name: "Growth",
-    groups: 25,
-    postsPerMonth: 25_000,
+    groups: 50,
+    postsPerMonth: 50_000,
     smsPerMonth: 375,
     alertMinutes: 5,
     priceAud: 397,
@@ -69,8 +73,8 @@ export const PLANS: Record<PlanKey, Plan> = {
   scale: {
     key: "scale",
     name: "Scale",
-    groups: 100,
-    postsPerMonth: 100_000,
+    groups: 200,
+    postsPerMonth: 200_000,
     smsPerMonth: 1_500,
     alertMinutes: 3,
     priceAud: 1497,

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
-import { OTHER_TRADE, TRADES } from "../../db/trades";
+import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
 import { PLAN_KEYS, PLANS, type Plan, type PlanKey } from "../../db/plans";
 import { BRIEF_MAX, BRIEF_MIN } from "../../db/brief";
 import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
@@ -195,7 +195,12 @@ export default function DashboardApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState("overview");
   const [leadsView, setLeadsView] = useState<"leads" | "posts">("leads");
-  const [celebrate, setCelebrate] = useState(false);
+  // Set once the member closes the celebration. Not read from the URL at
+  // mount: this page is rendered on the server first, where there is no
+  // window, and hydration keeps the server's answer. Reading the URL on every
+  // render instead means the flag is still there when the profile finally
+  // loads and we know whether they actually paid.
+  const [partyDone, setPartyDone] = useState(false);
   const [adminTab, setAdminTab] = useState<AdminTab | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageDays, setUsageDays] = useState(14);
@@ -252,10 +257,8 @@ export default function DashboardApp() {
     // Purchase tells it who was actually worth finding.
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") !== "success") return;
-    params.delete("checkout");
-    const rest = params.toString();
-    window.history.replaceState({}, "", window.location.pathname + (rest ? `?${rest}` : ""));
-
+    // The parameter is left in place until they close the celebration. It is
+    // the only thing telling us they have just come back from Stripe.
     startPixel();
     (window as unknown as { fbq?: Pixel }).fbq?.("track", "Purchase", {
       content_name: "RooWatch subscription",
@@ -417,9 +420,20 @@ export default function DashboardApp() {
    * customer who fully intended to pay.
    */
   const paid = ["trialing", "active", "past_due"].includes(me.subscriptionStatus ?? "");
-  // Ross gets in regardless, and so does a member he is signed in as, or he
-  // could never help the very people this blocks.
-  const needsCard = !paid && !me.isAdmin && !me.impersonating;
+  // Read fresh every render, so it survives hydration.
+  const justBack =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("checkout") === "success";
+  /**
+   * The card is asked for at the end of setup, not before it.
+   *
+   * Somebody who has picked their suburbs, had a brief written for them and
+   * pasted twenty group links has put real work in, and is a different person
+   * at a card form than the stranger who arrived ninety seconds ago. So the
+   * wall only goes up once setup is finished, which is also the moment they
+   * come back from Stripe having abandoned it.
+   */
+  const needsCard = !paid && Boolean(me.onboarded) && !me.isAdmin && !me.impersonating;
   const activeAdminTab = adminTab ?? "users";
   const adminNav: { key: AdminTab; label: string; icon: ReactNode }[] = [
     { key: "users", label: "Command centre", icon: I.grid },
@@ -518,7 +532,10 @@ export default function DashboardApp() {
         ) : needsOnboarding ? (
           <Onboarding
             me={me}
-            onDone={() => { setCelebrate(true); refresh(); }}
+            // Only reached by somebody already paying, or if checkout could
+            // not be opened. The celebration now fires on the way back from
+            // Stripe instead.
+            onDone={refresh}
           />
         ) : null}
 
@@ -527,10 +544,25 @@ export default function DashboardApp() {
       {/* Where modals are rendered. See Portal below for why. */}
       <div id="roo-modals" />
       {!me.isAdmin && <SupportBubble me={me} onRefresh={refresh} />}
-      {celebrate && (
+      {/* Stripe redirects the instant the card clears, but its webhook can be a
+          second or two behind it. Waiting for `paid` means nobody ever gets
+          confetti and a card wall at the same time. */}
+      {justBack && paid && !partyDone && (
         <>
           <Confetti onDone={() => {}} />
-          <AllSet onClose={() => setCelebrate(false)} />
+          <AllSet
+            onClose={() => {
+              setPartyDone(true);
+              const params = new URLSearchParams(window.location.search);
+              params.delete("checkout");
+              const rest = params.toString();
+              window.history.replaceState(
+                {},
+                "",
+                window.location.pathname + (rest ? `?${rest}` : "")
+              );
+            }}
+          />
         </>
       )}
     </div>
@@ -812,7 +844,7 @@ function SetupScore({ me, groups, alerts, onGo }: {
   alerts: Alert[];
   onGo: (tab: string, view?: string) => void;
 }) {
-  const limit = me.plan?.groups ?? 10;
+  const limit = me.plan?.groups ?? PLANS.local.groups;
   const watching = groups.filter((g) => g.status === "watching");
   const privates = groups.filter(isPrivate);
   const brief = (me.profile?.brief ?? "").trim();
@@ -824,8 +856,8 @@ function SetupScore({ me, groups, alerts, onGo }: {
       done: privates.length === 0,
       // The one that costs them real leads, so it goes first when it applies.
       label: privates.length
-        ? `${privates.length} ${privates.length === 1 ? "group is" : "groups are"} private, swap ${privates.length === 1 ? "it" : "them"}`
-        : "No private groups",
+        ? `${privates.length} ${privates.length === 1 ? "group is not public yet" : "groups are not public yet"}`
+        : "All groups public",
       go: () => onGo("groups"),
     },
     {
@@ -1128,6 +1160,7 @@ const STAGES: Stage[] = ["business", "trade", "suburbs", "jobs", "groups", "revi
 
 type Draft = {
   stage?: Stage;
+  state?: string;
   website?: string;
   gbpUrl?: string;
   businessName?: string;
@@ -1154,9 +1187,9 @@ function readDraft(raw: string | null | undefined): Draft {
 
 function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const known = me.profile;
-  const state = known?.state ?? "";
   // Read once. Later saves must not pull the member back to an older step.
   const [draft] = useState(() => readDraft(known?.wizardDraft));
+  const [state, setState] = useState(draft.state ?? known?.state ?? "");
   const [stage, setStage] = useState<Stage>(
     draft.stage && STAGES.includes(draft.stage) ? draft.stage : "business"
   );
@@ -1181,7 +1214,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const [help, setHelp] = useState(false);
 
   const chosenTrade = trade === OTHER_TRADE ? tradeOther.trim() : trade;
-  const planGroups = me.plan?.groups ?? 10;
+  const planGroups = me.plan?.groups ?? PLANS.local.groups;
   const step = STAGES.indexOf(stage);
 
   function say(message: string) {
@@ -1209,6 +1242,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         body: JSON.stringify({
           draft: {
             stage,
+            state,
             website,
             gbpUrl,
             businessName,
@@ -1227,7 +1261,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
       });
     }, 700);
     return () => clearTimeout(timer);
-  }, [stage, website, gbpUrl, businessName, services, trade, tradeOther, suburbs, brief, groupList, logo]);
+  }, [stage, state, website, gbpUrl, businessName, services, trade, tradeOther, suburbs, brief, groupList, logo]);
 
   /** Step 1. Read the website and the Google listing, then move on. */
   async function scan() {
@@ -1325,7 +1359,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (data.error === "private") {
-          say("Sorry, we cannot watch private groups");
+          say("Public groups only for now");
           return false;
         }
       }
@@ -1337,6 +1371,14 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     return true;
   }
 
+  /**
+   * Save everything, then send them to Stripe.
+   *
+   * The order matters. Saving first creates their sources, and those are
+   * written an hour behind so the very next scan picks them up. That scan
+   * runs while they are on the card page, so by the time they come back
+   * their own groups already have posts in them.
+   */
   async function finish() {
     setBusy(true);
     try {
@@ -1349,6 +1391,9 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
           gbpUrl,
           trade: chosenTrade,
           services,
+          // Asked in setup now, not at signup, and the suburb list is filtered
+          // by it, so it has to be saved with everything else.
+          state,
           suburbs,
           brief,
           groups: groupList.map((g) => g.url),
@@ -1358,7 +1403,26 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         setNote("We could not save that. Please check every step and try again.");
         return;
       }
-      onDone();
+
+      // Already paying, so there is nothing to check out. Straight through.
+      if (me.subscriptionStatus) {
+        onDone();
+        return;
+      }
+
+      const checkout = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: me.plan?.key ?? "local" }),
+      });
+      const session = (await checkout.json().catch(() => ({}))) as { url?: string };
+      if (!session.url) {
+        // Their setup is saved either way, so send them to the dashboard and
+        // let the card screen there ask again.
+        onDone();
+        return;
+      }
+      window.location.href = session.url;
     } finally {
       setBusy(false);
     }
@@ -1367,7 +1431,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const canGo: Record<Stage, boolean> = {
     business: Boolean(website.trim()),
     trade: chosenTrade.length > 1,
-    suburbs: suburbs.length > 0,
+    suburbs: state.length > 1 && suburbs.length > 0,
     jobs: brief.trim().length >= BRIEF_MIN && brief.trim().length <= BRIEF_MAX,
     groups: true,
     review: true,
@@ -1446,7 +1510,15 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
           <>
             <h2>Where do you work?</h2>
             <p className="muted">Pick the suburbs you drive to. We only send you jobs from these areas.</p>
-            <SuburbPicker state={state} chosen={suburbs} onChange={setSuburbs} onSay={say} />
+            <label className="lbl">Your state <span className="req">*</span></label>
+            <select
+              value={state}
+              onChange={(e) => { setState(e.target.value); setSuburbs([]); }}
+            >
+              <option value="">Pick your state</option>
+              {STATES.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+            {state && <SuburbPicker state={state} chosen={suburbs} onChange={setSuburbs} onSay={say} />}
           </>
         )}
 
@@ -1486,8 +1558,8 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
 
         {stage === "groups" && (
           <>
-            <h2>Which Facebook groups should we watch?</h2>
-            <p className="muted">We read these groups day and night and tell you when a job comes up. Public groups only. Nobody outside a private group can read it, us included.</p>
+            <h2>Public groups only</h2>
+            <p className="muted">Private group scanning is coming soon. For now, add the public groups near you. We read them day and night and tell you when a job comes up.</p>
             <GroupAdder onAdd={addGroup} />
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} />
             <p className="tiny">
@@ -1522,7 +1594,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
           {stage === "business" ? (
             <button className="btn primary" disabled={!canGo.business || scanning} onClick={scan}>Continue</button>
           ) : stage === "review" ? (
-            <button className="btn primary" disabled={busy} onClick={finish}>{busy ? "Saving" : "Start watching"}</button>
+            <button className="btn primary" disabled={busy} onClick={finish}>{busy ? "Saving" : "Start scanning"}</button>
           ) : (
             <button className="btn primary" disabled={!canGo[stage] || thinking} onClick={goNext}>Continue</button>
           )}
@@ -1727,7 +1799,7 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
           </li>
           <li>
             <strong>Check it says Public group.</strong>
-            <p className="muted">Look under the group name. A private group can only be read by its members, so we cannot read it for you.</p>
+            <p className="muted">Look under the group name on Facebook. We can only read public groups for now.</p>
           </li>
           <li>
             <strong>Join the group.</strong>
@@ -1749,7 +1821,7 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
 
         <div className="help-warn">
           <p><span className="no-mark">&times;</span> The group name on its own will not work.</p>
-          <p><span className="no-mark">&times;</span> Private groups will not work. Only their members can read them.</p>
+          <p><span className="no-mark">&times;</span> Private groups do not work yet.</p>
           <p><span className="yes-mark">{I.tick}</span> Paste the whole link: https://facebook.com/groups/123456789/</p>
         </div>
 
@@ -2525,7 +2597,7 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
             : d.error === "duplicate"
             ? "That group is already on your list."
             : d.error === "private"
-            ? "Sorry, we cannot watch private groups. Only their members can read them."
+            ? "Public groups only for now. Private group scanning is coming soon."
             : "Could not save that."
         );
         return;

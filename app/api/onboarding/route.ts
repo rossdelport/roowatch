@@ -5,6 +5,7 @@ import { groups, profiles, sources } from "../../../db/schema";
 import { groupSlug, parseGroupInput } from "../../../db/fbgroups";
 import { BRIEF_MAX, BRIEF_MIN } from "../../../db/brief";
 import { groupLimit } from "../../../db/plans";
+import { isKnownState } from "../../../db/trades";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     gbpUrl?: string;
     trade?: string;
     services?: string;
+    state?: string;
     suburbs?: string[];
     brief?: string;
     groups?: string[];
@@ -47,6 +49,9 @@ export async function POST(request: Request) {
     website: (body.website ?? "").trim().slice(0, 300),
     gbpUrl: (body.gbpUrl ?? "").trim().slice(0, 500),
     services: (body.services ?? "").trim().slice(0, 600),
+    // Asked in setup now rather than at signup, and needed here because the
+    // suburb list is filtered by it.
+    ...(isKnownState((body.state ?? "").trim()) ? { state: (body.state ?? "").trim() } : {}),
     // The pipeline reads location as free text, so the suburb list joins up.
     location: suburbs.join(", ").slice(0, 600),
     brief,
