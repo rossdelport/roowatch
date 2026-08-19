@@ -20,13 +20,11 @@ import { sessions, users } from "../../../../db/schema";
  * Ross needs this to set a member's groups up for them on a welcome call, and
  * to show an upsell from inside their own dashboard.
  *
- * Two locks, not one. The master password alone is not enough: the browser
- * asking must already be signed in as an admin. A leaked password on its own
- * must never hand somebody a member's account.
+ * The browser asking must already be signed in as Ross. A normal member
+ * session must never hand somebody another member's account.
  */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
-    password?: string;
     userId?: string;
   };
 
@@ -34,7 +32,7 @@ export async function POST(request: Request) {
   if (!me || !isAdminEmail(me.email)) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
-  const denied = await requireAdmin(body);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   const targetId = String(body.userId ?? "");

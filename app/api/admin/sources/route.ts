@@ -5,14 +5,13 @@ import { groups, sources } from "../../../../db/schema";
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
-    password?: string;
     action?: "list" | "add" | "update" | "remove";
     sourceId?: number;
     groupName?: string;
     url?: string;
     active?: boolean;
   };
-  const denied = await requireAdmin(body);
+  const denied = await requireAdmin(request);
   if (denied) return denied;
 
   const db = getDb();

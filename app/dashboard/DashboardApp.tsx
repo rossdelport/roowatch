@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { groupSlug, parseGroupInput } from "../../db/fbgroups";
@@ -168,6 +168,7 @@ type StripeRow = {
   phone: string | null;
   name: string | null;
 };
+type AdminTab = "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel";
 
 const I = {
   grid: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="18" height="18"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>,
@@ -176,6 +177,8 @@ const I = {
   gear: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33 1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
   shield: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
   card: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="18" height="18"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>,
+  people: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  chart: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 5-7"/></svg>,
   flow: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18"><path d="M4 4v6a2 2 0 0 0 2 2h12a2 2 0 0 1 2 2v6"/><circle cx="4" cy="3" r="1.6"/><circle cx="20" cy="21" r="1.6"/></svg>,
   out: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   tick: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg>,
@@ -193,15 +196,14 @@ export default function DashboardApp() {
   const [tab, setTab] = useState("overview");
   const [leadsView, setLeadsView] = useState<"leads" | "posts">("leads");
   const [celebrate, setCelebrate] = useState(false);
-  const [adminTab, setAdminTab] = useState<null | "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel">(null);
+  const [adminTab, setAdminTab] = useState<AdminTab | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageDays, setUsageDays] = useState(14);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [waiting, setWaiting] = useState(0);
-  const [adminPass, setAdminPass] = useState("");
-  const [adminPrompt, setAdminPrompt] = useState(false);
   const [adminError, setAdminError] = useState("");
   const [adminBusy, setAdminBusy] = useState(false);
+  const [adminReady, setAdminReady] = useState(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [history, setHistory] = useState<HistoryPoint[]>([]);
@@ -218,6 +220,7 @@ export default function DashboardApp() {
   const [signupFunnel, setSignupFunnel] = useState<{ label: string; count: number; rate: number }[]>([]);
   const [signups, setSignups] = useState<{ email: string; name: string; phone: string; trade: string; status?: string; createdAt: string }[]>([]);
   const [tradeStats, setTradeStats] = useState<{ slug: string; views: number; signups: number; rate: number }[]>([]);
+  const adminStarted = useRef(false);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/me");
@@ -263,16 +266,18 @@ export default function DashboardApp() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    adminStarted.current = false;
     setAdminTab(null);
+    setAdminReady(false);
     setMembers([]);
     refresh();
   }
 
-  async function unlockAdmin(
-    target: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel",
+  const loadAdmin = useCallback(async (
+    target: AdminTab,
     days = funnelDays,
     uDays = usageDays
-  ) {
+  ) => {
     setAdminBusy(true);
     setAdminError("");
     try {
@@ -280,7 +285,7 @@ export default function DashboardApp() {
         fetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: adminPass, ...extra }),
+          body: JSON.stringify(extra),
         });
       const [mRes, sRes, pRes, fRes, tRes, uRes] = await Promise.all([
         post("/api/admin/members"),
@@ -291,11 +296,11 @@ export default function DashboardApp() {
         post("/api/admin/usage", { days: uDays }),
       ]);
       if (mRes.status === 401) {
-        setAdminError("Wrong password.");
+        setAdminError("Your admin session has ended. Log in again.");
         return;
       }
       if (!mRes.ok) {
-        setAdminError("Server is not set up yet.");
+        setAdminError("The command centre could not load.");
         return;
       }
       const m = (await mRes.json()) as {
@@ -304,6 +309,7 @@ export default function DashboardApp() {
       setMembers(m.members ?? []);
       setUserStats(m.stats ?? null);
       setHistory(m.history ?? []);
+      setAdminReady(true);
       if (m.flash) setAdminFlash(m.flash);
       if (sRes.ok) {
         const s = (await sRes.json()) as { rows?: StripeRow[]; stripe?: boolean };
@@ -339,23 +345,37 @@ export default function DashboardApp() {
         if (t.flash) setAdminFlash(t.flash);
       }
       if (uRes.ok) setUsage((await uRes.json()) as Usage);
+      const missing = [
+        !sRes.ok && "payments",
+        !pRes.ok && "pipeline",
+        !fRes.ok && "marketing",
+        !tRes.ok && "support",
+        !uRes.ok && "usage",
+      ].filter(Boolean);
+      if (missing.length) setAdminError(`Some data did not load: ${missing.join(", ")}.`);
       setAdminTab(target);
-      setAdminPrompt(false);
     } catch {
-      setAdminError("Could not reach the server.");
+      setAdminError("The command centre could not reach RooWatch.");
     } finally {
       setAdminBusy(false);
     }
-  }
+  }, [funnelDays, usageDays]);
+
+  useEffect(() => {
+    if (!me?.isAdmin || adminStarted.current) return;
+    adminStarted.current = true;
+    setAdminTab("users");
+    void loadAdmin("users");
+  }, [loadAdmin, me?.isAdmin]);
 
   async function scanSource(sourceId: number) {
     const res = await fetch("/api/admin/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceId, password: adminPass }),
+      body: JSON.stringify({ sourceId }),
     });
     const data = (await res.json().catch(() => ({}))) as { matches?: number; posts?: number; error?: string };
-    await unlockAdmin("pipeline");
+    await loadAdmin("pipeline");
     return { ok: res.ok, ...data } as { ok: boolean; matches?: number; posts?: number; error?: string };
   }
 
@@ -363,7 +383,7 @@ export default function DashboardApp() {
     const res = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, password: adminPass }),
+      body: JSON.stringify(payload),
     });
     // A refused plan change means Stripe would not move and nothing changed.
     // Saying so out loud beats a silent no-op that looks like it worked.
@@ -371,7 +391,7 @@ export default function DashboardApp() {
       const d = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
       setAdminFlash(d.message || `That did not work (${d.error || res.status}).`);
     }
-    await unlockAdmin(adminTab ?? "users");
+    await loadAdmin(adminTab ?? "users");
     return res.ok;
   }
 
@@ -386,7 +406,7 @@ export default function DashboardApp() {
     );
   }
 
-  const needsOnboarding = !me.onboarded;
+  const needsOnboarding = !me.onboarded && !me.isAdmin;
   /**
    * Nothing in the app used to check whether a member had actually paid.
    * Abandon the Stripe page and you still landed in a working dashboard,
@@ -400,6 +420,16 @@ export default function DashboardApp() {
   // Ross gets in regardless, and so does a member he is signed in as, or he
   // could never help the very people this blocks.
   const needsCard = !paid && !me.isAdmin && !me.impersonating;
+  const activeAdminTab = adminTab ?? "users";
+  const adminNav: { key: AdminTab; label: string; icon: ReactNode }[] = [
+    { key: "users", label: "Command centre", icon: I.grid },
+    { key: "members", label: "Customers", icon: I.people },
+    { key: "support", label: waiting ? `Support (${waiting})` : "Support", icon: I.chat },
+    { key: "usage", label: "Usage", icon: I.chart },
+    { key: "stripe", label: "Payments", icon: I.card },
+    { key: "pipeline", label: "Pipeline", icon: I.flow },
+    { key: "funnel", label: "Marketing", icon: I.spark },
+  ];
 
   return (
     <div className="dash">
@@ -417,26 +447,36 @@ export default function DashboardApp() {
           </button>
         </div>
       )}
-      <div className="shell">
-        <aside className="side">
+      <div className={me.isAdmin ? "shell admin-shell" : "shell"}>
+        <aside className={me.isAdmin ? "side side-admin" : "side"}>
           <Link className="brand" href="/dashboard">
             <span className="brand-mark">R</span>
             <span>RooWatch</span>
           </Link>
           <nav className="nav">
-            <button className={tab === "overview" && !adminTab ? "on" : ""} onClick={() => { setTab("overview"); setAdminTab(null); }}>{I.grid} Overview</button>
-            <button className={tab === "groups" && !adminTab ? "on" : ""} onClick={() => { setTab("groups"); setAdminTab(null); }}>{I.eye} Groups watching</button>
-            <button className={tab === "alerts" && !adminTab ? "on" : ""} onClick={() => { setTab("alerts"); setAdminTab(null); }}>{I.bell} Leads</button>
+            {me.isAdmin ? (
+              <>
+                <span className="admin-kicker">ROSS ADMIN</span>
+                {adminNav.map((item) => (
+                  <button key={item.key} className={activeAdminTab === item.key ? "on" : ""} onClick={() => setAdminTab(item.key)}>
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+                <button className={tab === "overview" ? "on" : ""} onClick={() => setTab("overview")}>{I.grid} Overview</button>
+                <button className={tab === "groups" ? "on" : ""} onClick={() => setTab("groups")}>{I.eye} Groups watching</button>
+                <button className={tab === "alerts" ? "on" : ""} onClick={() => setTab("alerts")}>{I.bell} Leads</button>
+              </>
+            )}
           </nav>
           <div className="side-bottom">
-            {me.isAdmin && (
-              <button className={adminTab ? "on" : "admin-link"} onClick={() => (members.length || adminTab ? setAdminTab("users") : setAdminPrompt(true))}>{I.flow} Marketing</button>
-            )}
-            <button className={tab === "settings" && !adminTab ? "on" : ""} onClick={() => { setTab("settings"); setAdminTab(null); }}>{I.gear} Settings</button>
+            {!me.isAdmin && <button className={tab === "settings" ? "on" : ""} onClick={() => setTab("settings")}>{I.gear} Settings</button>}
             <div className="side-user">
               <Avatar avatar={me.avatar} name={me.user.name || me.user.email} />
               <div className="side-user-meta">
-                <strong>{me.user.name || "Member"}</strong>
+                <strong>{me.isAdmin ? "Ross Admin" : me.user.name || "Member"}</strong>
                 <span>{me.user.email}</span>
               </div>
               <button className="logout" title="Log out" onClick={logout}>{I.out}</button>
@@ -444,21 +484,21 @@ export default function DashboardApp() {
           </div>
         </aside>
 
-        <main className="main">
-          {adminTab ? (
-            <MarketingView
-              active={adminTab} setActive={setAdminTab}
+        <main className={me.isAdmin ? "main admin-main" : "main"}>
+          {me.isAdmin ? (
+            <AdminHub
+              active={activeAdminTab}
               funnel={funnel} signupFunnel={signupFunnel} signups={signups} tradeStats={tradeStats}
               funnelDays={funnelDays}
-              onFunnelDays={(d) => { setFunnelDays(d); unlockAdmin("funnel", d); }}
+              onFunnelDays={(d) => { setFunnelDays(d); loadAdmin("funnel", d); }}
               onLeadStatus={(email, status) => adminCall("/api/admin/funnel", { action: "status", email, status, days: funnelDays })}
-              userStats={userStats} history={history} flash={adminFlash} adminPassword={adminPass}
+              userStats={userStats} history={history} flash={adminFlash} error={adminError} ready={adminReady}
               threads={threads} waiting={waiting}
               usage={usage} usageDays={usageDays}
-              onUsageDays={(d) => { setUsageDays(d); unlockAdmin("usage", funnelDays, d); }}
+              onUsageDays={(d) => { setUsageDays(d); loadAdmin("usage", funnelDays, d); }}
               members={members} adminCall={adminCall}
               sources={sources} uncovered={uncovered} keys={keys} onScan={scanSource}
-              stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => unlockAdmin("stripe")} adminBusy={adminBusy}
+              stripeRows={stripeRows} stripeOn={stripeOn} onRefreshStripe={() => loadAdmin("stripe")} adminBusy={adminBusy}
             />
           ) : (
             <MemberView
@@ -466,7 +506,7 @@ export default function DashboardApp() {
               tab={tab}
               leadsView={leadsView}
               setLeadsView={setLeadsView}
-              onGo={(next, sub) => { setTab(next); setAdminTab(null); if (sub) setLeadsView(sub); }}
+              onGo={(next, sub) => { setTab(next); if (sub) setLeadsView(sub); }}
               onLogout={logout}
               onRefresh={refresh}
             />
@@ -482,20 +522,6 @@ export default function DashboardApp() {
           />
         ) : null}
 
-        {adminPrompt && (
-          <div className="overlay">
-            <div className="modal modal-small">
-              <h2>Master access</h2>
-              <p className="muted">Enter the master password.</p>
-              <input type="password" placeholder="Master password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && unlockAdmin("members")} autoFocus />
-              {adminError && <p className="error">{adminError}</p>}
-              <div className="row gap">
-                <button className="btn ghost" onClick={() => { setAdminPrompt(false); setAdminError(""); }}>Cancel</button>
-                <button className="btn primary" onClick={() => unlockAdmin("users")} disabled={adminBusy}>{adminBusy ? "Checking" : "Unlock"}</button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Where modals are rendered. See Portal below for why. */}
@@ -1060,7 +1086,7 @@ function Confetti({ onDone }: { onDone: () => void }) {
   );
 }
 
-function Portal({ children }: { children: React.ReactNode }) {
+function Portal({ children }: { children: ReactNode }) {
   if (typeof document === "undefined") return null;
   const host = document.getElementById("roo-modals");
   return host ? createPortal(children, host) : <>{children}</>;
@@ -2869,17 +2895,13 @@ function AlertRow({ alert }: { alert: Alert }) {
   );
 }
 
-/**
- * Every user, what they are worth, and everything Ross can do to them.
- * Admin only, behind the master password like the rest of the Marketing tab.
- */
-function UsersView({ members, stats, history, flash, onAction, adminPassword }: {
+/** Every user, what they are worth, and everything Ross can do to them. */
+function UsersView({ members, stats, history, flash, onAction }: {
   members: Member[];
   stats: UserStats | null;
   history: HistoryPoint[];
   flash: string;
   onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
-  adminPassword: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -2964,7 +2986,7 @@ function UsersView({ members, stats, history, flash, onAction, adminPassword }: 
         )}
       </div>
 
-      {open && <UserModal member={open} onClose={() => setOpenId(null)} onAction={onAction} adminPassword={adminPassword} />}
+      {open && <UserModal member={open} onClose={() => setOpenId(null)} onAction={onAction} />}
     </div>
   );
 }
@@ -3009,11 +3031,10 @@ function Growth({ history }: { history: HistoryPoint[] }) {
   );
 }
 
-function UserModal({ member, onClose, onAction, adminPassword }: {
+function UserModal({ member, onClose, onAction }: {
   member: Member;
   onClose: () => void;
   onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
-  adminPassword: string;
 }) {
   const [name, setName] = useState(member.name);
   const [businessName, setBusinessName] = useState(member.businessName);
@@ -3180,7 +3201,7 @@ function UserModal({ member, onClose, onAction, adminPassword }: {
                   const res = await fetch("/api/admin/impersonate", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ userId: member.id, password: adminPassword }),
+                    body: JSON.stringify({ userId: member.id }),
                   });
                   if (res.ok) window.location.href = "/dashboard";
                   else { setBusy(false); alert("Could not sign in as them."); }
@@ -3552,9 +3573,8 @@ function shrinkImage(file: File): Promise<string> {
   });
 }
 
-function MarketingView(props: {
-  active: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel";
-  setActive: (t: "users" | "support" | "usage" | "members" | "stripe" | "pipeline" | "funnel") => void;
+function AdminHub(props: {
+  active: AdminTab;
   usage: Usage | null;
   usageDays: number;
   onUsageDays: (days: number) => void;
@@ -3563,7 +3583,8 @@ function MarketingView(props: {
   userStats: UserStats | null;
   history: HistoryPoint[];
   flash: string;
-  adminPassword: string;
+  error: string;
+  ready: boolean;
   funnel: { label: string; count: number; rate: number }[];
   funnelDays: number;
   onFunnelDays: (days: number) => void;
@@ -3577,37 +3598,40 @@ function MarketingView(props: {
   onScan: (id: number) => Promise<{ ok: boolean; matches?: number; posts?: number; error?: string }>;
   stripeRows: StripeRow[]; stripeOn: boolean; onRefreshStripe: () => void; adminBusy: boolean;
 }) {
-  const tabs: { key: "users" | "support" | "usage" | "funnel" | "members" | "pipeline" | "stripe"; label: string }[] = [
-    { key: "users", label: "Users" },
-    { key: "usage", label: "Usage" },
-    { key: "support", label: props.waiting ? `Support (${props.waiting})` : "Support" },
-    { key: "funnel", label: "Ad funnel" },
-    { key: "members", label: "Members" },
-    { key: "pipeline", label: "Pipeline" },
-    { key: "stripe", label: "Payments" },
-  ];
+  const pages: Record<AdminTab, { title: string; description: string }> = {
+    users: { title: "Command centre", description: "Your numbers and every RooWatch account." },
+    members: { title: "Customers", description: "Manage plans, groups, and lead tests." },
+    support: { title: "Support", description: "See who needs help and reply from one place." },
+    usage: { title: "Usage", description: "See what RooWatch costs to run." },
+    stripe: { title: "Payments", description: "Check every Stripe checkout." },
+    pipeline: { title: "Pipeline", description: "Watch the public group lead system." },
+    funnel: { title: "Marketing", description: "See how people find and join RooWatch." },
+  };
+  const page = pages[props.active];
   return (
     <div className={props.active === "support" ? "page admin wide" : "page admin"}>
-      <header className="page-head">
+      <header className="page-head admin-head">
         <div>
-          <h1>Marketing</h1>
-          <p className="muted">Your funnel, members, pipeline and payments in one place.</p>
+          <span className="admin-eyebrow">ROOWATCH HQ</span>
+          <h1>{page.title}</h1>
+          <p className="muted">{page.description}</p>
         </div>
+        <span className="admin-session"><i /> Admin access active</span>
       </header>
-      <div className="subtabs" role="tablist">
-        {tabs.map((t) => (
-          <button key={t.key} role="tab" aria-selected={props.active === t.key} className={props.active === t.key ? "subtab on" : "subtab"} onClick={() => props.setActive(t.key)}>{t.label}</button>
-        ))}
-      </div>
-      <div className="subpanel">
-        {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} days={props.funnelDays} onDays={props.onFunnelDays} onStatus={props.onLeadStatus} />}
-        {props.active === "usage" && <UsageView usage={props.usage} days={props.usageDays} onDays={props.onUsageDays} />}
-        {props.active === "support" && <SupportView threads={props.threads} flash={props.flash} onAction={props.adminCall} />}
-        {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} adminPassword={props.adminPassword} />}
-        {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
-        {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
-        {props.active === "stripe" && <PaymentsView rows={props.stripeRows} stripe={props.stripeOn} onRefresh={props.onRefreshStripe} busy={props.adminBusy} />}
-      </div>
+      {props.error && <p className="admin-error">{props.error}</p>}
+      {!props.ready ? (
+        <div className="card"><div className="empty"><span className="spinner" /><p className="muted">Loading RooWatch HQ.</p></div></div>
+      ) : (
+        <div className="subpanel">
+          {props.active === "funnel" && <FunnelView rows={props.funnel} signupRows={props.signupFunnel} signups={props.signups} trades={props.tradeStats} days={props.funnelDays} onDays={props.onFunnelDays} onStatus={props.onLeadStatus} />}
+          {props.active === "usage" && <UsageView usage={props.usage} days={props.usageDays} onDays={props.onUsageDays} />}
+          {props.active === "support" && <SupportView threads={props.threads} flash={props.flash} onAction={props.adminCall} />}
+          {props.active === "users" && <UsersView members={props.members} stats={props.userStats} history={props.history} flash={props.flash} onAction={props.adminCall} />}
+          {props.active === "members" && <MembersView members={props.members} onAction={props.adminCall} />}
+          {props.active === "pipeline" && <PipelineView sources={props.sources} uncovered={props.uncovered} keys={props.keys} onAction={props.adminCall} onScan={props.onScan} />}
+          {props.active === "stripe" && <PaymentsView rows={props.stripeRows} stripe={props.stripeOn} onRefresh={props.onRefreshStripe} busy={props.adminBusy} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -3948,10 +3972,15 @@ const CSS = `
 .shell{display:grid;flex:1;grid-template-columns:250px 1fr;min-height:0;overflow:hidden;}
 .side{background:var(--navy);color:#fff;display:flex;flex-direction:column;height:100%;min-height:0;overflow-y:auto;padding:24px 16px;}
 .side .brand{padding:4px 10px 22px;}
+.admin-shell{grid-template-columns:270px 1fr;}
+.side-admin{background:radial-gradient(circle at 30% 0,rgba(255,106,77,.18),transparent 28%),linear-gradient(180deg,#111d36 0%,#0a1326 100%);}
+.side-admin .brand{border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:14px;padding-bottom:22px;}
 .nav{display:grid;gap:4px;margin-top:8px;}
 .nav button,.side-bottom>button{align-items:center;background:none;border:0;border-radius:10px;color:#b8c3d8;display:flex;font-size:14px;font-weight:600;gap:11px;padding:11px 12px;text-align:left;transition:background .2s var(--ease),color .2s var(--ease);width:100%;}
 .nav button:hover,.side-bottom>button:hover{background:rgba(255,255,255,.07);color:#fff;}
 .nav button.on,.side-bottom>button.on{background:var(--coral);color:#fff;}
+.side-admin .nav button.on{box-shadow:0 8px 24px rgba(255,106,77,.24);}
+.admin-kicker{color:#7889a8;font-size:10px;font-weight:900;letter-spacing:.16em;padding:2px 12px 8px;}
 .side-bottom{display:grid;gap:4px;margin-top:auto;}
 .admin-link{color:#8fa1c0;}
 .side-user{align-items:center;border-top:1px solid rgba(255,255,255,.12);display:flex;gap:10px;margin-top:12px;padding:14px 6px 2px;}
@@ -3964,9 +3993,15 @@ const CSS = `
 .avatar-fallback{align-items:center;background:var(--coral);border-radius:99px;color:#fff;display:inline-flex;flex:none;font-size:12px;font-weight:800;height:34px;justify-content:center;width:34px;}
 
 .main{min-height:0;min-width:0;overflow-y:auto;padding:36px 40px 60px;}
+.admin-main{background:linear-gradient(135deg,rgba(255,255,255,.5),transparent 32%),var(--cream);}
 .page{animation:dRise .45s var(--ease) both;margin:0 auto;max-width:920px;}
 .page-head{align-items:center;display:flex;gap:16px;justify-content:space-between;margin-bottom:24px;}
 .page-head h1{font-size:26px;letter-spacing:-.02em;margin:0 0 4px;}
+.admin-head{border-bottom:1px solid var(--line);padding-bottom:20px;}
+.admin-eyebrow{color:var(--coral-deep);display:block;font-size:10px;font-weight:900;letter-spacing:.18em;margin-bottom:5px;}
+.admin-session{align-items:center;background:#e2f6ec;border:1px solid #c8ead9;border-radius:99px;color:#1d8a63;display:inline-flex;font-size:12px;font-weight:800;gap:7px;padding:8px 12px;white-space:nowrap;}
+.admin-session i{background:var(--mint);border-radius:99px;height:7px;width:7px;}
+.admin-error{background:#fdece8;border:1px solid #f7c9bf;border-radius:12px;color:var(--coral-deep);font-size:13px;font-weight:700;margin:-6px 0 18px;padding:12px 14px;}
 .muted{color:var(--muted);font-size:14px;line-height:1.55;margin:0;}
 .live{align-items:center;color:var(--mint);display:inline-flex;font-size:13px;font-weight:700;gap:7px;white-space:nowrap;}
 .live i{animation:dPulse 1.6s ease-in-out infinite;background:var(--mint);border-radius:99px;display:inline-block;height:8px;width:8px;}
@@ -4162,9 +4197,20 @@ const CSS = `
   .side-bottom{display:flex;margin:0;}
   .side-user{border:0;margin:0;padding:0 4px;}
   .side-user-meta{display:none;}
+  .side-admin{align-items:stretch;}
+  .side-admin .brand{border:0;margin:0;padding:4px 8px;}
+  .side-admin .nav{margin:0;order:3;overflow-x:auto;width:100%;}
+  .side-admin .nav button{flex:none;width:auto;}
+  .side-admin .admin-kicker{display:none;}
   .main{padding:22px 16px 50px;}
   .tiles{grid-template-columns:repeat(2,1fr);}
   .form-grid{grid-template-columns:1fr;}
+}
+
+@media(max-width:640px){
+  .admin-head{align-items:flex-start;}
+  .admin-session{font-size:0;padding:9px;}
+  .admin-session i{height:8px;width:8px;}
 }
 
 .subtabs{border-bottom:1px solid var(--line);display:flex;gap:4px;margin-bottom:22px;overflow-x:auto;}

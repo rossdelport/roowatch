@@ -178,7 +178,7 @@ async function planFromSession(
     };
   } catch {
     // Leave the plan alone rather than guess. Ross can set it by hand from the
-    // Marketing tab, and the payment itself is already recorded.
+    // admin command centre, and the payment itself is already recorded.
     return { plan: known, trialEndsAt: 0 };
   }
 }

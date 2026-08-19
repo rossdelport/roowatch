@@ -1,3 +1,5 @@
+import { requireAdmin } from "../../../../db/admin";
+
 type CheckoutSession = {
   id: string;
   created: number;
@@ -12,15 +14,8 @@ type CheckoutSession = {
 };
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { password?: string };
-  const adminPassword = process.env.ADMIN_PASSWORD;
-
-  if (!adminPassword) {
-    return Response.json({ error: "admin_not_configured" }, { status: 500 });
-  }
-  if (!body.password || body.password !== adminPassword) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = await requireAdmin(request);
+  if (denied) return denied;
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
