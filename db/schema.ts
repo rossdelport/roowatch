@@ -80,6 +80,12 @@ export const sources = sqliteTable("sources", {
   lastCount: integer("last_count").notNull().default(0),
   lastMatches: integer("last_matches").notNull().default(0),
   lastError: text("last_error").notNull().default(""),
+  /**
+   * How many people are in the group, straight from Facebook via the post
+   * data. 0 until the group produces its first post. Bigger is not always
+   * better, but a member choosing between groups deserves to see it.
+   */
+  members: integer("members").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -181,4 +187,45 @@ export const waitlist = sqliteTable("waitlist", {
   /** Where Ross has got to with them: new, booked, client or dead. */
   status: text("status").notNull().default("new"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+/**
+ * Every Facebook group RooWatch has ever found, whether anyone watches it yet
+ * or not.
+ *
+ * Deliberately separate from `sources`. A row in sources is scanned every
+ * minute and costs money, so discovery must never write there: the first
+ * plumber in Joondalup would have us paying to read thirty five groups nobody
+ * had chosen. This is a catalogue, not a watchlist. A group only becomes a
+ * source when a member actually picks it.
+ *
+ * It fills itself. Search for the first member in a suburb, and the next one
+ * gets the answer instantly and for nothing.
+ */
+export const foundGroups = sqliteTable("found_groups", {
+  slug: text("slug").primaryKey(),
+  url: text("url").notNull(),
+  name: text("name").notNull(),
+  /** From Bright Data once the group is scanned. 0 until then. */
+  members: integer("members").notNull().default(0),
+  state: text("state").notNull().default(""),
+  /** The suburb we were searching when we found it. */
+  suburb: text("suburb").notNull().default(""),
+  score: integer("score").notNull().default(0),
+  foundAt: integer("found_at").notNull().default(0),
+});
+
+/**
+ * A Bright Data snapshot opened purely to size up newly discovered groups.
+ *
+ * Kept apart from scan_jobs on purpose. Those belong to members who are paying
+ * to be watched; these are catalogue work, they alert nobody, and they must
+ * never be mistaken for a watchlist.
+ */
+export const catalogueJobs = sqliteTable("catalogue_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  snapshotId: text("snapshot_id").notNull(),
+  /** JSON array of group slugs this snapshot covers. */
+  slugs: text("slugs").notNull(),
+  startedAt: integer("started_at").notNull(),
 });

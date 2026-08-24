@@ -97,6 +97,13 @@ function stillNumbers(group: { name: string; url?: string }) {
   return /^\d+$/.test(slug) && group.name.includes(slug);
 }
 
+/** 83200 -> 83k. Room is tight in a row and nobody needs the last digit. */
+function shortCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, "")}k`;
+  return String(n);
+}
+
 /** Facebook lets nobody but members read a private group, us included. */
 function isPrivate(group: { problem?: string }) {
   return /private/i.test(group.problem ?? "");
@@ -1155,7 +1162,7 @@ function Login() {
   );
 }
 
-type WizardGroup = { url: string; name: string };
+type WizardGroup = { url: string; name: string; members?: number };
 type Stage = "business" | "trade" | "suburbs" | "jobs" | "groups" | "review";
 const STAGES: Stage[] = ["business", "trade", "suburbs", "jobs", "groups", "review"];
 
@@ -1338,7 +1345,8 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     setStage(next);
   }
 
-  const [suggested, setSuggested] = useState<{ name: string; url: string; local?: boolean; proven?: boolean }[]>([]);
+  const [finding, setFinding] = useState(false);
+  const filled = useRef(false);
 
   /**
    * Add a whole batch in one go.
@@ -1348,57 +1356,39 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
    * and the last write wins. Everything is checked first, then the list is
    * written once.
    */
-  async function addMany(urls: string[]) {
-    const room = planGroups - groupList.length;
-    const wanted = urls
-      .slice(0, Math.max(0, room))
-      .map((u) => parseGroupInput(u))
-      .filter((p): p is NonNullable<typeof p> => Boolean(p?.url))
-      .filter((p) => !groupList.some((g) => g.url === p.url));
-    if (!wanted.length) return;
 
-    const checked = await Promise.all(
-      wanted.map(async (p) => {
-        try {
-          const res = await fetch("/api/onboarding/check-group", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: p.url }),
-          });
-          return res.ok ? p : null;
-        } catch {
-          // If the check itself fails, let it through. The scan settles it.
-          return p;
-        }
-      })
-    );
-
-    const ok = checked.filter((p): p is NonNullable<typeof p> => Boolean(p));
-    if (!ok.length) {
-      say("Public groups only for now");
-      return;
-    }
-    setGroupList([...groupList, ...ok.map((p) => ({ url: p.url as string, name: p.name }))]);
-    say(`${ok.length} ${ok.length === 1 ? "group" : "groups"} added`);
-  }
-
+  /**
+   * Fill their watchlist for them.
+   *
+   * A tradie should never hunt around Facebook copying links. We know their
+   * suburbs, so the moment they reach this step we go and get the groups and
+   * put them straight in. They rename, delete, add their own, and carry on.
+   * Runs once, so coming back to the step never undoes their edits.
+   */
   useEffect(() => {
-    if (stage !== "groups") return;
-    let alive = true;
+    if (stage !== "groups" || filled.current) return;
+    filled.current = true;
+    setFinding(true);
     fetch("/api/onboarding/suggest-groups", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ state, suburbs }),
     })
       .then((r) => r.json())
-      .then((d: { groups?: { name: string; url: string; local?: boolean; proven?: boolean }[] }) => {
-        if (alive) setSuggested(d.groups ?? []);
+      .then((d: { groups?: { name: string; url: string; members?: number }[] }) => {
+        setGroupList((have) => {
+          const room = Math.min(planGroups, 20) - have.length;
+          if (room <= 0) return have;
+          const fresh = (d.groups ?? [])
+            .filter((g) => !have.some((h) => h.url === g.url))
+            .slice(0, room)
+            .map((g) => ({ url: g.url, name: g.name, members: g.members ?? 0 }));
+          return [...have, ...fresh];
+        });
       })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [stage, state, suburbs]);
+      .catch(() => {})
+      .finally(() => setFinding(false));
+  }, [stage, state, suburbs, planGroups]);
 
   async function addGroup(raw: string) {
     const parsed = parseGroupInput(raw);
@@ -1635,62 +1625,29 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
 
         {stage === "groups" && (
           <>
-            <h2>Public groups only</h2>
-            <p className="muted">Private group scanning is coming soon. For now, add the public groups near you. We read them day and night and tell you when a job comes up.</p>
+            <h2>
+              {finding
+                ? "Finding your groups"
+                : groupList.length
+                ? `${groupList.length} groups added for you`
+                : "Public groups only"}
+            </h2>
+            <p className="muted">
+              {finding
+                ? `Searching ${suburbs.slice(0, 3).join(", ") || "your area"} for local groups.`
+                : groupList.length
+                ? "We picked these from your suburbs. Rename, delete or add your own, then carry on."
+                : "Private group scanning is coming soon. Paste a public group link to get started."}
+            </p>
             <GroupAdder onAdd={addGroup} />
 
-            {(() => {
-              const room = planGroups - groupList.length;
-              const fresh = suggested
-                .filter((g) => !groupList.some((have) => have.url === g.url))
-                .slice(0, Math.min(room, 8));
-              if (!fresh.length) return null;
-              return (
-                <div className="sugg">
-                  <div className="sugg-top">
-                    <p className="tiny sugg-head">
-                      {/* Never "we found these". Nothing is searched: every one
-                          is a group an earlier member pasted in themselves. */}
-                      {fresh.some((g) => !g.proven)
-                        ? "Groups we found near you"
-                        : fresh.some((g) => g.local)
-                        ? "Other tradies in your suburbs watch these"
-                        : `Other tradies in ${state || "your state"} watch these`}
-                    </p>
-                    <button
-                      className="sugg-all"
-                      type="button"
-                      onClick={() => {
-                        // One tap for the lot. Still checked for private and
-                        // still capped by the plan, just written once.
-                        addMany(fresh.map((g) => g.url));
-                      }}
-                    >
-                      Add all {fresh.length}
-                    </button>
-                  </div>
-                  <div className="sugg-list">
-                    {fresh.map((g) => (
-                      <button
-                        key={g.url}
-                        className={g.local ? "sugg-chip near" : "sugg-chip"}
-                        onClick={() => addGroup(g.url)}
-                        type="button"
-                      >
-                        <span>{g.name}</span>
-                        <i>+</i>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-
-            <GroupTable rows={groupList} onChange={setGroupList} onSay={say} />
+            <GroupTable rows={groupList} onChange={setGroupList} onSay={say} filling={finding} />
             <p className="tiny">
-              {groupList.length === 0
-                ? "Add at least one group to finish. Tap one above or paste a link."
-                : `${groupList.length} of ${planGroups} groups added.`}
+              {finding
+                ? "This takes a few seconds."
+                : groupList.length === 0
+                ? "Add at least one group to finish."
+                : `${groupList.length} of ${planGroups} groups. Edit or delete any you do not want.`}
             </p>
           </>
         )}
@@ -1854,16 +1811,39 @@ function GroupAdder({ onAdd }: { onAdd: (raw: string) => Promise<boolean> }) {
   );
 }
 
-function GroupTable({ rows, onChange, onSay }: {
+/**
+ * The watchlist during setup: rename, delete, and how big each group is.
+ *
+ * Rows slide in one after another as the list fills, so a member watches it
+ * being built rather than staring at a spinner.
+ */
+function GroupTable({ rows, onChange, onSay, filling }: {
   rows: WizardGroup[];
   onChange: (next: WizardGroup[]) => void;
   onSay: (message: string) => void;
+  filling?: boolean;
 }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  function saveName(url: string) {
+    const name = draft.trim();
+    if (name.length < 2) return;
+    onChange(rows.map((r) => (r.url === url ? { ...r, name } : r)));
+    setEditing(null);
+    onSay("Name saved");
+  }
+
   if (rows.length === 0) {
-    return (
+    return filling ? (
+      <div className="empty tight">
+        <span className="spinner" />
+        <p className="muted">Looking for groups near you.</p>
+      </div>
+    ) : (
       <div className="empty tight">
         <p><strong>No groups yet.</strong></p>
-        <p className="muted">Add a group and we start watching it the moment you finish.</p>
+        <p className="muted">Paste a link above and we start watching it the moment you finish.</p>
       </div>
     );
   }
@@ -1871,22 +1851,51 @@ function GroupTable({ rows, onChange, onSay }: {
   return (
     <div className="table-wrap">
       <table className="wiz-table">
-        <thead>
-          <tr><th>Group</th><th>Link</th><th aria-label="Actions" /></tr>
-        </thead>
         <tbody>
           {rows.map((g, i) => (
-            <tr key={g.url}>
-              <td><strong>{g.name}</strong></td>
-              <td className="link-cell">{g.url.replace("https://www.facebook.com/groups/", "")}</td>
+            <tr
+              key={g.url}
+              className="wiz-row"
+              style={{ animationDelay: `${Math.min(i, 20) * 70}ms` }}
+            >
+              <td>
+                {editing === g.url ? (
+                  <input
+                    className="row-edit"
+                    value={draft}
+                    autoFocus
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveName(g.url);
+                      if (e.key === "Escape") setEditing(null);
+                    }}
+                  />
+                ) : (
+                  <>
+                    <strong>{g.name}</strong>
+                    <span className="tiny block link-cell">
+                      {g.url.replace("https://www.facebook.com/groups/", "")}
+                    </span>
+                  </>
+                )}
+              </td>
+              <td className="size-cell">
+                {g.members ? (
+                  <span className="size-pill">{shortCount(g.members)} members</span>
+                ) : (
+                  <span className="size-pill quiet"><i className="spinner tiny" /> sizing</span>
+                )}
+              </td>
               <td className="act-cell">
-                {/* No edit here. A wrong link is faster to delete and repaste
-                    than to fix in place, and two buttons crowded the row. */}
+                {editing === g.url ? (
+                  <button className="mini" onClick={() => saveName(g.url)}>Save</button>
+                ) : (
+                  <button className="mini" onClick={() => { setDraft(g.name); setEditing(g.url); }}>Edit</button>
+                )}
                 <button
                   className="mini danger"
                   onClick={() => {
-                    if (!confirm(`Stop watching ${g.name}?`)) return;
-                    onChange(rows.filter((_, x) => x !== i));
+                    onChange(rows.filter((r) => r.url !== g.url));
                     onSay("Group removed");
                   }}
                 >
@@ -1901,7 +1910,6 @@ function GroupTable({ rows, onChange, onSay }: {
   );
 }
 
-/** Shows a tradie exactly where the link lives, with a drawn address bar. */
 function GroupHelp({ onClose }: { onClose: () => void }) {
   return (
     <Portal>
@@ -4795,6 +4803,17 @@ const CSS = `
 .empty.small{padding:18px 4px;}
 @media(max-width:1100px){.ov-split{grid-template-columns:1fr;}}
 
+.wiz-row{animation:wizIn .42s cubic-bezier(.22,1,.36,1) both;}
+@keyframes wizIn{from{opacity:0;transform:translateY(-10px);}to{opacity:1;transform:none;}}
+@media(prefers-reduced-motion:reduce){.wiz-row{animation:none;}}
+.size-cell{text-align:right;white-space:nowrap;width:1%;}
+.act-cell{white-space:nowrap;}
+.act-cell .mini + .mini{margin-left:8px;}
+.size-pill{align-items:center;background:#faf7f2;border:1px solid var(--line);border-radius:99px;color:var(--muted);display:inline-flex;font-size:11.5px;font-weight:800;gap:6px;padding:3px 9px;}
+.size-pill.quiet{opacity:.6;}
+.spinner.tiny{border-width:2px;height:10px;width:10px;}
+.row-edit{margin:0;padding:8px 10px;}
+.empty.tight .spinner{margin:0 auto 10px;}
 .sugg{margin-top:14px;}
 .sugg-head{color:var(--muted);margin:0;}
 .sugg-top{align-items:baseline;display:flex;gap:12px;justify-content:space-between;margin-bottom:9px;}

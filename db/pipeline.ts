@@ -80,6 +80,8 @@ export async function bdProgress(snapshotId: string): Promise<BdProgress> {
 export type GroupFacts = {
   /** The group's real name on Facebook, when a post carried it. */
   name: string;
+  /** How many people are in it. 0 when no post has told us yet. */
+  members: number;
   /** Why we got nothing, in Facebook's words. Empty when all is well. */
   error: string;
   /** True when Facebook says only members may read it. It will never work. */
@@ -158,7 +160,7 @@ function readFacts(
 ): Map<string, GroupFacts> {
   const facts = new Map<string, GroupFacts>();
   for (const url of sourceUrls) {
-    facts.set(groupSlug(url), { name: "", error: "", private: false });
+    facts.set(groupSlug(url), { name: "", members: 0, error: "", private: false });
   }
 
   for (const row of rows) {
@@ -169,6 +171,9 @@ function readFacts(
 
     const name = String(row.group_name ?? "").trim();
     if (name) fact.name = name;
+
+    const members = Number(row.group_members ?? 0);
+    if (Number.isFinite(members) && members > 0) fact.members = members;
 
     const error = String(row.error ?? "").trim();
     if (!error) continue;

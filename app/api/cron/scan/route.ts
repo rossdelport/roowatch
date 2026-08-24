@@ -2,6 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bdCollect, bdProgress, bdTrigger, dueSources, processSource, type GroupFacts } from "../../../../db/pipeline";
 import { groupSlug } from "../../../../db/fbgroups";
+import { collectCatalogue } from "../../../../db/catalogue";
 import { groups, scanJobs, sources } from "../../../../db/schema";
 
 /**
@@ -138,12 +139,18 @@ async function collectJob(job: Job) {
  * Saying so beats leaving somebody to wonder why that one is always quiet.
  */
 async function learnAbout(
-  source: { id: number; groupName: string; url: string; lastError: string },
+  source: { id: number; groupName: string; url: string; lastError: string; members: number },
   fact: GroupFacts | undefined,
   sawPosts: boolean
 ) {
   if (!fact) return;
   const db = getDb();
+
+  // Kept fresh on every pass. A group's size drifts, and a stale number is
+  // worse than none when somebody is choosing between groups.
+  if (fact.members && fact.members !== source.members) {
+    await db.update(sources).set({ members: fact.members }).where(eq(sources.id, source.id));
+  }
 
   if (fact.name && fact.name !== source.groupName) {
     await db.update(sources).set({ groupName: fact.name }).where(eq(sources.id, source.id));
@@ -229,6 +236,15 @@ export async function POST(request: Request) {
   const db = getDb();
   const open = (await db.select().from(scanJobs)) as Job[];
   const { stillRunning, collected } = await sweep(open);
+
+  // Sizing up newly discovered groups, kept beside the real scan rather than
+  // inside it. It alerts nobody and writes only to the catalogue, so a failure
+  // here can never cost a member a lead.
+  try {
+    await collectCatalogue();
+  } catch {
+    // Never let catalogue work break a scan.
+  }
 
   // Groups already inside a running snapshot must not be asked for again.
   // Their lastChecked has not moved yet, so they still look due.
