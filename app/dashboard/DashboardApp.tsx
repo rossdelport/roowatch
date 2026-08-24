@@ -210,6 +210,14 @@ export default function DashboardApp() {
   // render instead means the flag is still there when the profile finally
   // loads and we know whether they actually paid.
   const [partyDone, setPartyDone] = useState(false);
+  /** The phone menu. Never opens on a desktop, where the sidebar is always there. */
+  const [drawer, setDrawer] = useState(false);
+  /**
+   * Setup can be put aside. Every answer is already saved as a draft, so
+   * closing it loses nothing, and being trapped in a modal on a phone with no
+   * way out is worse than an unfinished watchlist.
+   */
+  const [wizardHidden, setWizardHidden] = useState(false);
   const [adminTab, setAdminTab] = useState<AdminTab | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageDays, setUsageDays] = useState(14);
@@ -469,8 +477,34 @@ export default function DashboardApp() {
           </button>
         </div>
       )}
+      {/* Phones only. The sidebar used to wrap into three rows of buttons and
+          eat three hundred pixels before a member saw anything. */}
+      <header className="topbar">
+        <Link className="brand" href="/dashboard">
+          <span className="brand-mark">R</span>
+          <span>RooWatch</span>
+        </Link>
+        <button
+          className="burger"
+          onClick={() => setDrawer(true)}
+          aria-label="Open menu"
+          aria-expanded={drawer}
+        >
+          <i /><i /><i />
+        </button>
+      </header>
+
+      {drawer && (
+        <div className="drawer-veil" onClick={() => setDrawer(false)} aria-hidden="true" />
+      )}
+
       <div className={me.isAdmin ? "shell admin-shell" : "shell"}>
-        <aside className={me.isAdmin ? "side side-admin" : "side"}>
+        <aside
+          className={`${me.isAdmin ? "side side-admin" : "side"}${drawer ? " open" : ""}`}
+        >
+          <button className="drawer-close" onClick={() => setDrawer(false)} aria-label="Close menu">
+            {I.x}
+          </button>
           <Link className="brand" href="/dashboard">
             <span className="brand-mark">R</span>
             <span>RooWatch</span>
@@ -480,21 +514,21 @@ export default function DashboardApp() {
               <>
                 <span className="admin-kicker">ROSS ADMIN</span>
                 {adminNav.map((item) => (
-                  <button key={item.key} className={activeAdminTab === item.key ? "on" : ""} onClick={() => setAdminTab(item.key)}>
+                  <button key={item.key} className={activeAdminTab === item.key ? "on" : ""} onClick={() => { setAdminTab(item.key); setDrawer(false); }}>
                     {item.icon} {item.label}
                   </button>
                 ))}
               </>
             ) : (
               <>
-                <button className={tab === "overview" ? "on" : ""} onClick={() => setTab("overview")}>{I.grid} Overview</button>
-                <button className={tab === "groups" ? "on" : ""} onClick={() => setTab("groups")}>{I.eye} Groups watching</button>
-                <button className={tab === "alerts" ? "on" : ""} onClick={() => setTab("alerts")}>{I.bell} Leads</button>
+                <button className={tab === "overview" ? "on" : ""} onClick={() => { setTab("overview"); setDrawer(false); }}>{I.grid} Overview</button>
+                <button className={tab === "groups" ? "on" : ""} onClick={() => { setTab("groups"); setDrawer(false); }}>{I.eye} Groups watching</button>
+                <button className={tab === "alerts" ? "on" : ""} onClick={() => { setTab("alerts"); setDrawer(false); }}>{I.bell} Leads</button>
               </>
             )}
           </nav>
           <div className="side-bottom">
-            {!me.isAdmin && <button className={tab === "settings" ? "on" : ""} onClick={() => setTab("settings")}>{I.gear} Settings</button>}
+            {!me.isAdmin && <button className={tab === "settings" ? "on" : ""} onClick={() => { setTab("settings"); setDrawer(false); }}>{I.gear} Settings</button>}
             <div className="side-user">
               <Avatar avatar={me.avatar} name={me.user.name || me.user.email} />
               <div className="side-user-meta">
@@ -535,15 +569,28 @@ export default function DashboardApp() {
           )}
         </main>
 
+        {/* Put aside, not abandoned. Every answer is saved, so this walks them
+            straight back to the step they left. */}
+        {needsOnboarding && wizardHidden && !needsCard && (
+          <button className="resume-setup" onClick={() => setWizardHidden(false)}>
+            <span>
+              <strong>Finish setting up</strong>
+              <em>We are not watching anything for you yet. Your answers are saved.</em>
+            </span>
+            <i>{I.arrow ?? "›"}</i>
+          </button>
+        )}
+
         {needsCard ? (
           <NeedCard me={me} onRefresh={refresh} onLogout={logout} />
-        ) : needsOnboarding ? (
+        ) : needsOnboarding && !wizardHidden ? (
           <Onboarding
             me={me}
             // Only reached by somebody already paying, or if checkout could
             // not be opened. The celebration now fires on the way back from
             // Stripe instead.
             onDone={refresh}
+            onClose={() => setWizardHidden(true)}
           />
         ) : null}
 
@@ -1193,7 +1240,7 @@ function readDraft(raw: string | null | undefined): Draft {
   }
 }
 
-function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
+function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClose: () => void }) {
   const known = me.profile;
   // Read once. Later saves must not pull the member back to an older step.
   const [draft] = useState(() => readDraft(known?.wizardDraft));
@@ -1525,6 +1572,14 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
           </div>
         )}
 
+        <button
+          className="modal-x"
+          onClick={onClose}
+          aria-label="Close setup"
+          title="Close. Your answers are saved."
+        >
+          {I.x}
+        </button>
         <div className="wiz-top">
           <div className="steps-dots">
             {STAGES.map((s, i) => (
@@ -3270,27 +3325,81 @@ function CheckoutJourneyChip({ member }: { member: Member }) {
   return <span className={`chip-status ${journey.tone}`}>{journey.label}</span>;
 }
 
-/** Two lines on one grid: accounts and MRR. Drawn by hand, no chart library. */
+/**
+ * Two lines on one grid: accounts and MRR. Drawn by hand, no chart library.
+ *
+ * Two scales, because accounts are counted in ones and MRR in hundreds. Each
+ * line is read against its own axis, in its own colour, so nobody has to guess
+ * which number belongs to which line.
+ *
+ * The tick labels are HTML rather than SVG text. The plot is stretched to fill
+ * whatever width it is given, and stretched text looks broken.
+ */
 function Growth({ history }: { history: HistoryPoint[] }) {
   if (history.length < 2) {
     return <div className="empty tight"><p className="muted">Not enough days yet.</p></div>;
   }
   const W = 640;
   const H = 170;
-  const maxUsers = Math.max(1, ...history.map((h) => h.users));
-  const maxMrr = Math.max(1, ...history.map((h) => h.mrr));
+
+  /** Round a maximum up to something a person would actually write down. */
+  function niceTop(value: number): number {
+    if (value <= 5) return 5;
+    const pow = 10 ** Math.floor(Math.log10(value));
+    for (const step of [1, 2, 2.5, 5, 10]) {
+      const top = step * pow;
+      if (top >= value) return top;
+    }
+    return 10 * pow;
+  }
+
+  const topUsers = niceTop(Math.max(1, ...history.map((h) => h.users)));
+  const topMrr = niceTop(Math.max(1, ...history.map((h) => h.mrr)));
   const x = (i: number) => (i / (history.length - 1)) * W;
   const line = (pick: (h: HistoryPoint) => number, max: number) =>
-    history.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${(H - (pick(h) / max) * H).toFixed(1)}`).join(" ");
+    history
+      .map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${(H - (pick(h) / max) * H).toFixed(1)}`)
+      .join(" ");
 
+  // Four rows, top to bottom, so the labels read the way the chart does.
+  const rows = [1, 0.75, 0.5, 0.25, 0];
   const last = history[history.length - 1];
+
+  /** A few dates across the bottom, never more than will fit. */
+  const marks = [0, Math.round((history.length - 1) / 2), history.length - 1]
+    .filter((v, i, all) => all.indexOf(v) === i)
+    .map((i) => history[i].day.slice(5));
+
   return (
     <div className="growth">
-      <svg viewBox={`0 0 ${W} ${H}`} className="growth-svg" preserveAspectRatio="none" aria-hidden="true">
-        <path d={`${line((h) => h.users, maxUsers)} L${W},${H} L0,${H} Z`} className="growth-fill" />
-        <path d={line((h) => h.users, maxUsers)} className="growth-users" />
-        <path d={line((h) => h.mrr, maxMrr)} className="growth-mrr" />
-      </svg>
+      <div className="growth-plot">
+        <div className="growth-axis left" aria-hidden="true">
+          {rows.map((r) => (
+            <span key={r}>{Math.round(topUsers * r).toLocaleString()}</span>
+          ))}
+        </div>
+
+        <div className="growth-canvas">
+          <svg viewBox={`0 0 ${W} ${H}`} className="growth-svg" preserveAspectRatio="none" aria-hidden="true">
+            {rows.map((r) => (
+              <line key={r} x1="0" x2={W} y1={H - r * H} y2={H - r * H} className="growth-grid" />
+            ))}
+            <path d={`${line((h) => h.users, topUsers)} L${W},${H} L0,${H} Z`} className="growth-fill" />
+            <path d={line((h) => h.users, topUsers)} className="growth-users" />
+            <path d={line((h) => h.mrr, topMrr)} className="growth-mrr" />
+          </svg>
+          <div className="growth-x" aria-hidden="true">
+            {marks.map((m) => <span key={m}>{m}</span>)}
+          </div>
+        </div>
+
+        <div className="growth-axis right" aria-hidden="true">
+          {rows.map((r) => (
+            <span key={r}>${Math.round(topMrr * r).toLocaleString()}</span>
+          ))}
+        </div>
+      </div>
+
       <div className="growth-key">
         <span><i className="key-users" /> Accounts, now {last.users}</span>
         <span><i className="key-mrr" /> MRR, now ${last.mrr.toLocaleString()}</span>
@@ -4237,6 +4346,10 @@ const CSS = `
 /* The app shell holds still and only the content area scrolls. The page
    used to scroll as one document, so on a tall view the buttons at the
    bottom of a panel walked off the screen and had to be chased. */
+.topbar{display:none;}
+.burger{display:none;}
+.drawer-veil{display:none;}
+.drawer-close{display:none;}
 .shell{display:grid;flex:1;grid-template-columns:250px 1fr;min-height:0;overflow:hidden;}
 .side{background:var(--navy);color:#fff;display:flex;flex-direction:column;height:100%;min-height:0;overflow-y:auto;padding:24px 16px;}
 .side .brand{padding:4px 10px 22px;}
@@ -4453,28 +4566,53 @@ const CSS = `
 .admin td a{color:var(--coral-deep);text-decoration:none;}
 
 @media(max-width:860px){
-  /* One narrow column has no room for a fixed shell, so the page scrolls
-     as one again and the sidebar rides along the top. */
+  /* One narrow column has no room for a fixed shell, so the page scrolls as
+     one again and the sidebar becomes a drawer. */
   .dash{display:block;height:auto;overflow:visible;}
   .shell{grid-template-columns:1fr;min-height:100vh;overflow:visible;}
-  .side{align-items:center;flex-direction:row;flex-wrap:wrap;gap:6px;height:auto;overflow:visible;position:static;}
-  .main{overflow:visible;}
-  .chat-card{height:auto;}
-  .thread-list{max-height:50vh;}
-  .side .brand{padding:4px 8px;}
-  .nav{display:flex;gap:4px;margin:0 auto;}
-  .nav button{padding:9px 10px;}
-  .side-bottom{display:flex;margin:0;}
-  .side-user{border:0;margin:0;padding:0 4px;}
-  .side-user-meta{display:none;}
-  .side-admin{align-items:stretch;}
-  .side-admin .brand{border:0;margin:0;padding:4px 8px;}
-  .side-admin .nav{margin:0;order:3;overflow-x:auto;width:100%;}
-  .side-admin .nav button{flex:none;width:auto;}
-  .side-admin .admin-kicker{display:none;}
-  .main{padding:22px 16px 50px;}
+  .main{overflow:visible;padding:18px 16px 64px;}
+
+  .topbar{align-items:center;background:var(--navy);display:flex;justify-content:space-between;padding:12px 16px;position:sticky;top:0;z-index:45;}
+  .topbar .brand{font-size:17px;padding:0;}
+
+  .burger{background:none;border:0;display:grid;gap:4px;padding:8px 4px;}
+  .burger i{background:#fff;border-radius:2px;display:block;height:2px;width:22px;}
+
+  .drawer-veil{background:rgba(10,17,32,.5);display:block;inset:0;position:fixed;z-index:48;animation:dRise .2s var(--ease) both;}
+
+  /* The sidebar slides in from the left rather than wrapping across the top. */
+  .side{bottom:0;height:auto;left:0;max-width:82vw;overflow-y:auto;padding:18px 16px 24px;position:fixed;top:0;transform:translateX(-100%);transition:transform .28s var(--ease);width:290px;z-index:49;}
+  .side.open{transform:none;}
+  .side .brand{padding:4px 8px 20px;}
+  .drawer-close{align-items:center;background:rgba(255,255,255,.1);border:0;border-radius:99px;color:#fff;display:inline-flex;height:34px;justify-content:center;position:absolute;right:14px;top:14px;width:34px;}
+  .drawer-close svg{height:15px;width:15px;}
+
+  .nav{display:grid;gap:4px;margin:0;}
+  .nav button{font-size:15px;padding:13px 12px;}
+  .side-bottom{display:grid;margin-top:24px;}
+  .side-user{border-top:1px solid rgba(255,255,255,.12);margin-top:12px;padding:14px 6px 2px;}
+  .side-user-meta{display:grid;}
+
   .tiles{grid-template-columns:repeat(2,1fr);}
   .form-grid{grid-template-columns:1fr;}
+  .ov-split{grid-template-columns:1fr;}
+  .chat-card{height:auto;}
+  .thread-list{max-height:50vh;}
+
+  /* Readable on a phone without shouting. */
+  .tiny,.cost-label,.tile-label{font-size:12.5px;}
+  .page-head h1{font-size:22px;}
+  .modal,.modal-wide{padding:22px 18px;}
+  .modal h2{font-size:20px;}
+  .wiz-table td{padding:11px 8px;}
+  .size-cell{display:none;}
+  .act-cell .mini{padding:8px 10px;}
+
+  /* Pictures sized for a phone, not a desktop hero. */
+  .allset-roo,.needcard-roo{height:84px;width:84px;}
+  .wiz-logo{height:30px;}
+  img{max-width:100%;}
+}
 }
 
 @media(max-width:640px){
@@ -4529,6 +4667,15 @@ const CSS = `
 .chip-status.warn{background:#fff3d8;color:#8a5a00;}
 
 .growth{margin:6px 0 0;}
+.growth-plot{display:grid;grid-template-columns:auto 1fr auto;gap:10px;}
+.growth-canvas{min-width:0;}
+.growth-axis{display:flex;flex-direction:column;justify-content:space-between;padding-bottom:19px;}
+.growth-axis span{color:var(--muted);font-size:10.5px;font-variant-numeric:tabular-nums;font-weight:700;line-height:1;}
+.growth-axis.left span{color:var(--coral-deep);text-align:right;}
+.growth-axis.right span{color:var(--mint);text-align:left;}
+.growth-grid{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke;}
+.growth-x{display:flex;justify-content:space-between;padding-top:6px;}
+.growth-x span{color:var(--muted);font-size:10.5px;font-variant-numeric:tabular-nums;font-weight:700;}
 .growth-svg{display:block;height:170px;width:100%;}
 .growth-fill{fill:rgba(255,106,77,.1);stroke:none;}
 .growth-users{fill:none;stroke:var(--coral);stroke-width:2.5;vector-effect:non-scaling-stroke;}
@@ -4747,6 +4894,15 @@ const CSS = `
 }
 
 /* ---- setup wizard ---- */
+.resume-setup{align-items:center;background:var(--navy);border:0;border-radius:14px;bottom:18px;box-shadow:var(--shadow);color:#fff;display:flex;gap:14px;justify-content:space-between;left:50%;max-width:520px;padding:14px 18px;position:fixed;transform:translateX(-50%);width:calc(100% - 32px);z-index:44;}
+.resume-setup span{display:grid;gap:2px;text-align:left;}
+.resume-setup strong{font-size:14.5px;}
+.resume-setup em{color:#a9b8d4;font-size:12.5px;font-style:normal;}
+.resume-setup i{color:var(--coral);font-size:20px;font-style:normal;}
+.modal{position:relative;}
+.modal-x{align-items:center;background:#f6f1e9;border:0;border-radius:99px;color:var(--muted);display:inline-flex;height:30px;justify-content:center;position:absolute;right:14px;top:14px;transition:background .2s,color .2s;width:30px;z-index:2;}
+.modal-x:hover{background:var(--coral);color:#fff;}
+.modal-x svg{height:13px;width:13px;}
 .modal-wide{max-width:600px;position:relative;}
 
 /* The overview: proof on the left, jobs on the right. */

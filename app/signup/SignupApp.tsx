@@ -376,6 +376,13 @@ const ARROW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%236b7385' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
 
 const CSS = `
+@media(max-width:640px){
+  /* phone polish: nothing under 12.5px, nothing under a thumb. */
+  .brand-roo{height:110px;}
+  .peek{min-height:40px;padding:0 12px;}
+  .foot a{display:inline-block;min-height:40px;line-height:40px;}
+  .hint,.foot{font-size:12.5px;}
+}
 .auth{--cream:#fff9f1;--ink:#172038;--muted:#6b7385;--line:#ece5da;--navy:#111d36;--coral:#ff6a4d;--coral-deep:#f04f31;--mint:#2eaa81;--ease:cubic-bezier(.22,1,.36,1);
   background:var(--cream);color:var(--ink);font-family:var(--font-inter-tight),"Inter Tight",Arial,sans-serif;min-height:100vh;}
 .auth *{box-sizing:border-box;font-family:inherit;}
