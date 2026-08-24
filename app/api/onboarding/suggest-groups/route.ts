@@ -2,6 +2,8 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { groups, profiles, sources } from "../../../../db/schema";
+import { findGroups, searchConfigured } from "../../../../db/groupsearch";
+import { groupSlug } from "../../../../db/fbgroups";
 
 /**
  * Public groups other tradies in the same state already watch.
@@ -49,15 +51,44 @@ export async function POST(request: Request) {
     .orderBy(sql`count(distinct ${groups.userId}) desc`)
     .limit(12);
 
-  // A group with their own suburb in its name is worth far more than a busy
-  // one on the other side of the state, so those float to the top.
-  const ranked = rows
+  // Everything a member already watches, so a search result we are already
+  // reading can be marked as proven rather than guessed at.
+  const known = new Set(rows.map((r) => groupSlug(r.url)));
+
+  // Search the public index for groups near them. Nothing here touches
+  // Facebook: it reads a search engine, the same as anyone with a browser.
+  let searched: { name: string; url: string; watchers: number; proven: boolean }[] = [];
+  if (searchConfigured()) {
+    try {
+      const found = await findGroups(body.suburbs ?? [], state);
+      searched = found
+        .filter((g) => !known.has(g.slug))
+        .map((g) => ({ name: g.name, url: g.url, watchers: 0, proven: false }));
+    } catch {
+      // A search outage must never stop somebody finishing setup.
+    }
+  }
+
+  const all = [
+    ...rows.map((r) => ({ ...r, proven: true })),
+    ...searched,
+  ];
+
+  // Their own suburb in the name beats everything. After that, a group we
+  // already read beats one we have only found.
+  const ranked = all
     .map((r) => {
       const name = (r.name ?? "").toLowerCase();
       const local = suburbs.some((sub) => sub && name.includes(sub));
       return { ...r, local };
     })
-    .sort((a, b) => Number(b.local) - Number(a.local) || b.watchers - a.watchers);
+    .sort(
+      (a, b) =>
+        Number(b.local) - Number(a.local) ||
+        Number(b.proven) - Number(a.proven) ||
+        b.watchers - a.watchers
+    )
+    .slice(0, 12);
 
-  return Response.json({ ok: true, groups: ranked });
+  return Response.json({ ok: true, groups: ranked, searched: searchConfigured() });
 }

@@ -1338,7 +1338,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     setStage(next);
   }
 
-  const [suggested, setSuggested] = useState<{ name: string; url: string; local?: boolean }[]>([]);
+  const [suggested, setSuggested] = useState<{ name: string; url: string; local?: boolean; proven?: boolean }[]>([]);
 
   /**
    * Add a whole batch in one go.
@@ -1391,7 +1391,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
       body: JSON.stringify({ state, suburbs }),
     })
       .then((r) => r.json())
-      .then((d: { groups?: { name: string; url: string }[] }) => {
+      .then((d: { groups?: { name: string; url: string; local?: boolean; proven?: boolean }[] }) => {
         if (alive) setSuggested(d.groups ?? []);
       })
       .catch(() => {});
@@ -1649,9 +1649,13 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 <div className="sugg">
                   <div className="sugg-top">
                     <p className="tiny sugg-head">
-                      {fresh.some((g) => g.local)
-                        ? "We found these in your suburbs"
-                        : `Groups other ${chosenTrade ? chosenTrade.toLowerCase() + "s" : "tradies"} in ${state || "your state"} watch`}
+                      {/* Never "we found these". Nothing is searched: every one
+                          is a group an earlier member pasted in themselves. */}
+                      {fresh.some((g) => !g.proven)
+                        ? "Groups we found near you"
+                        : fresh.some((g) => g.local)
+                        ? "Other tradies in your suburbs watch these"
+                        : `Other tradies in ${state || "your state"} watch these`}
                     </p>
                     <button
                       className="sugg-all"
