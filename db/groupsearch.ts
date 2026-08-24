@@ -177,7 +177,11 @@ const STATE_WORDS: Record<string, RegExp> = {
 export async function findGroups(
   suburbs: string[],
   state: string,
-  want = 20
+  want = 20,
+  /** Postcode for each of their suburbs, uppercased key. */
+  postcodeOf: Map<string, string> = new Map(),
+  /** Every postcode in their state, for spotting somebody else's patch. */
+  statePostcodes: Set<string> = new Set()
 ): Promise<FoundGroup[]> {
   const brave = process.env.BRAVE_SEARCH_KEY;
   const gKey = process.env.GOOGLE_SEARCH_KEY;
@@ -197,9 +201,14 @@ export async function findGroups(
   const jobs: { place: string; query: string }[] = [];
   for (const place of places) {
     for (const angle of ANGLES.slice(0, perPlace)) {
-      // The state goes in every query. Without it "Midland" returned Midland,
-      // Michigan, and country=au alone was not enough to stop it.
-      jobs.push({ place, query: `site:facebook.com/groups "${place}" ${state} ${angle}`.trim() });
+      // The postcode goes in when we know it. It was the single strongest
+      // signal in testing: the only two genuine Richmond, Victoria results out
+      // of thirty nine both carried 3121 in the name.
+      const pc = postcodeOf.get(place.toUpperCase()) ?? "";
+      jobs.push({
+        place,
+        query: `site:facebook.com/groups "${place}" ${pc || state} ${angle}`.trim(),
+      });
     }
   }
 
@@ -244,6 +253,17 @@ export async function findGroups(
       // A group that names a different Australian state is somebody else's
       // patch. Hawthorn is in Melbourne and Mount Hawthorn is in Perth.
       if (wrongState.some((re) => re.test(g.name))) continue;
+      // And a group carrying a postcode from another state is definitely not
+      // theirs, whatever its name says. This is what finally separates
+      // Hawthorn 3122 from Mount Hawthorn 6016.
+      const stamped = g.name.match(/\b\d{4}\b/g) ?? [];
+      if (
+        statePostcodes.size &&
+        stamped.length &&
+        !stamped.some((pc) => statePostcodes.has(pc))
+      ) {
+        continue;
+      }
       seen.add(g.slug);
       const local = places.some((p) => g.name.toLowerCase().includes(p.toLowerCase()));
       found.push({ ...g, score: g.score + (local ? 2 : 0) + (g.auSure ? 3 : 0) });

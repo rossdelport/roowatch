@@ -229,3 +229,16 @@ export const catalogueJobs = sqliteTable("catalogue_jobs", {
   slugs: text("slugs").notNull(),
   startedAt: integer("started_at").notNull(),
 });
+
+/**
+ * Every Australian locality with its postcode and state, 17,403 of them.
+ *
+ * Here because suburb names repeat: there is a Richmond in five states, and
+ * more of them overseas. A postcode does not repeat, which makes it the one
+ * reliable way to tell a Melbourne group from a Perth one or a Virginian one.
+ */
+export const postcodes = sqliteTable("postcodes", {
+  locality: text("locality").notNull(),
+  state: text("state").notNull(),
+  postcode: text("postcode").notNull(),
+});

@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { catalogueJobs, foundGroups, groups, profiles, sources } from "./schema";
 import { findGroups, looksAustralian } from "./groupsearch";
+import { postcodesFor, postcodesInState } from "./gazetteer";
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
 
@@ -108,7 +109,11 @@ export async function candidatesFor(
 
   let found: Awaited<ReturnType<typeof findGroups>> = [];
   try {
-    found = await findGroups(suburbs, state, 30);
+    const [postcodeOf, statePostcodes] = await Promise.all([
+      postcodesFor(suburbs, state),
+      postcodesInState(state),
+    ]);
+    found = await findGroups(suburbs, state, 30, postcodeOf, statePostcodes);
   } catch {
     // A search outage must never stop somebody finishing setup.
   }
