@@ -1338,6 +1338,68 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     setStage(next);
   }
 
+  const [suggested, setSuggested] = useState<{ name: string; url: string; local?: boolean }[]>([]);
+
+  /**
+   * Add a whole batch in one go.
+   *
+   * Not a loop over addGroup: each of those reads the current list from the
+   * closure it was created in, so eight of them all see the same empty list
+   * and the last write wins. Everything is checked first, then the list is
+   * written once.
+   */
+  async function addMany(urls: string[]) {
+    const room = planGroups - groupList.length;
+    const wanted = urls
+      .slice(0, Math.max(0, room))
+      .map((u) => parseGroupInput(u))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p?.url))
+      .filter((p) => !groupList.some((g) => g.url === p.url));
+    if (!wanted.length) return;
+
+    const checked = await Promise.all(
+      wanted.map(async (p) => {
+        try {
+          const res = await fetch("/api/onboarding/check-group", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: p.url }),
+          });
+          return res.ok ? p : null;
+        } catch {
+          // If the check itself fails, let it through. The scan settles it.
+          return p;
+        }
+      })
+    );
+
+    const ok = checked.filter((p): p is NonNullable<typeof p> => Boolean(p));
+    if (!ok.length) {
+      say("Public groups only for now");
+      return;
+    }
+    setGroupList([...groupList, ...ok.map((p) => ({ url: p.url as string, name: p.name }))]);
+    say(`${ok.length} ${ok.length === 1 ? "group" : "groups"} added`);
+  }
+
+  useEffect(() => {
+    if (stage !== "groups") return;
+    let alive = true;
+    fetch("/api/onboarding/suggest-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state, suburbs }),
+    })
+      .then((r) => r.json())
+      .then((d: { groups?: { name: string; url: string }[] }) => {
+        if (alive) setSuggested(d.groups ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [stage, state, suburbs]);
+
   async function addGroup(raw: string) {
     const parsed = parseGroupInput(raw);
     if (!parsed?.url) return false;
@@ -1445,7 +1507,10 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     trade: chosenTrade.length > 1,
     suburbs: state.length > 1 && suburbs.length > 0,
     jobs: brief.trim().length >= BRIEF_MIN && brief.trim().length <= BRIEF_MAX,
-    groups: true,
+    // At least one, always. Five of the first seven paying members finished
+    // setup with none and were watching nothing, which is a customer paying
+    // for silence. The suggestions below keep this from costing a card.
+    groups: groupList.length > 0,
     review: true,
   };
 
@@ -1573,10 +1638,54 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
             <h2>Public groups only</h2>
             <p className="muted">Private group scanning is coming soon. For now, add the public groups near you. We read them day and night and tell you when a job comes up.</p>
             <GroupAdder onAdd={addGroup} />
+
+            {(() => {
+              const room = planGroups - groupList.length;
+              const fresh = suggested
+                .filter((g) => !groupList.some((have) => have.url === g.url))
+                .slice(0, Math.min(room, 8));
+              if (!fresh.length) return null;
+              return (
+                <div className="sugg">
+                  <div className="sugg-top">
+                    <p className="tiny sugg-head">
+                      {fresh.some((g) => g.local)
+                        ? "We found these in your suburbs"
+                        : `Groups other ${chosenTrade ? chosenTrade.toLowerCase() + "s" : "tradies"} in ${state || "your state"} watch`}
+                    </p>
+                    <button
+                      className="sugg-all"
+                      type="button"
+                      onClick={() => {
+                        // One tap for the lot. Still checked for private and
+                        // still capped by the plan, just written once.
+                        addMany(fresh.map((g) => g.url));
+                      }}
+                    >
+                      Add all {fresh.length}
+                    </button>
+                  </div>
+                  <div className="sugg-list">
+                    {fresh.map((g) => (
+                      <button
+                        key={g.url}
+                        className={g.local ? "sugg-chip near" : "sugg-chip"}
+                        onClick={() => addGroup(g.url)}
+                        type="button"
+                      >
+                        <span>{g.name}</span>
+                        <i>+</i>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} />
             <p className="tiny">
               {groupList.length === 0
-                ? ""
+                ? "Add at least one group to finish. Tap one above or paste a link."
                 : `${groupList.length} of ${planGroups} groups added.`}
             </p>
           </>
@@ -4682,6 +4791,17 @@ const CSS = `
 .empty.small{padding:18px 4px;}
 @media(max-width:1100px){.ov-split{grid-template-columns:1fr;}}
 
+.sugg{margin-top:14px;}
+.sugg-head{color:var(--muted);margin:0;}
+.sugg-top{align-items:baseline;display:flex;gap:12px;justify-content:space-between;margin-bottom:9px;}
+.sugg-all{background:var(--coral);border:0;border-radius:99px;color:#fff;flex:none;font-size:12px;font-weight:800;padding:6px 13px;}
+.sugg-all:hover{background:var(--coral-deep);}
+.sugg-chip.near{background:var(--mint-soft);border-color:#a9e2c6;}
+.sugg-list{display:flex;flex-wrap:wrap;gap:7px;}
+.sugg-chip{align-items:center;background:#faf7f2;border:1px solid var(--line);border-radius:99px;color:var(--ink);display:inline-flex;font-size:12.5px;font-weight:600;gap:7px;max-width:100%;padding:7px 12px;transition:border-color .18s var(--ease),background .18s var(--ease);}
+.sugg-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sugg-chip i{color:var(--coral-deep);font-size:14px;font-style:normal;font-weight:800;line-height:1;}
+.sugg-chip:hover{background:#fff;border-color:var(--coral);}
 .allset{max-width:430px;text-align:center;}
 .needcard{max-width:430px;text-align:center;}
 .needcard h2{margin-bottom:8px;}
