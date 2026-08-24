@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { catalogueJobs, foundGroups, groups, profiles, sources } from "./schema";
-import { findGroups } from "./groupsearch";
+import { findGroups, looksAustralian } from "./groupsearch";
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
 
@@ -71,6 +71,10 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
     const hay = `${g.suburb} ${g.state} ${g.name}`.toLowerCase();
     const near = places.some((p) => hay.includes(p)) || (state && g.state === state);
     if (!near) continue;
+    // The same test the search applies. Rows filed before these rules existed
+    // are still in here, and a Richmond Hill in Ontario would be scanned every
+    // minute at our expense if it slipped back out.
+    if (!looksAustralian(g.name)) continue;
     out.set(g.slug, { slug: g.slug, url: g.url, name: g.name, members: g.members, proven: false });
   }
   return [...out.values()];
