@@ -147,6 +147,8 @@ type Member = {
   postsPerMonth: number;
   postsUsed: number;
   subscriptionStatus: string;
+  /** Unix seconds their plan stops, 0 when it is not cancelled. */
+  cancelAt?: number;
   stripeCustomerId: string;
   businessName: string;
   trade: string;
@@ -3099,6 +3101,20 @@ function checkoutJourney(member: Pick<Member, "onboarded" | "subscriptionStatus"
   }
   if (!status && !member.stripeCustomerId) {
     return { key: "left-at-stripe", label: "Setup complete, no card", tone: "warn", valueLabel: "Finished setup. No card added." };
+  }
+  // Checked before the status, because Stripe keeps saying trialing or active
+  // right up until the day the plan actually stops.
+  if (member.cancelAt && member.cancelAt * 1000 > Date.now()) {
+    const ends = new Date(member.cancelAt * 1000).toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "short",
+    });
+    return {
+      key: "leaving",
+      label: `Cancelled, ends ${ends}`,
+      tone: "warn",
+      valueLabel: `Cancelled. Access ends ${ends}.`,
+    };
   }
   if (status === "trialing") {
     return {

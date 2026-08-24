@@ -278,6 +278,11 @@ export async function POST(request: Request) {
       postsPerMonth: plan.postsPerMonth,
       postsUsed: profile && profile.usageMonth === month ? profile.postsUsed : 0,
       subscriptionStatus: profile?.subscriptionStatus ?? "",
+      // Unix seconds their plan is due to stop, 0 when it is not. Somebody who
+      // has cancelled still reads as "trialing" in Stripe until the day it
+      // ends, so without this they look perfectly healthy right up until they
+      // vanish.
+      cancelAt: profile?.cancelAt ?? 0,
       stripeCustomerId: profile?.stripeCustomerId ?? "",
       businessName: profile?.businessName ?? "",
       trade: profile?.trade ?? "",
