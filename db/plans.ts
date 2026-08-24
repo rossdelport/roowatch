@@ -30,11 +30,7 @@ export type Plan = {
   smsPerMonth: number;
   alertMinutes: number;
   priceAud: number;
-  /** What they pay for the first month, after the free trial. */
-  firstMonthAud: number;
   stripePriceId: string;
-  /** Knocks the first invoice down to firstMonthAud. Applied once. */
-  stripeCouponId: string;
   /**
    * Prices we used to sell at. A member who signed up on an old price must
    * still resolve to the right plan when Stripe tells us about their
@@ -52,9 +48,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     smsPerMonth: 150,
     alertMinutes: 5,
     priceAud: 197,
-    firstMonthAud: 50,
     stripePriceId: "price_1U5Ja49HOJbWqVToYzQV07oK",
-    stripeCouponId: "wEVaw5Ec",
     legacyPriceIds: ["price_1U4sCe9HOJbWqVToqrNBDaIp"],
   },
   growth: {
@@ -65,9 +59,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     smsPerMonth: 375,
     alertMinutes: 5,
     priceAud: 397,
-    firstMonthAud: 100,
     stripePriceId: "price_1U5Ja59HOJbWqVTo9JLdtVcU",
-    stripeCouponId: "wSgWGxEE",
     legacyPriceIds: ["price_1U4sCg9HOJbWqVToRKrBxw6W"],
   },
   scale: {
@@ -78,12 +70,16 @@ export const PLANS: Record<PlanKey, Plan> = {
     smsPerMonth: 1_500,
     alertMinutes: 3,
     priceAud: 1497,
-    firstMonthAud: 375,
     stripePriceId: "price_1U5Ja69HOJbWqVTocZcT4T7D",
-    stripeCouponId: "UfVZ9G1F",
     legacyPriceIds: ["price_1U4sCh9HOJbWqVToU4GpQFTO"],
   },
 };
+
+/**
+ * Days free before the first bill. No intro discount any more: full price from
+ * day fifteen, which is simpler to say and simpler to read on an invoice.
+ */
+export const TRIAL_DAYS = 14;
 
 export const DEFAULT_PLAN: PlanKey = "local";
 

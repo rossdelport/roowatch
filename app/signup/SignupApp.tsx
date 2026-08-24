@@ -197,7 +197,7 @@ export default function SignupApp({ start, plan }: {
             {mode === "signup" ? (
               <>
                 <h1>Start getting leads</h1>
-                <p className="sub">It takes one minute. You won&apos;t be charged for 7 days.</p>
+                <p className="sub">It takes one minute. You won&apos;t be charged for 14 days.</p>
 
                 <div className="pair">
                   <Field label="Your name">

@@ -6,7 +6,7 @@ import Link from "next/link";
 import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
 import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
-import { PLAN_KEYS, PLANS, type Plan, type PlanKey } from "../../db/plans";
+import { PLAN_KEYS, PLANS, TRIAL_DAYS, type Plan, type PlanKey } from "../../db/plans";
 import { BRIEF_MAX, BRIEF_MIN } from "../../db/brief";
 import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
 
@@ -278,7 +278,7 @@ export default function DashboardApp() {
     startPixel();
     (window as unknown as { fbq?: Pixel }).fbq?.("track", "Purchase", {
       content_name: "RooWatch subscription",
-      value: PLANS[(me?.profile?.plan ?? "local") as PlanKey]?.firstMonthAud ?? 50,
+      value: PLANS[(me?.profile?.plan ?? "local") as PlanKey]?.priceAud ?? 197,
       currency: "AUD",
     });
   }, [me?.profile?.plan]);
@@ -1020,6 +1020,18 @@ function NeedCard({ me, onRefresh, onLogout }: {
   // somebody who never started one.
   const lapsed = Boolean(me.subscriptionStatus);
 
+  /**
+   * The date the first bill lands, so nobody has to count days in their head.
+   * Pinned once, because reading the clock during a render is not allowed and
+   * the answer would wobble on every re-render anyway.
+   */
+  const [billsOn] = useState(() =>
+    new Date(Date.now() + TRIAL_DAYS * 864e5).toLocaleDateString("en-AU", {
+      day: "numeric",
+      month: "long",
+    })
+  );
+
   useEffect(() => {
     // Catches the member who pays in another tab, and covers the second or
     // two between Stripe taking the card and the webhook reaching us.
@@ -1060,7 +1072,7 @@ function NeedCard({ me, onRefresh, onLogout }: {
           <p className="muted">
             {lapsed
               ? "We have stopped watching your groups. Put a card back on to start again."
-              : "Add your card and we start watching your groups straight away. You are not charged today."}
+              : `Add your card and we start watching your groups straight away. Nothing is charged for ${TRIAL_DAYS} days.`}
           </p>
 
           <div className="needcard-plan">
@@ -1073,8 +1085,8 @@ function NeedCard({ me, onRefresh, onLogout }: {
               <strong className="free">$0</strong>
             </div>
             <div className="needcard-row">
-              <span>After 7 free days</span>
-              <strong>${plan.firstMonthAud} for your first month</strong>
+              <span>Free until</span>
+              <strong>{billsOn}</strong>
             </div>
             <div className="needcard-row muted-row">
               <span>Then</span>
@@ -1084,7 +1096,7 @@ function NeedCard({ me, onRefresh, onLogout }: {
 
           {error && <p className="error">{error}</p>}
           <button className="btn primary wide" disabled={busy} onClick={pay}>
-            {busy ? "Opening" : lapsed ? "Start my plan again" : "Start my 7 day free trial"}
+            {busy ? "Opening" : lapsed ? "Start my plan again" : `Start my ${TRIAL_DAYS} day free trial`}
           </button>
           <button className="needcard-out" onClick={onLogout}>Log out</button>
         </div>
@@ -1517,7 +1529,7 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
       startPixel();
       (window as unknown as { fbq?: Pixel }).fbq?.("track", "CompleteRegistration", {
         content_name: "RooWatch setup finished",
-        value: me.plan?.firstMonthAud ?? 50,
+        value: me.plan?.priceAud ?? 197,
         currency: "AUD",
       });
 

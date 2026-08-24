@@ -238,7 +238,7 @@ async function tellRoss(userId: string, email: string, plan?: string) {
 
     const who = row?.business?.trim() || row?.name?.trim() || email;
     const p = plan ? PLANS[plan as PlanKey] : undefined;
-    const money = p ? `$${p.firstMonthAud} now, $${p.priceAud}/mo` : "";
+    const money = p ? `$${p.priceAud}/mo after the trial` : "";
     const body = [
       `New RooWatch customer: ${who}`,
       p ? `${p.name} plan. ${money}` : "",

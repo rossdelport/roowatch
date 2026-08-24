@@ -1,13 +1,12 @@
 import { currentUser } from "../../../db/auth";
-import { PLANS, PLAN_KEYS, type PlanKey } from "../../../db/plans";
+import { PLANS, PLAN_KEYS, TRIAL_DAYS, type PlanKey } from "../../../db/plans";
 
 /**
  * Start a Stripe checkout for the plan they picked.
  *
- * Built server side rather than with a Payment Link because Payment Links
- * cannot carry a discount, and the first month is 25% of the plan price. It
- * also means the price, the trial and the coupon are all chosen here from the
- * signed in user, so none of them can be edited on the way through.
+ * Built server side rather than with a Payment Link so the price and the trial
+ * are chosen here from the signed in user, and neither can be edited on the
+ * way through.
  */
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -25,11 +24,8 @@ export async function POST(request: Request) {
     mode: "subscription",
     "line_items[0][price]": plan.stripePriceId,
     "line_items[0][quantity]": "1",
-    "subscription_data[trial_period_days]": "7",
+    "subscription_data[trial_period_days]": String(TRIAL_DAYS),
     "subscription_data[trial_settings][end_behavior][missing_payment_method]": "cancel",
-    // Knocks the first invoice down to the intro price. Applied once, so month
-    // two onward is the full amount.
-    "discounts[0][coupon]": plan.stripeCouponId,
     customer_email: user.email,
     // The webhook matches the payment back to this account with it.
     client_reference_id: user.email,
