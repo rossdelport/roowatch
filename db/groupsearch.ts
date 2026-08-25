@@ -30,16 +30,16 @@ export type FoundGroup = {
  * testing, where every other phrase leaked overseas.
  */
 const ANGLES = [
+  "community",
+  "residents",
+  "noticeboard",
   "buy swap sell",
-  "community noticeboard",
-  "locals community group",
-  "residents group",
-  "community chat",
-  "recommendations wanted",
-  "tradies recommendations",
-  "local business community",
-  "mums group",
-  "what's on notice board",
+  "locals",
+  "community group",
+  "recommendations",
+  "local business",
+  "mums",
+  "what's on",
 ];
 
 /**
@@ -49,7 +49,7 @@ const ANGLES = [
  * searched once for the whole business. The budget is spread across all their
  * suburbs rather than spent on the first one.
  */
-const MAX_QUERIES = 24;
+const MAX_QUERIES = 40;
 
 /** Places that are not here. Seen in real results, not guessed at. */
 const NOT_HERE = new RegExp(
@@ -87,6 +87,14 @@ const AU_SIGNAL =
 const NOT_FOR_US =
   /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|tiny house|holiday|tourism|creative|expats?)\b/i;
 
+/**
+ * Phrasing that belongs to a post rather than to a group. A group is called
+ * "Joondalup Community"; a post is called "Local cat rescue or rehoming
+ * services in Kelmscott".
+ */
+const NOT_A_NAME =
+  /\b(needed|wanted|looking for|does anyone|can anyone|rehoming|rescue|appreciation for|action on|services for|help with|advice on|recommendations? for a)\b/i;
+
 /** Words that mean it is exactly the sort of place a job gets asked for. */
 const GOOD =
   /\b(community|noticeboard|notice board|buy.?swap.?sell|bss|locals?|residents?|tradie|trades|services|recommend|help|info|news|marketplace|garage sale)\b/i;
@@ -108,12 +116,12 @@ function readResults(results: { title?: string; url?: string }[]): FoundGroup[] 
     const slug = groupSlug(url);
     if (!slug) continue;
 
-    // A permalink still names the group it sits in, and half of everything the
-    // index returns is a permalink. Binning them threw away more than half the
-    // results: a Perth plumber saw twelve groups where a hundred existed.
-    // The title reads "Group name | some post text", so keep the first half.
-    const permalink = /\/(posts|permalink|videos|photos)\//i.test(url);
-    const name = tidyName(permalink ? (r.title ?? "").split("|")[0] : (r.title ?? ""));
+    // Only the group's own page. A permalink's title is the post, not the
+    // group, and trusting it put "Local cat rescue in Kelmscott" and "Xero
+    // bookkeeping services" into a plumber's watchlist. Volume comes from
+    // asking more questions, not from mining post text.
+    if (/\/(posts|permalink|videos|photos)\//i.test(url)) continue;
+    const name = tidyName(r.title ?? "");
     if (!name || name.length < 3) continue;
     if (NOT_FOR_US.test(name)) continue;
 
@@ -122,9 +130,10 @@ function readResults(results: { title?: string; url?: string }[]): FoundGroup[] 
     // so a permalink only counts when what is left actually reads like a
     // group. Without this Perth came back with "Wray Hotel, Fremantle" and
     // "3 Little Shenton Lane" sitting in somebody's watchlist.
-    if (permalink && !GOOD.test(name)) continue;
-    // Nor does a group name start with a street number.
+    // A group is named, not narrated. Anything that reads like a sentence is
+    // a post that slipped through.
     if (/^\d+[a-z]?\s/i.test(name)) continue;
+    if (NOT_A_NAME.test(name)) continue;
     out.push({
       name,
       url: `https://www.facebook.com/groups/${slug}`,

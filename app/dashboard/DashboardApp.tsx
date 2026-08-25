@@ -1613,6 +1613,7 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
               <span key={s} className={i === step ? "dot on" : i < step ? "dot done" : "dot"} />
             ))}
           </div>
+        <div className="wiz-body">
           {stage === "groups" && (
             <button className="help-dot" onClick={() => setHelp(true)} aria-label="How to find groups">
               ?
@@ -1749,6 +1750,7 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
           </>
         )}
 
+        </div>
         <div className="row spread">
           {step > 0 ? (
             <button className="btn ghost" onClick={() => setStage(STAGES[step - 1])}>Back</button>
@@ -4571,7 +4573,11 @@ const CSS = `
    flex-start plus margin:auto keeps a short modal centred and keeps a
    tall one fully scrollable from its very top. */
 .overlay{align-items:flex-start;animation:dRise .3s var(--ease) both;backdrop-filter:blur(4px);background:rgba(17,29,54,.55);display:flex;inset:0;justify-content:center;overflow-y:auto;padding:20px;position:fixed;z-index:50;}
-.modal{animation:dPop .45s var(--ease) both;background:#fff;border-radius:20px;box-shadow:var(--shadow);margin:auto;max-width:460px;padding:32px;width:100%;}
+.modal{animation:dPop .45s var(--ease) both;background:#fff;border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;margin:auto;max-height:80vh;max-width:460px;padding:32px;width:100%;}
+/* Everything between the heading and the buttons scrolls, so the buttons are
+   always reachable and the page behind never grows. */
+.modal .wiz-body{flex:1;margin:0 -32px;min-height:0;overflow-y:auto;padding:0 32px;}
+.modal .row.spread{flex:none;padding-top:18px;}
 .modal h2{font-size:22px;letter-spacing:-.02em;margin:0 0 6px;}
 .modal .muted{margin-bottom:18px;}
 .modal-small{max-width:380px;}
