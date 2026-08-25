@@ -665,7 +665,7 @@ const SCAN_STEPS = [
 ];
 const STEP_MS = 1000;
 
-function ScanCard() {
+function ScanCard({ watching }: { watching: number }) {
   // step -1 is the wait between passes, 0 upwards walks what a pass does.
   // prev and token live alongside it so the label swap is decided in the one
   // place the step changes, rather than worked out again further down.
@@ -673,6 +673,9 @@ function ScanCard() {
   const label = phase.step < 0 ? "Waiting for next scan" : SCAN_STEPS[phase.step];
 
   useEffect(() => {
+    // Nothing to scan, nothing to animate. A bar sweeping across every minute
+    // while we watch no groups at all is a lie told once a minute.
+    if (!watching) return;
     const last = phase.step >= SCAN_STEPS.length - 1;
     const delay = phase.step < 0 ? SCAN_SECONDS * 1000 : STEP_MS;
 
@@ -687,9 +690,21 @@ function ScanCard() {
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [phase.step, phase.token]);
+  }, [phase.step, phase.token, watching]);
 
   const working = phase.step >= 0;
+
+  if (!watching) {
+    return (
+      <div className="tile scan idle">
+        <div className="scan-top">
+          <span className="scan-face"><span className="scan-still" /></span>
+          <span className="scan-idle-label">Nothing to scan yet</span>
+        </div>
+        <p className="tiny scan-idle-note">Add a group and we start watching within a minute.</p>
+      </div>
+    );
+  }
 
   return (
     <div className={working ? "tile scan working" : "tile scan"}>
@@ -1884,23 +1899,96 @@ function GroupAdder({ onAdd }: { onAdd: (raw: string) => Promise<boolean> }) {
  * Rows slide in one after another as the list fills, so a member watches it
  * being built rather than staring at a spinner.
  */
+/**
+ * One row per group: the name, how it is going, and a menu.
+ *
+ * The slug used to sit under every name. It is a meaningless string of digits
+ * to a tradie, so it is gone. The status runs through finding, adding and
+ * added rather than sitting on a spinner, because a spinner that never
+ * resolves reads as broken.
+ */
+function GroupRow({ group, index, onRename, onDelete }: {
+  group: WizardGroup;
+  index: number;
+  onRename: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const STEPS = ["Finding group", "Adding group", "Group added"];
+  const [step, setStep] = useState(0);
+  const [menu, setMenu] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(group.name);
+
+  useEffect(() => {
+    if (step >= STEPS.length - 1) return;
+    const timer = setTimeout(() => setStep((n) => n + 1), 700);
+    return () => clearTimeout(timer);
+  }, [step]);
+
+  const done = step >= STEPS.length - 1;
+
+  return (
+    <tr className="wiz-row" style={{ animationDelay: `${Math.min(index, 20) * 70}ms` }}>
+      <td>
+        {editing ? (
+          <input
+            className="row-edit"
+            value={draft}
+            autoFocus
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => { onRename(draft); setEditing(false); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { onRename(draft); setEditing(false); }
+              if (e.key === "Escape") setEditing(false);
+            }}
+          />
+        ) : (
+          <strong>{group.name}</strong>
+        )}
+      </td>
+      <td className="size-cell">
+        {done ? (
+          <span className="state-pill done">{I.tick} Added</span>
+        ) : (
+          <span className="state-pill" key={step}>{STEPS[step]}</span>
+        )}
+      </td>
+      <td className="act-cell">
+        <div className="row-menu">
+          <button
+            className="dots"
+            onClick={() => setMenu(!menu)}
+            aria-label="Group options"
+            aria-expanded={menu}
+          >
+            <i /><i /><i />
+          </button>
+          {menu && (
+            <>
+              <div className="menu-veil" onClick={() => setMenu(false)} />
+              <div className="menu-pop">
+                <button onClick={() => { setDraft(group.name); setEditing(true); setMenu(false); }}>
+                  Rename
+                </button>
+                <button className="danger" onClick={() => { setMenu(false); onDelete(); }}>
+                  Delete
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/** The watchlist during setup. Rows slide in as the list fills. */
 function GroupTable({ rows, onChange, onSay, filling }: {
   rows: WizardGroup[];
   onChange: (next: WizardGroup[]) => void;
   onSay: (message: string) => void;
   filling?: boolean;
 }) {
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-
-  function saveName(url: string) {
-    const name = draft.trim();
-    if (name.length < 2) return;
-    onChange(rows.map((r) => (r.url === url ? { ...r, name } : r)));
-    setEditing(null);
-    onSay("Name saved");
-  }
-
   if (rows.length === 0) {
     return filling ? (
       <div className="empty tight">
@@ -1920,56 +2008,20 @@ function GroupTable({ rows, onChange, onSay, filling }: {
       <table className="wiz-table">
         <tbody>
           {rows.map((g, i) => (
-            <tr
+            <GroupRow
               key={g.url}
-              className="wiz-row"
-              style={{ animationDelay: `${Math.min(i, 20) * 70}ms` }}
-            >
-              <td>
-                {editing === g.url ? (
-                  <input
-                    className="row-edit"
-                    value={draft}
-                    autoFocus
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveName(g.url);
-                      if (e.key === "Escape") setEditing(null);
-                    }}
-                  />
-                ) : (
-                  <>
-                    <strong>{g.name}</strong>
-                    <span className="tiny block link-cell">
-                      {g.url.replace("https://www.facebook.com/groups/", "")}
-                    </span>
-                  </>
-                )}
-              </td>
-              <td className="size-cell">
-                {g.members ? (
-                  <span className="size-pill">{shortCount(g.members)} members</span>
-                ) : (
-                  <span className="size-pill quiet"><i className="spinner tiny" /> sizing</span>
-                )}
-              </td>
-              <td className="act-cell">
-                {editing === g.url ? (
-                  <button className="mini" onClick={() => saveName(g.url)}>Save</button>
-                ) : (
-                  <button className="mini" onClick={() => { setDraft(g.name); setEditing(g.url); }}>Edit</button>
-                )}
-                <button
-                  className="mini danger"
-                  onClick={() => {
-                    onChange(rows.filter((r) => r.url !== g.url));
-                    onSay("Group removed");
-                  }}
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
+              group={g}
+              index={i}
+              onRename={(name) => {
+                if (name.trim().length < 2) return;
+                onChange(rows.map((r) => (r.url === g.url ? { ...r, name: name.trim() } : r)));
+                onSay("Name saved");
+              }}
+              onDelete={() => {
+                onChange(rows.filter((r) => r.url !== g.url));
+                onSay("Group removed");
+              }}
+            />
           ))}
         </tbody>
       </table>
@@ -2212,7 +2264,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
           <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{watchingGroupCount}/{plan.groups}</span><span className="tile-label">Groups watching</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{leadsThisMonth}</span><span className="tile-label">Leads this month</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "posts")}><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></button>
-          <ScanCard />
+          <ScanCard watching={groups.filter((g) => g.status === "watching").length} />
         </div>
 
         <div className="ov-split">
@@ -4416,6 +4468,10 @@ const CSS = `
 .scan{align-content:space-between;gap:0;min-height:96px;}
 .scan-top{align-items:center;display:flex;gap:9px;}
 .scan-face{align-items:center;display:inline-flex;flex:none;height:16px;justify-content:center;width:16px;}
+.scan.idle{justify-content:flex-start;}
+.scan-still{background:#c9ced8;border-radius:99px;height:8px;width:8px;}
+.scan-idle-label{color:var(--muted);font-size:12.5px;font-weight:700;}
+.scan-idle-note{color:var(--muted);margin:10px 0 0;}
 .scan-dot{background:var(--mint);border-radius:99px;height:8px;width:8px;animation:scanBreathe 2.4s var(--ease) infinite;}
 .scan-spin{animation:scanSpin .8s linear infinite;border:2px solid var(--line);border-radius:99px;border-top-color:var(--coral);height:15px;width:15px;}
 .scan-track{background:var(--line);border-radius:99px;height:6px;margin-top:14px;overflow:hidden;}
@@ -4975,6 +5031,19 @@ const CSS = `
 @keyframes wizIn{from{opacity:0;transform:translateY(-10px);}to{opacity:1;transform:none;}}
 @media(prefers-reduced-motion:reduce){.wiz-row{animation:none;}}
 .size-cell{text-align:right;white-space:nowrap;width:1%;}
+.state-pill{animation:pillIn .3s var(--ease) both;background:#faf7f2;border:1px solid var(--line);border-radius:99px;color:var(--muted);display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;padding:4px 11px;}
+.state-pill.done{background:var(--mint-soft);border-color:#a9e2c6;color:#1d8a63;}
+.state-pill svg{height:11px;width:11px;}
+@keyframes pillIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+.row-menu{position:relative;}
+.dots{background:none;border:0;display:grid;gap:3px;padding:8px 6px;}
+.dots i{background:#b9bfcb;border-radius:99px;display:block;height:3px;width:3px;}
+.dots:hover i{background:var(--ink);}
+.menu-veil{inset:0;position:fixed;z-index:3;}
+.menu-pop{background:#fff;border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);display:grid;overflow:hidden;position:absolute;right:0;top:100%;z-index:4;min-width:132px;}
+.menu-pop button{background:none;border:0;font-size:13.5px;font-weight:600;padding:11px 14px;text-align:left;}
+.menu-pop button:hover{background:#faf7f2;}
+.menu-pop button.danger{color:var(--coral-deep);}
 .act-cell{white-space:nowrap;}
 .act-cell .mini + .mini{margin-left:8px;}
 .size-pill{align-items:center;background:#faf7f2;border:1px solid var(--line);border-radius:99px;color:var(--muted);display:inline-flex;font-size:11.5px;font-weight:800;gap:6px;padding:3px 9px;}

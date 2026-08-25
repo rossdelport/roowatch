@@ -85,7 +85,7 @@ const AU_SIGNAL =
 
 /** A group about something else entirely. Nobody there is after a plumber. */
 const NOT_FOR_US =
-  /\b(football|footy|soccer|cricket|netball|basketball|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup)\b/i;
+  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|tiny house|holiday|tourism|creative|expats?)\b/i;
 
 /** Words that mean it is exactly the sort of place a job gets asked for. */
 const GOOD =
@@ -106,16 +106,30 @@ function readResults(results: { title?: string; url?: string }[]): FoundGroup[] 
   for (const r of results) {
     const url = String(r.url ?? "");
     const slug = groupSlug(url);
-    // A post inside a group is not a group. Only the group's own page counts.
-    if (!slug || /\/(posts|permalink|videos|photos)\//i.test(url)) continue;
-    const name = tidyName(r.title ?? "");
+    if (!slug) continue;
+
+    // A permalink still names the group it sits in, and half of everything the
+    // index returns is a permalink. Binning them threw away more than half the
+    // results: a Perth plumber saw twelve groups where a hundred existed.
+    // The title reads "Group name | some post text", so keep the first half.
+    const permalink = /\/(posts|permalink|videos|photos)\//i.test(url);
+    const name = tidyName(permalink ? (r.title ?? "").split("|")[0] : (r.title ?? ""));
     if (!name || name.length < 3) continue;
     if (NOT_FOR_US.test(name)) continue;
+
+    // A permalink title is the post, not always the group. Splitting on the
+    // pipe gets the group name most of the time and a street address the rest,
+    // so a permalink only counts when what is left actually reads like a
+    // group. Without this Perth came back with "Wray Hotel, Fremantle" and
+    // "3 Little Shenton Lane" sitting in somebody's watchlist.
+    if (permalink && !GOOD.test(name)) continue;
+    // Nor does a group name start with a street number.
+    if (/^\d+[a-z]?\s/i.test(name)) continue;
     out.push({
       name,
       url: `https://www.facebook.com/groups/${slug}`,
       slug,
-      score: GOOD.test(name) ? 1 : 0,
+      score: GOOD.test(name) ? 3 : 0,
       auSure: AU_SIGNAL.test(name),
       foreign: NOT_HERE.test(name),
     });
@@ -163,14 +177,16 @@ export function searchConfigured(): boolean {
 
 /** The other states, so a Melbourne tradie is not offered a Perth group. */
 const STATE_WORDS: Record<string, RegExp> = {
-  "New South Wales": /\bnsw\b/i,
-  Victoria: /\bvic\b/i,
-  Queensland: /\bqld\b/i,
-  "Western Australia": /\bwa\b/i,
-  "South Australia": /\bsa\b/i,
-  Tasmania: /\btas\b/i,
-  "Northern Territory": /\bnt\b/i,
-  "Australian Capital Territory": /\bact\b/i,
+  "New South Wales": /\b(nsw|new south wales)\b/i,
+  Victoria: /\b(vic|victoria)\b/i,
+  Queensland: /\b(qld|queensland)\b/i,
+  "Western Australia": /\b(wa|western australia)\b/i,
+  "South Australia": /\b(sa|south australia)\b/i,
+  // The full name matters here: there is a Perth in Tasmania, and \btas\b
+  // never matched "Tasmania".
+  Tasmania: /\b(tas|tasmania)\b/i,
+  "Northern Territory": /\b(nt|northern territory)\b/i,
+  "Australian Capital Territory": /\b(act|australian capital territory)\b/i,
 };
 
 /** Groups worth watching near these suburbs. */
@@ -245,7 +261,11 @@ export async function findGroups(
      * That is the difference between twenty good groups for Ellenbrook and two
      * for Richmond, which is the right answer in both cases.
      */
-    const contested = rows.filter((r) => r.foreign).length >= 2;
+    // Judged as a share rather than a count. Perth turned up two foreign
+    // results out of two hundred and fifty five and was treated as contested,
+    // which then threw away a hundred perfectly good Perth groups.
+    const foreignShare = rows.length ? rows.filter((r) => r.foreign).length / rows.length : 0;
+    const contested = foreignShare >= 0.15 && rows.filter((r) => r.foreign).length >= 3;
 
     for (const g of rows) {
       if (seen.has(g.slug) || g.foreign) continue;
