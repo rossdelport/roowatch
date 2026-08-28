@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { profiles, users } from "../../../../db/schema";
-import { canonicalSuburb } from "../../../../db/suburbs";
+import { resolvePlaces } from "../../../../db/gazetteer";
 import { TRADES } from "../../../../db/trades";
 import { nameFromMapsUrl, normaliseUrl, readSite } from "../../../../db/website";
 
@@ -15,6 +15,7 @@ import { nameFromMapsUrl, normaliseUrl, readSite } from "../../../../db/website"
 type Scan = {
   businessName: string;
   trade: string;
+  state: string;
   suburbs: string[];
   services: string;
   logo: string;
@@ -185,10 +186,13 @@ export async function POST(request: Request) {
   const trade =
     known || google?.trade || tradeFromText(text) || profile?.trade || "";
 
-  // Keep only suburbs we recognise in their state. A scraped word like
-  // "Australia" or a street name must never land in their service area.
+  // Keep only real Australian places. A scraped word like "Australia" or a
+  // street name must never land in their service area. The lookup runs against
+  // the full gazetteer, so it also tells us which state they work in and the
+  // member never has to pick one.
   const found = [...(ai?.suburbs ?? []), ...(google?.suburb ? [google.suburb] : [])];
-  const suburbs = [...new Set(found.map((s) => canonicalSuburb(s, state)).filter(Boolean))] as string[];
+  const place = await resolvePlaces(found, state);
+  const suburbs = place.suburbs;
 
   const notes: string[] = [];
   if (!text) notes.push("We could not read your website.");
@@ -204,6 +208,7 @@ export async function POST(request: Request) {
     businessName: ai?.businessName || google?.name || nameFromMapsUrl(gbpUrl),
     // Only ever hand back a trade the dropdown actually holds.
     trade: (TRADES as readonly string[]).includes(trade) ? trade : "",
+    state: state || place.state,
     suburbs,
     services: ai?.services ?? "",
     logo: site.logo,

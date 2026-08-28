@@ -1398,6 +1398,7 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
       const data = (await res.json().catch(() => ({}))) as {
         businessName?: string;
         trade?: string;
+        state?: string;
         suburbs?: string[];
         services?: string;
         logo?: string;
@@ -1408,6 +1409,9 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
       if (data.businessName && !businessName) setBusinessName(data.businessName);
       if (data.services && !services) setServices(data.services);
       if (data.trade) setTrade(data.trade);
+      // The website names the suburbs, the gazetteer names the state. Between
+      // them the whole suburbs step is filled in before it is ever seen.
+      if (data.state) setState(data.state);
       if (data.suburbs?.length) setSuburbs(data.suburbs);
       setNote(
         data.error === "bad_website"
