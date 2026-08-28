@@ -908,6 +908,46 @@ function shortTime(ms: number) {
  * These are the things that actually change how many leads somebody gets, so
  * a quiet day turns into a short list of jobs rather than a wall of failure.
  */
+/**
+ * Says something before the reading stops, not after.
+ *
+ * The cap exists for the outlier: the median group posts four times a day and
+ * never comes close, but one measured group does seventy four on its own, and
+ * a watchlist full of those would cost more than the plan. Somebody heading
+ * for the ceiling can pause their noisiest group and keep the rest running,
+ * which is a much better month than going quiet on the twentieth.
+ */
+function UsageWarning({ me, groups, onGo }: {
+  me: Me;
+  groups: Group[];
+  onGo: (tab: string, view?: string) => void;
+}) {
+  const cap = me.plan?.postsPerMonth ?? 0;
+  const used = me.postsUsed ?? 0;
+  if (!cap || used < cap * 0.8) return null;
+
+  const done = used >= cap;
+  const watching = groups.filter((g) => g.status === "watching").length;
+
+  return (
+    <button className={done ? "usage-warn stopped" : "usage-warn"} onClick={() => onGo("groups")}>
+      <span>
+        <strong>
+          {done
+            ? "You have hit this month's reading limit"
+            : `${Math.round((used / cap) * 100)}% of this month's reading used`}
+        </strong>
+        <em>
+          {done
+            ? "Reading starts again on the first. Remove a busy group to make the rest last longer."
+            : `${(cap - used).toLocaleString()} posts left across your ${watching} groups. Your busiest group is using most of it.`}
+        </em>
+      </span>
+      <i>Manage groups</i>
+    </button>
+  );
+}
+
 function SetupScore({ me, groups, alerts, onGo }: {
   me: Me;
   groups: Group[];
@@ -2260,6 +2300,8 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
           </div>
           <span className="live"><i /> Watching live</span>
         </header>
+        <UsageWarning me={me} groups={groups} onGo={onGo} />
+
         {alerts.length === 0 && <FirstLead me={me} />}
 
         <div className="tiles">
@@ -5018,6 +5060,15 @@ const CSS = `
 .score-label{color:var(--ink);flex:1;font-size:13.5px;font-weight:600;}
 .score-go{color:var(--coral-deep);flex:none;font-size:12px;font-weight:800;}
 
+.usage-warn{align-items:center;background:#fff3d8;border:1px solid #f2ddaa;border-radius:14px;display:flex;gap:14px;justify-content:space-between;margin-bottom:16px;padding:14px 18px;text-align:left;width:100%;}
+.usage-warn.stopped{background:#fdece8;border-color:#f6cfc4;}
+.usage-warn span{display:grid;gap:2px;}
+.usage-warn strong{color:#8a5a00;font-size:14.5px;}
+.usage-warn.stopped strong{color:var(--coral-deep);}
+.usage-warn em{color:#8a5a00;font-size:12.5px;font-style:normal;opacity:.85;}
+.usage-warn.stopped em{color:var(--coral-deep);}
+.usage-warn i{color:#8a5a00;flex:none;font-size:12.5px;font-style:normal;font-weight:800;white-space:nowrap;}
+.usage-warn.stopped i{color:var(--coral-deep);}
 .firstlead{background:linear-gradient(115deg,#111d36,#1b2c4f);border-radius:16px;box-shadow:var(--shadow-soft);color:#fff;margin-bottom:18px;overflow:hidden;padding:18px 20px 16px;position:relative;}
 .firstlead:after{background:radial-gradient(circle,rgba(255,106,77,.35),transparent 70%);content:"";height:220px;position:absolute;right:-70px;top:-90px;width:220px;}
 .fl-top{align-items:flex-start;display:flex;gap:14px;justify-content:space-between;position:relative;}

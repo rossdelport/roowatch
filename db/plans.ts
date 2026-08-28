@@ -16,9 +16,11 @@ export type Plan = {
    * is the most a single member can ever cost us in a month. Do not remove it.
    * 1,000 posts costs about $1.50 USD to fetch and about $0.65 USD to read.
    *
-   * Doubled with the group counts on 19 Aug 2026. A measured group produces
-   * about 23 posts a day, so 20 groups runs near 14,000 a month and the old
-   * 10,000 cap would have cut a member off on about day 22.
+   * Set on 28 Aug 2026 at 500 posts per group. The median group produces
+   * 4.4 posts a day, so twenty groups runs near 2,600 a month and almost
+   * nobody reaches the cap. It exists for the outlier: one measured group
+   * does 74 posts a day on its own, and without a ceiling a single noisy
+   * watchlist would cost more than the plan.
    */
   postsPerMonth: number;
   /**
@@ -44,19 +46,19 @@ export const PLANS: Record<PlanKey, Plan> = {
     key: "local",
     name: "Local",
     groups: 20,
-    postsPerMonth: 20_000,
-    smsPerMonth: 150,
+    postsPerMonth: 10_000,
+    smsPerMonth: 50,
     alertMinutes: 5,
-    priceAud: 197,
-    stripePriceId: "price_1U5Ja49HOJbWqVToYzQV07oK",
-    legacyPriceIds: ["price_1U4sCe9HOJbWqVToqrNBDaIp"],
+    priceAud: 97,
+    stripePriceId: "price_1U9J1r9HOJbWqVTomTe8d2Vp",
+    legacyPriceIds: ["price_1U5Ja49HOJbWqVToYzQV07oK", "price_1U4sCe9HOJbWqVToqrNBDaIp"],
   },
   growth: {
     key: "growth",
     name: "Growth",
     groups: 50,
-    postsPerMonth: 50_000,
-    smsPerMonth: 375,
+    postsPerMonth: 25_000,
+    smsPerMonth: 125,
     alertMinutes: 5,
     priceAud: 397,
     stripePriceId: "price_1U5Ja59HOJbWqVTo9JLdtVcU",
@@ -66,8 +68,8 @@ export const PLANS: Record<PlanKey, Plan> = {
     key: "scale",
     name: "Scale",
     groups: 200,
-    postsPerMonth: 200_000,
-    smsPerMonth: 1_500,
+    postsPerMonth: 100_000,
+    smsPerMonth: 500,
     alertMinutes: 3,
     priceAud: 1497,
     stripePriceId: "price_1U5Ja69HOJbWqVTocZcT4T7D",
