@@ -230,6 +230,19 @@
     .r-mascot-b{max-width:150px;}
     img{height:auto;max-width:100%;}
   }
+
+.r-hero-cta { margin: 26px auto 0; max-width: 340px; }
+.r-hero-cta .button { margin-top: 0; }
+.r-hero-note { color: #98a0b3; font-size: 13px; margin: 12px 0 0; }
+.r-faq { margin: 56px auto 0; max-width: 560px; text-align: left; }
+.r-faq h2 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 18px; text-align: center; }
+.r-faq details { background: #fff; border: 1px solid var(--line); border-radius: 14px; margin-top: 10px; padding: 16px 18px; }
+.r-faq details[open] { border-color: var(--coral); box-shadow: 0 10px 26px rgba(240, 79, 49, .10); }
+.r-faq summary { cursor: pointer; font-size: 15.5px; font-weight: 700; list-style: none; padding-right: 24px; position: relative; }
+.r-faq summary::-webkit-details-marker { display: none; }
+.r-faq summary::after { color: var(--coral); content: "+"; font-size: 22px; font-weight: 800; line-height: 1; position: absolute; right: 0; top: -2px; }
+.r-faq details[open] summary::after { content: "\2013"; }
+.r-faq p { color: var(--muted); font-size: 14.5px; line-height: 1.65; margin: 10px 0 0; }
 </style>
 
 
@@ -269,7 +282,12 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
 
   <div class="r-wrap">
     <h1>Your next customer is asking for you <span class="highlight">right now</span></h1>
-    <p class="r-lede">Every day, people in local Facebook groups ask for a tradie they can trust. RooWatch watches the groups day and night. When someone needs what you do, we text you fast. You reply first. You win the job.</p>
+    <p class="r-lede">Every day, people in local Facebook groups ask for a tradie they can trust. We text you first. You win the job.</p>
+
+    <div class="r-hero-cta">
+      <a class="button" href="/signup?plan=local" id="cta-hero">Start my 14 day free trial</a>
+      <p class="r-hero-note">Free for 14 days. Cancel any time.</p>
+    </div>
 
     <div class="rpost" aria-label="Example group post worth real money">
       <div class="rpost-card">
@@ -282,26 +300,6 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
       <span class="rpost-pill">This post is worth $800</span>
     </div>
 
-    <div class="r-card">
-      <h2 class="r-card-title">Start getting leads</h2>
-            <div class="r-plan best">
-        <div class="r-plan-top">
-          <span class="r-plan-name">Local</span>
-          <span class="r-plan-tag">Special offer</span>
-        </div>
-        <div class="r-plan-price"><strong>$97</strong><span>a month</span></div>
-        <p class="r-plan-sub">20 groups watched for you, day and night.</p>
-        <a class="button" href="/signup?plan=local" id="cta-local">Start my 14 day free trial</a>
-      </div>
-
-      <ul class="r-points">
-        <li><span>&#10003;</span> Free for 14 days, nothing charged until then</li>
-        <li><span>&#10003;</span> We text you the second a job comes up</li>
-        <li><span>&#10003;</span> Cancel any time, no lock in</li>
-      </ul>
-    </div>
-
-    <p class="r-lede r-after">Start today. Free for 14 days. Cancel any time.</p>
 
     <div class="r-how">
   <section class="section" id="how-it-works" aria-labelledby="steps-title">
@@ -364,7 +362,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
       <article class="step-row">
         <div class="step-copy">
           <span class="step-num">4</span>
-          <h3>We start watching your top 10 Facebook groups</h3>
+          <h3>We start watching your top 20 Facebook groups</h3>
         </div>
         <div class="step-visual">
           <div class="step-visual-card">
@@ -399,6 +397,68 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
     </div>
   </section>
     </div>
+
+    <div class="r-card">
+      <h2 class="r-card-title">Start getting leads</h2>
+            <div class="r-plan best">
+        <div class="r-plan-top">
+          <span class="r-plan-name">Local</span>
+          <span class="r-plan-tag">Special offer</span>
+        </div>
+        <div class="r-plan-price"><strong>$97</strong><span>a month</span></div>
+        <p class="r-plan-sub">20 groups watched for you, day and night.</p>
+        <a class="button" href="/signup?plan=local" id="cta-local">Start my 14 day free trial</a>
+      </div>
+
+      <ul class="r-points">
+        <li><span>&#10003;</span> Free for 14 days, nothing charged until then</li>
+        <li><span>&#10003;</span> We text you the second a job comes up</li>
+        <li><span>&#10003;</span> Cancel any time, no lock in</li>
+      </ul>
+    </div>
+
+    <p class="r-lede r-after">Start today. Free for 14 days. Cancel any time.</p>
+
+
+    <section class="r-faq" aria-labelledby="faq-title">
+      <h2 id="faq-title">Questions tradies ask</h2>
+
+      <details>
+        <summary>Do you need my Facebook login?</summary>
+        <p>No. We never touch your account. We only read public groups, the same
+        way anybody can.</p>
+      </details>
+
+      <details>
+        <summary>Do I have to find the groups myself?</summary>
+        <p>No. Tell us your suburbs and we find the groups for you. You can add
+        your own or remove ours any time.</p>
+      </details>
+
+      <details>
+        <summary>How fast do I hear about a job?</summary>
+        <p>Under 60 seconds from the post going live. We send you a text and an
+        email with a link straight to the post.</p>
+      </details>
+
+      <details>
+        <summary>What if I do not get any leads?</summary>
+        <p>The first 14 days are free and nothing is charged. Cancel any time,
+        there is no lock in.</p>
+      </details>
+
+      <details>
+        <summary>Can you watch private groups?</summary>
+        <p>Not yet. Today we only watch public groups. Private groups are
+        coming soon.</p>
+      </details>
+
+      <details>
+        <summary>What does it cost?</summary>
+        <p>$97 a month. That covers 20 groups watched day and night. One job
+        usually pays for a year of it.</p>
+      </details>
+    </section>
 
     <p class="r-trust">Alerts in under 60 seconds &middot; No Facebook login needed &middot; Made in Australia</p>
     <img class="r-mascot-b" src="/roowatch-mascot-3d.png" alt="RooWatch kangaroo mascot waving">
