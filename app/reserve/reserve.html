@@ -231,7 +231,7 @@
     img{height:auto;max-width:100%;}
   }
 
-.r-hero-cta { margin: 26px auto 0; max-width: 340px; }
+.r-hero-cta { margin: 26px auto 30px; max-width: 340px; }
 .r-hero-cta .button { margin-top: 0; }
 .r-hero-note { color: #98a0b3; font-size: 13px; margin: 12px 0 0; }
 .r-faq { margin: 56px auto 0; max-width: 560px; text-align: left; }
@@ -243,6 +243,10 @@
 .r-faq summary::after { color: var(--coral); content: "+"; font-size: 22px; font-weight: 800; line-height: 1; position: absolute; right: 0; top: -2px; }
 .r-faq details[open] summary::after { content: "\2013"; }
 .r-faq p { color: var(--muted); font-size: 14.5px; line-height: 1.65; margin: 10px 0 0; }
+.fb-right { align-items: center; display: flex; gap: 8px; }
+.fb-first { align-items: center; color: #1877f2; display: inline-flex; font-weight: 700; gap: 4px; white-space: nowrap; }
+.fb-first svg { height: 12px; width: 12px; }
+@media (max-width: 420px) { .fb-first { font-size: 11.5px; } .fb-stats { font-size: 11.5px; } }
 </style>
 
 
@@ -285,7 +289,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
     <p class="r-lede">Every day, people in local Facebook groups ask for a tradie they can trust. We text you first. You win the job.</p>
 
     <div class="r-hero-cta">
-      <a class="button" href="/signup?plan=local" id="cta-hero">Start my 14 day free trial</a>
+      <a class="button" href="/signup?plan=local" id="cta-hero">Get local leads now</a>
       <p class="r-hero-note">Free for 14 days. Cancel any time.</p>
     </div>
 
@@ -295,7 +299,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
           <div><div class="fb-names">Sarah M.<span class="fb-sep">&#9656;</span>Northern Beaches Community</div>
             <div class="fb-time">8 min ago &middot; <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div></div></div>
         <p class="fb-body">Help! Our hot water died this morning and we have a newborn at home. Can anyone recommend a good <mark class="fb-hl">plumber</mark> near Dee Why? Happy to pay extra for same day.</p>
-        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span>12</span><span>4 comments</span></div>
+        <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span>2</span><span class="fb-right"><span class="fb-first">Be the first to comment<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15"/><path d="M13 6l6 6-6 6"/></svg></span><span>0 comments</span></span></div>
       </div>
       <span class="rpost-pill">This post is worth $800</span>
     </div>
