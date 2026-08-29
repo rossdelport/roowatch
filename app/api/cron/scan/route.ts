@@ -63,6 +63,11 @@ const BUFFER_MINUTES = 1;
  * their own timestamp. Narrow this and late posts vanish with no error at all.
  */
 const MIN_WINDOW_MINUTES = 3;
+
+/** Temporary: run the watchlist top up on every tick, to fill the backlog of
+ *  members who were set up before the group finder existed. Back to false
+ *  once they are full. */
+const TOP_UP_EVERY_TICK = false;
 /** Poll briefly after triggering so a fast snapshot is collected now rather
  *  than a minute from now. Median collection is about 60 seconds. */
 const INLINE_WAIT_MS = 45_000;
@@ -315,7 +320,7 @@ export async function POST(request: Request) {
   // scanner outright. It runs after every source has been triggered, so even
   // if this blows up the scan has already happened.
   let toppedUp = 0;
-  if (new Date().getMinutes() % 10 === 0) {
+  if (TOP_UP_EVERY_TICK || new Date().getMinutes() % 10 === 0) {
     try {
       toppedUp = await topUpShortMembers();
     } catch {

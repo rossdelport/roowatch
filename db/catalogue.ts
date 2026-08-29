@@ -84,18 +84,37 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
     .orderBy(desc(foundGroups.members))
     .limit(200);
 
+  // A group has to name somewhere they actually work.
+  //
+  // Matching on state alone put a Penrith plumber on Central Coast groups,
+  // a hundred kilometres away, because another New South Wales member watched
+  // them. Queensland was worse: a Cairns plumber was handed the Sunshine
+  // Coast, seventeen hundred kilometres down the road. Their own suburbs plus
+  // the ones next door is the real test.
+  const near = new Set(places);
+  try {
+    for (const n of await nearbySuburbs(suburbs, state, 12, 0)) near.add(n.toLowerCase());
+  } catch {
+    // No neighbours is fine. Their own suburbs still work.
+  }
+  const mentionsTheirPatch = (name: string) => {
+    const low = name.toLowerCase();
+    return [...near].some((p) => p.length > 2 && low.includes(p));
+  };
+
   const out = new Map<string, Candidate>();
   for (const w of watched) {
     const slug = groupSlug(w.url);
     if (!slug) continue;
+    if (!mentionsTheirPatch(w.name)) continue;
     out.set(slug, { slug, url: w.url, name: w.name, members: w.members, proven: true });
   }
   for (const g of known) {
     if (out.has(g.slug)) continue;
     // Only offer a catalogued group when it belongs to their patch.
-    const hay = `${g.suburb} ${g.state} ${g.name}`.toLowerCase();
-    const near = places.some((p) => hay.includes(p)) || (state && g.state === state);
-    if (!near) continue;
+    // Same test. The old one accepted any row from the same state, which is
+    // how somebody ended up watching the other end of it.
+    if (!mentionsTheirPatch(`${g.suburb} ${g.name}`)) continue;
     // The same test the search applies. Rows filed before these rules existed
     // are still in here, and a Richmond Hill in Ontario would be scanned every
     // minute at our expense if it slipped back out.
@@ -530,7 +549,7 @@ export async function topUpShortMembers(): Promise<number> {
       if (!added) {
         await db
           .update(profiles)
-          .set({ lastTopUp: now - TOP_UP_GAP_MS + 10 * 60 * 1000 })
+          .set({ lastTopUp: now - TOP_UP_GAP_MS + 60 * 1000 })
           .where(eq(profiles.userId, row.userId));
       }
     } catch (err) {
