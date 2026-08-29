@@ -95,7 +95,7 @@ const AU_SIGNAL =
 
 /** A group about something else entirely. Nobody there is after a plumber. */
 const NOT_FOR_US =
-  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|realtors?|realty|real estate|tiny house|holiday|tourism|creative|expats?)\b/i;
+  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|realtors?|realty|real estate|tiny house|holiday|tourism|creative|expats?|yoga|pilates|zumba|\bgym\b|fitness|crossfit|bootcamp|climb(ing|ers?)|hiking|bushwalk|walking group|runners?|parkrun|cycl(ing|ists?)|\bride\b|\bmtb\b|\bbmx\b|spiritual|meditation|mindfulness|psychic|tarot|astrology|reiki|wellness|employment|\bjobs?\b|hiring|recruit\w*|vacanc\w*|careers?|book club|quilting|sewing|crochet|photography|birding|birdwatch\w*|\bpets?\b|\bdogs?\b|\bcats?\b|puppies|kittens|playgroup|homeschool|\buni\b|university|students?|backpacker|travel|camping|boating|\bsurf\b|skate|martial arts|boxing|dance|choir|theatre|museum|genealogy|politics|election|protest|vegan|recipes?|cooking|baking|weight loss)\b/i;
 
 /**
  * Phrasing that belongs to a post rather than to a group. A group is called
@@ -105,7 +105,14 @@ const NOT_FOR_US =
 const NOT_A_NAME =
   /\b(needed|wanted|looking for|does anyone|can anyone|rehoming|rescue|appreciation for|action on|services for|help with|advice on|recommendations? for a)\b/i;
 
-/** Words that mean it is exactly the sort of place a job gets asked for. */
+/**
+ * Words that mean it is exactly the sort of place a job gets asked for.
+ *
+ * This is a gate now, not a bonus. It used to only add points, so "Blue
+ * Mountains Yoga Community" sailed through on the word community and landed
+ * in a plumber's watchlist. A group has to look like somewhere locals or
+ * homeowners actually talk, and it has to survive NOT_FOR_US as well.
+ */
 const GOOD =
   /\b(community|noticeboard|notice board|buy.?swap.?sell|bss|locals?|residents?|tradie|trades|services|recommend|help|info|news|marketplace|garage sale)\b/i;
 
@@ -134,6 +141,8 @@ function readResults(results: { title?: string; url?: string }[]): FoundGroup[] 
     const name = tidyName(r.title ?? "");
     if (!name || name.length < 3) continue;
     if (NOT_FOR_US.test(name)) continue;
+    // Must look like somewhere locals talk, not merely somewhere.
+    if (!GOOD.test(name)) continue;
 
     // A permalink title is the post, not always the group. Splitting on the
     // pipe gets the group name most of the time and a street address the rest,
@@ -319,6 +328,26 @@ export async function findGroups(
     .filter(([name]) => name !== state)
     .map(([, re]) => re);
 
+  /**
+   * Does this group name one of the places we searched for?
+   *
+   * A search for "Penrith community" happily returns "Cabarita Beach NSW
+   * Community Info", which is eight hundred kilometres away. The only reason
+   * it survived was that it says NSW, and proving a group is Australian is not
+   * the same as proving it is theirs.
+   *
+   * Word boundaries on both sides, or Kew matches AISKEW.
+   */
+  const namesOneOfOurs = (name: string) => {
+    const low = name.toLowerCase();
+    return places.some((p) => {
+      const q = p.trim().toLowerCase();
+      if (q.length < 3) return false;
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`, "i").test(low);
+    });
+  };
+
   const seen = new Set<string>();
   const found: FoundGroup[] = [];
 
@@ -357,9 +386,11 @@ export async function findGroups(
       ) {
         continue;
       }
+      // It has to be theirs, not merely Australian.
+      if (!namesOneOfOurs(g.name)) continue;
+
       seen.add(g.slug);
-      const local = places.some((p) => g.name.toLowerCase().includes(p.toLowerCase()));
-      found.push({ ...g, score: g.score + (local ? 2 : 0) + (g.auSure ? 3 : 0) });
+      found.push({ ...g, score: g.score + 2 + (g.auSure ? 3 : 0) });
     }
   }
 
