@@ -242,10 +242,6 @@ export async function POST(request: Request) {
   // here can never cost a member a lead.
   try {
     await collectCatalogue();
-    // Setup can only hand out what the catalogue had verified at that moment,
-    // which in a new area is very little. Nobody goes back through the wizard,
-    // so the filling carries on here until every watchlist is full.
-    await topUpShortMembers();
   } catch {
     // Never let catalogue work break a scan.
   }
@@ -313,8 +309,23 @@ export async function POST(request: Request) {
     waiting = result.stillRunning;
   }
 
+  // Last, and rarely. Topping somebody up can run forty searches and read the
+  // whole catalogue, which is far too much to do beside a scan every minute:
+  // sharing a tick with it exceeded the worker's CPU limit and stopped the
+  // scanner outright. It runs after every source has been triggered, so even
+  // if this blows up the scan has already happened.
+  let toppedUp = 0;
+  if (new Date().getMinutes() % 10 === 0) {
+    try {
+      toppedUp = await topUpShortMembers();
+    } catch {
+      // A top up must never cost anybody a lead.
+    }
+  }
+
   return Response.json({
     ok: true,
+    toppedUp,
     collected: collected + inlineCollected,
     triggered: started.length,
     groups: due.length,

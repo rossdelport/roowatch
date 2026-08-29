@@ -601,31 +601,42 @@ export async function dueSources(limit: number) {
   //
   // The post cap used to be checked only when handing a post to a member,
   // which saved the Claude call and nothing else: Bright Data had already
-  // delivered and been paid for the record. On a busy watchlist that is the
-  // difference between a few dollars and a few hundred.
+  // delivered and been paid for the record.
   //
-  // Sources are shared, so one member running out cannot stop the scan for
-  // everybody else. It stops only when no member watching it is under their
-  // cap.
+  // Profiles first, and usually that is the whole job. The table is small and
+  // almost nobody is ever over their cap, so the expensive join across every
+  // group only runs on the rare tick where somebody actually is. The first
+  // version ran that join every minute and blew the worker's CPU budget, which
+  // killed the scan itself.
   const month = new Date().toISOString().slice(0, 7);
-  const live = await db
-    .select({ sourceId: groups.sourceId, plan: profiles.plan, used: profiles.postsUsed, when: profiles.usageMonth })
-    .from(groups)
-    .innerJoin(profiles, eq(profiles.userId, groups.userId))
-    .where(eq(groups.status, "watching"));
+  const everyone = await db
+    .select({ userId: profiles.userId, plan: profiles.plan, used: profiles.postsUsed, when: profiles.usageMonth })
+    .from(profiles);
+  const capped = everyone
+    .filter((p) => (p.when === month ? p.used : 0) >= postLimit(p.plan))
+    .map((p) => p.userId);
 
-  const hasBudget = new Set<number>();
-  for (const row of live) {
-    if (row.sourceId == null) continue;
-    const used = row.when === month ? row.used : 0;
-    if (used < postLimit(row.plan)) hasBudget.add(row.sourceId);
+  let broke = new Set<number>();
+  if (capped.length) {
+    const watched = await db
+      .select({ sourceId: groups.sourceId, userId: groups.userId })
+      .from(groups)
+      .where(eq(groups.status, "watching"));
+    const withBudget = new Set<number>();
+    const all = new Set<number>();
+    for (const row of watched) {
+      if (row.sourceId == null) continue;
+      all.add(row.sourceId);
+      if (!capped.includes(row.userId)) withBudget.add(row.sourceId);
+    }
+    broke = new Set([...all].filter((id) => !withBudget.has(id)));
   }
 
   const selected = [];
   const urls = new Set<string>();
   for (const source of all.sort((a, b) => a.lastChecked - b.lastChecked)) {
     if (urls.has(source.url)) continue;
-    if (!hasBudget.has(source.id)) continue;
+    if (broke.has(source.id)) continue;
     urls.add(source.url);
     selected.push(source);
     if (selected.length >= limit) break;
