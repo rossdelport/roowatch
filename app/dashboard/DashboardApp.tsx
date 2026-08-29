@@ -5157,9 +5157,15 @@ const CSS = `
 .wiz-top{align-items:center;display:flex;justify-content:space-between;margin-bottom:20px;}
 .wiz-top .steps-dots{margin:0;}
 .g-name{align-items:center;display:flex;gap:9px;}
-.g-tick{align-items:center;background:var(--line);border-radius:99px;color:#fff;display:inline-flex;flex:none;height:19px;justify-content:center;transition:background .3s var(--ease),transform .3s var(--ease);width:19px;}
+.g-tick{align-items:center;background:var(--line);border-radius:99px;color:#fff;display:none;flex:none;height:19px;justify-content:center;transition:background .3s var(--ease),transform .3s var(--ease);width:19px;}
 .g-tick.on{background:var(--mint);transform:scale(1);}
 .g-tick svg{height:11px;width:11px;}
+/* The Added pill lives in .size-cell, which is hidden below 860px. So the tick
+   beside the name is the only thing saying a group is in on a phone, and above
+   that width the pill says it and a second marker is just noise. Exactly one
+   marker at every width. Declared after the base rule, or it would lose to it
+   at equal specificity. */
+@media(max-width:860px){.g-tick{display:inline-flex;}}
 .manual-link{background:none;border:0;color:var(--muted);cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;margin-top:14px;padding:6px 0;text-decoration:underline;text-underline-offset:3px;transition:color .2s;}
 .manual-link:hover{color:var(--coral);}
 .manual-open{animation:manualIn .34s cubic-bezier(.22,1,.36,1) both;margin-top:14px;overflow:hidden;}
