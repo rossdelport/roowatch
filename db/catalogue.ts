@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { catalogueJobs, droppedGroups, foundGroups, groups, profiles, sources } from "./schema";
 import { findGroups, looksAustralian, looksForeign } from "./groupsearch";
-import { nearbySuburbs, postcodesFor, postcodesInState } from "./gazetteer";
+import { MAX_RING, nearbySuburbs, postcodesFor, postcodesInState } from "./gazetteer";
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
 import { groupLimit } from "./plans";
@@ -130,7 +130,8 @@ function rank(list: Candidate[], suburbs: string[]): Candidate[] {
  */
 export async function candidatesFor(
   suburbs: string[],
-  state: string
+  state: string,
+  ring = 0
 ): Promise<{ groups: Candidate[]; searched: boolean; pending: string[] }> {
   const held = await fromCatalogue(suburbs, state);
   if (held.length >= FILL_TARGET) {
@@ -144,10 +145,12 @@ export async function candidatesFor(
     // Bulleen and Doncaster whether or not he thought to type them. Their own
     // suburbs stay at the front, so the search spends its best queries there,
     // and ranking still uses only what they actually gave us.
-    const wide =
-      suburbs.length >= SEARCH_PLACES
-        ? suburbs
-        : [...suburbs, ...(await nearbySuburbs(suburbs, state, SEARCH_PLACES - suburbs.length))];
+    // Ring 0 only pads a thin list. Every ring after it is a deliberate look
+    // further out for somebody we still cannot fill, so it always pads.
+    const padWith = ring === 0 ? Math.max(0, SEARCH_PLACES - suburbs.length) : SEARCH_PLACES;
+    const wide = padWith
+      ? [...suburbs, ...(await nearbySuburbs(suburbs, state, padWith, ring))]
+      : suburbs;
 
     const [postcodeOf, statePostcodes] = await Promise.all([
       postcodesFor(wide, state),
@@ -166,9 +169,19 @@ export async function candidatesFor(
     // Australian on its own. Their own suburbs are trusted as before.
     if (wide.length > suburbs.length) {
       const own = suburbs.map((s) => s.trim().toLowerCase()).filter(Boolean);
+      const added = wide.slice(suburbs.length).map((s) => s.trim().toLowerCase());
       found = found.filter((g) => {
         const name = g.name.toLowerCase();
-        return own.some((p) => name.includes(p)) || looksAustralian(g.name);
+        // Their own suburbs are trusted, as they always were.
+        if (own.some((p) => name.includes(p))) return true;
+        // Proof on its own face is enough too: a postcode, a state, "council".
+        if (looksAustralian(g.name)) return true;
+        // Otherwise it has to actually be about the suburb we guessed, and not
+        // read as somewhere else. Requiring the name to carry the guessed
+        // suburb is what stops a search for Doncaster returning a football
+        // league; the foreign list is what stops the ones that do say
+        // Doncaster but mean the English one.
+        return added.some((p) => name.includes(p)) && !looksForeign(g.name);
       });
     }
   } catch (err) {
@@ -331,7 +344,12 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
   const db = getDb();
 
   const [profile] = await db
-    .select({ state: profiles.state, location: profiles.location, plan: profiles.plan })
+    .select({
+      state: profiles.state,
+      location: profiles.location,
+      plan: profiles.plan,
+      ring: profiles.searchRing,
+    })
     .from(profiles)
     .where(eq(profiles.userId, userId))
     .limit(1);
@@ -354,12 +372,20 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
   // whose watchlist is nearly empty, and only one member per tick. Without it
   // a member in a state nobody has set up in yet would sit on zero forever,
   // because the catalogue only grows when somebody searches it.
-  if (allowSearch && held.length < room) {
-    const found = await candidatesFor(suburbs, profile.state);
+  if (allowSearch && held.length < room && profile.ring <= MAX_RING) {
+    const found = await candidatesFor(suburbs, profile.state, profile.ring);
     // Nothing found is offered yet. It is filed, verified below, and picked up
     // by the next top up once Bright Data says it is readable.
     if (found.pending.length) await sizeUnknown(found.pending);
     held = found.groups;
+
+    // Step out one ring. The next look covers suburbs this one did not, and
+    // once the list is full topUpShortMembers stops calling here at all, so
+    // the widening stops on its own.
+    await db
+      .update(profiles)
+      .set({ searchRing: profile.ring + 1 })
+      .where(eq(profiles.userId, userId));
   }
   if (!held.length) return 0;
 
@@ -448,40 +474,36 @@ export async function topUpShortMembers(): Promise<number> {
     )
     .limit(TOP_UP_PER_TICK * 4);
 
-  let filled = 0;
-  let touched = 0;
-  // One search per tick across all members, whoever needs it most.
-  let searchLeft = 1;
+  // Who is short, and by how much.
+  const short: { userId: string; have: number }[] = [];
   for (const row of rows) {
-    if (touched >= TOP_UP_PER_TICK) break;
-
     const mine = await db
       .select({ id: groups.id })
       .from(groups)
       .where(and(eq(groups.userId, row.userId), eq(groups.status, "watching")));
-    if (mine.length >= groupLimit(row.plan)) continue;
+    if (mine.length < groupLimit(row.plan)) short.push({ userId: row.userId, have: mine.length });
+  }
+  // Emptiest first, because the one search we can afford this tick should go
+  // to the member with the least. Somebody on eighteen of twenty can wait.
+  short.sort((a, b) => a.have - b.have);
 
-    // The emptiest watchlists get the search. Somebody on nothing at all is
-    // a member paying for silence; somebody on eighteen of twenty is fine.
-    const needsSearch = mine.length < 5;
-    // Left unstamped on purpose. A catalogue-only pass for somebody on zero
-    // does nothing at all, and stamping would spend their six hour window on
-    // it. They come back at the front of the next tick instead.
-    if (needsSearch && searchLeft <= 0) continue;
-    if (needsSearch) searchLeft -= 1;
+  let filled = 0;
+  let searchLeft = 1;
+  for (const row of short.slice(0, TOP_UP_PER_TICK)) {
+    const searching = searchLeft > 0;
+    if (searching) searchLeft -= 1;
 
-    touched += 1;
     // Stamped before the work, not after. A member whose top up throws must
     // not be retried on every single tick.
     await db.update(profiles).set({ lastTopUp: now }).where(eq(profiles.userId, row.userId));
     try {
-      const added = await topUpMember(row.userId, needsSearch);
+      const added = await topUpMember(row.userId, searching);
       filled += added;
       // A search files groups but cannot hand them over in the same pass:
       // Bright Data has to read each one first, which lands a minute or two
       // later. Without this the member would sit on an empty watchlist for
       // six hours waiting for a verdict that arrived almost immediately.
-      if (!added && needsSearch) {
+      if (!added && searching) {
         await db
           .update(profiles)
           .set({ lastTopUp: now - TOP_UP_GAP_MS + 10 * 60 * 1000 })

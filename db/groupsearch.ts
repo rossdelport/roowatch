@@ -157,7 +157,13 @@ async function braveSearch(query: string, key: string): Promise<FoundGroup[]> {
     `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=20&country=au`,
     { headers: { Accept: "application/json", "X-Subscription-Token": key } }
   );
-  if (!res.ok) return [];
+  if (!res.ok) {
+    // Logged, not swallowed. This returned an empty list for a 402 "Usage
+    // limit exceeded" and group discovery looked merely unlucky for hours,
+    // while the real answer was that the month's search credit had run out.
+    console.error("brave search", res.status, (await res.text().catch(() => "")).slice(0, 200));
+    return [];
+  }
   const data = (await res.json()) as { web?: { results?: { title?: string; url?: string }[] } };
   return readResults(data.web?.results ?? []);
 }
@@ -167,7 +173,10 @@ async function googleSearch(query: string, key: string, cx: string): Promise<Fou
   const res = await fetch(
     `https://www.googleapis.com/customsearch/v1?key=${key}&cx=${cx}&num=10&q=${encodeURIComponent(query)}`
   );
-  if (!res.ok) return [];
+  if (!res.ok) {
+    console.error("google search", res.status, (await res.text().catch(() => "")).slice(0, 200));
+    return [];
+  }
   const data = (await res.json()) as { items?: { title?: string; link?: string }[] };
   return readResults((data.items ?? []).map((i) => ({ title: i.title, url: i.link })));
 }

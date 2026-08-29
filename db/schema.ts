@@ -57,6 +57,12 @@ export const profiles = sqliteTable("profiles", {
   wizardDraft: text("wizard_draft").notNull().default(""),
   /** Unix ms of the last watchlist top up, so it does not search every tick. */
   lastTopUp: integer("last_top_up").notNull().default(0),
+  /**
+   * How far out we have already looked for this member's groups. Each top up
+   * that still cannot fill their list searches the next ring of suburbs out,
+   * so nobody gets the same fruitless search run at them every six hours.
+   */
+  searchRing: integer("search_ring").notNull().default(0),
   onboardedAt: text("onboarded_at"),
   /** Set by the Stripe webhook. Empty until a checkout completes. */
   stripeCustomerId: text("stripe_customer_id").notNull().default(""),

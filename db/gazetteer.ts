@@ -127,6 +127,19 @@ export async function resolvePlaces(
  * PO, DC, MC and BC are Australia Post delivery areas, not places anybody
  * lives. Nobody has ever named a community group after Tunstall Square PO.
  */
+/**
+ * How far out each look reaches, in postcode steps.
+ *
+ * Ring 0 is next door. Each one after it is the band beyond the last, so a
+ * member who still cannot be filled gets fresh suburbs rather than the same
+ * ones again. The last edge is the end of it: past about forty postcodes we
+ * are in a different part of the state and it is not their patch any more.
+ */
+const RING_EDGES = [0, 3, 9, 18, 30, 42];
+
+/** The last ring there is. Beyond this we stop looking and say so. */
+export const MAX_RING = RING_EDGES.length - 2;
+
 const POSTAL_ARTIFACT = /\b(PO|DC|MC|BC|LPO|CMA|CMB)$|PO BOX/i;
 
 /**
@@ -145,7 +158,8 @@ const POSTAL_ARTIFACT = /\b(PO|DC|MC|BC|LPO|CMA|CMB)$|PO BOX/i;
 export async function nearbySuburbs(
   suburbs: string[],
   state: string,
-  want: number
+  want: number,
+  ring = 0
 ): Promise<string[]> {
   const abbr = stateAbbr(state);
   if (!abbr || want <= 0) return [];
@@ -154,8 +168,14 @@ export async function nearbySuburbs(
   const centres = [...new Set([...known.values()].map(Number))].filter(Number.isFinite);
   if (!centres.length) return [];
 
-  const low = Math.min(...centres) - 3;
-  const high = Math.max(...centres) + 3;
+  // Each ring is the band beyond the last one, so a second look never spends
+  // its queries on the same suburbs a first look already covered.
+  const inner = RING_EDGES[Math.min(ring, RING_EDGES.length - 1)];
+  const outer = RING_EDGES[Math.min(ring + 1, RING_EDGES.length - 1)];
+  if (outer <= inner) return [];
+
+  const low = Math.min(...centres) - outer;
+  const high = Math.max(...centres) + outer;
 
   const rows = await getDb()
     .select({ locality: postcodes.locality, postcode: postcodes.postcode })
@@ -181,6 +201,7 @@ export async function nearbySuburbs(
 
   const distance = (pc: string) => Math.min(...centres.map((c) => Math.abs(Number(pc) - c)));
   return [...best.entries()]
+    .filter(([pc]) => distance(pc) > inner && distance(pc) <= outer)
     .sort((a, b) => distance(a[0]) - distance(b[0]))
     .slice(0, want)
     .map(([, name]) => titleCase(name));
