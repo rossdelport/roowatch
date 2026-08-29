@@ -1858,7 +1858,6 @@ function SuburbPicker({ state, chosen, onChange, onSay }: {
           e.preventDefault();
           add(matches[0] ?? query);
         }}
-        autoFocus
       />
       {matches.length > 0 && (
         <div className="picker-list">
