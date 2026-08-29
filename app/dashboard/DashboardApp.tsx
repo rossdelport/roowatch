@@ -1489,28 +1489,62 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
    * Runs once, so coming back to the step never undoes their edits.
    */
   useEffect(() => {
-    if (stage !== "groups" || filled.current) return;
+    // Fired on the jobs step, two screens early. Verifying a group means asking
+    // Bright Data to read it, which takes a minute or two, and a search result
+    // on its own proves nothing about whether a group is public. Starting here
+    // buys that minute out of time they were spending on the brief anyway, so
+    // the list is already checked by the time they see it.
+    if (stage !== "jobs" && stage !== "groups") return;
+    if (filled.current) return;
     filled.current = true;
-    setFinding(true);
-    fetch("/api/onboarding/suggest-groups", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state, suburbs }),
-    })
-      .then((r) => r.json())
-      .then((d: { groups?: { name: string; url: string; members?: number }[] }) => {
+
+    let stop = false;
+    // Verification runs server side, so the only way to see the result is to
+    // ask again. Twenty seconds, then we show what we have and say so.
+    const deadline = Date.now() + 20_000;
+
+    async function pull(): Promise<void> {
+      if (stop) return;
+      try {
+        const res = await fetch("/api/onboarding/suggest-groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state, suburbs }),
+        });
+        const d = (await res.json()) as {
+          groups?: { name: string; url: string; members?: number }[];
+          pending?: number;
+        };
+        if (stop) return;
+
+        let total = 0;
         setGroupList((have) => {
           const room = Math.min(planGroups, 20) - have.length;
+          total = have.length;
           if (room <= 0) return have;
           const fresh = (d.groups ?? [])
-            .filter((g) => !have.some((h) => h.url === g.url))
+            .filter((g) => !have.some((x) => x.url === g.url))
             .slice(0, room)
             .map((g) => ({ url: g.url, name: g.name, members: g.members ?? 0 }));
+          total = have.length + fresh.length;
           return [...have, ...fresh];
         });
-      })
-      .catch(() => {})
-      .finally(() => setFinding(false));
+
+        // Keep asking while groups are still being verified and there is room
+        // left, until the clock runs out.
+        if (Number(d.pending ?? 0) > 0 && total < Math.min(planGroups, 20) && Date.now() < deadline) {
+          setTimeout(() => { void pull(); }, 4000);
+          return;
+        }
+      } catch {
+        // A verification outage must never strand somebody in setup.
+      }
+      if (!stop) setFinding(false);
+    }
+
+    setFinding(true);
+    void pull();
+    return () => { stop = true; };
   }, [stage, state, suburbs, planGroups]);
 
   async function addGroup(raw: string) {
@@ -1755,9 +1789,11 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
             </h2>
             <p className="muted">
               {finding
-                ? `Searching ${suburbs.slice(0, 3).join(", ") || "your area"} for local groups.`
-                : groupList.length
+                ? `Checking the groups near ${suburbs.slice(0, 2).join(" and ") || "you"} are public. We only add ones we can actually read.`
+                : groupList.length >= Math.min(planGroups, 20)
                 ? "We picked these from your suburbs. Rename, delete or add your own, then carry on."
+                : groupList.length
+                ? `We are still finding groups for your area. We will keep scanning until all ${Math.min(planGroups, 20)} are added to your account, so there is nothing for you to do.`
                 : "Private group scanning is coming soon. Paste a public group link to get started."}
             </p>
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} filling={finding} />
@@ -1766,6 +1802,8 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 ? "This takes a few seconds."
                 : groupList.length === 0
                 ? "Add at least one group to finish."
+                : groupList.length < Math.min(planGroups, 20)
+                ? `${groupList.length} of ${planGroups} groups so far. We add the rest as we verify them. Edit or delete any you do not want.`
                 : `${groupList.length} of ${planGroups} groups. Edit or delete any you do not want.`}
             </p>
 

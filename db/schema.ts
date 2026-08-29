@@ -55,6 +55,8 @@ export const profiles = sqliteTable("profiles", {
    * us a scan. Cleared once they finish.
    */
   wizardDraft: text("wizard_draft").notNull().default(""),
+  /** Unix ms of the last watchlist top up, so it does not search every tick. */
+  lastTopUp: integer("last_top_up").notNull().default(0),
   onboardedAt: text("onboarded_at"),
   /** Set by the Stripe webhook. Empty until a checkout completes. */
   stripeCustomerId: text("stripe_customer_id").notNull().default(""),
@@ -213,6 +215,24 @@ export const foundGroups = sqliteTable("found_groups", {
   suburb: text("suburb").notNull().default(""),
   score: integer("score").notNull().default(0),
   foundAt: integer("found_at").notNull().default(0),
+  /**
+   * 1 once Bright Data has actually read this group and it came back readable.
+   * A search result proves nothing: a private group's listing looks exactly
+   * like a public one's. Only a checked row is ever offered to a member.
+   */
+  checked: integer("checked").notNull().default(0),
+});
+
+/**
+ * Groups a member took off their own list.
+ *
+ * The top up puts groups back until somebody has a full watchlist, so without
+ * this it would cheerfully re-add the one they just deleted, forever.
+ */
+export const droppedGroups = sqliteTable("dropped_groups", {
+  userId: text("user_id").notNull(),
+  slug: text("slug").notNull(),
+  droppedAt: integer("dropped_at").notNull().default(0),
 });
 
 /**

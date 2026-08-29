@@ -3,7 +3,7 @@ import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { groupSlug, parseGroupInput } from "../../../../db/fbgroups";
 import { groupLimit } from "../../../../db/plans";
-import { groups, profiles, sources } from "../../../../db/schema";
+import { droppedGroups, groups, profiles, sources } from "../../../../db/schema";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -129,6 +129,24 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "remove" && body.groupId) {
+    // Written down before the delete, while we can still find the source.
+    // topUpShortMembers refills a short watchlist from the catalogue, so
+    // without this it would put back the group they just removed, every
+    // six hours, forever.
+    const [going] = await db
+      .select({ url: sources.url })
+      .from(groups)
+      .leftJoin(sources, eq(sources.id, groups.sourceId))
+      .where(and(eq(groups.id, body.groupId), eq(groups.userId, user.id)))
+      .limit(1);
+    const slug = groupSlug(going?.url ?? "");
+    if (slug) {
+      await db
+        .insert(droppedGroups)
+        .values({ userId: user.id, slug, droppedAt: Date.now() })
+        .onConflictDoNothing();
+    }
+
     await db
       .delete(groups)
       .where(and(eq(groups.id, body.groupId), eq(groups.userId, user.id)));

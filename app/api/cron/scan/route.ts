@@ -2,7 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bdCollect, bdProgress, bdTrigger, dueSources, processSource, type GroupFacts } from "../../../../db/pipeline";
 import { groupSlug } from "../../../../db/fbgroups";
-import { collectCatalogue } from "../../../../db/catalogue";
+import { collectCatalogue, topUpShortMembers } from "../../../../db/catalogue";
 import { groups, scanJobs, sources } from "../../../../db/schema";
 
 /**
@@ -242,6 +242,10 @@ export async function POST(request: Request) {
   // here can never cost a member a lead.
   try {
     await collectCatalogue();
+    // Setup can only hand out what the catalogue had verified at that moment,
+    // which in a new area is very little. Nobody goes back through the wizard,
+    // so the filling carries on here until every watchlist is full.
+    await topUpShortMembers();
   } catch {
     // Never let catalogue work break a scan.
   }

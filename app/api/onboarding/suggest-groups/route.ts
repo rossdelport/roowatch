@@ -23,15 +23,24 @@ export async function POST(request: Request) {
   const state = String(body.state ?? "").trim();
   const suburbs = (body.suburbs ?? []).map((s) => String(s).trim()).filter(Boolean);
 
-  const { groups, searched } = await candidatesFor(suburbs, state);
+  const { groups, searched, pending } = await candidatesFor(suburbs, state);
 
-  const unsized = groups.filter((g) => !g.members && !g.proven).map((g) => g.slug);
-  if (unsized.length) await sizeUnknown(unsized);
+  // Everything the search just found, plus anything catalogued we have never
+  // read. One snapshot answers both questions at once: is it public, and how
+  // big is it. Empty checks are free, so the quiet ones cost nothing.
+  const unchecked = [
+    ...pending,
+    ...groups.filter((g) => !g.members && !g.proven).map((g) => g.slug),
+  ];
+  if (unchecked.length) await sizeUnknown(unchecked);
 
   return Response.json({
     ok: true,
     groups,
     searched: searchConfigured() && searched,
-    sizing: unsized.length,
+    // How many are still being verified. The wizard waits on this rather than
+    // showing a group before we know anybody can read it.
+    pending: pending.length,
+    sizing: unchecked.length,
   });
 }
