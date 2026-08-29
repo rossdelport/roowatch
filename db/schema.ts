@@ -105,6 +105,17 @@ export const sources = sqliteTable("sources", {
  * the snapshot id down. Without this row a later tick would trigger a second
  * collection for the same groups and we would pay twice.
  */
+/**
+ * A tiny key value table for the watchdog.
+ *
+ * Only one row so far: when the last "the scanner has stopped" email went out,
+ * so a dead scanner does not send one every minute for a day.
+ */
+export const health = sqliteTable("health", {
+  id: text("id").primaryKey(),
+  value: integer("value").notNull().default(0),
+});
+
 export const scanJobs = sqliteTable("scan_jobs", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   snapshotId: text("snapshot_id").notNull(),

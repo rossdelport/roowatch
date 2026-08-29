@@ -46,16 +46,24 @@ const worker = {
 
   async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     if (!env.CRON_SECRET) return;
-    ctx.waitUntil(
+
+    const call = (path: string) =>
       worker.fetch(
-        new Request("https://roowatch.com.au/api/cron/scan", {
+        new Request(`https://roowatch.com.au${path}`, {
           method: "POST",
-          headers: { "x-cron-secret": env.CRON_SECRET },
+          headers: { "x-cron-secret": env.CRON_SECRET! },
         }),
         env,
         ctx
-      )
-    );
+      );
+
+    ctx.waitUntil(call("/api/cron/scan"));
+
+    // Its own request, so it has its own CPU budget. The whole point of the
+    // watchdog is to survive the thing it is watching: sharing an invocation
+    // with the scan would mean a killed tick takes the alarm down with it, and
+    // that is exactly the failure it exists to catch.
+    ctx.waitUntil(call("/api/cron/health"));
   },
 };
 

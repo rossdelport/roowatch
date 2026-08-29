@@ -415,44 +415,6 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
   // whose watchlist is nearly empty, and only one member per tick. Without it
   // a member in a state nobody has set up in yet would sit on zero forever,
   // because the catalogue only grows when somebody searches it.
-  if (allowSearch && held.length < room && profile.ring <= MAX_RING) {
-    const found = await candidatesFor(suburbs, profile.state, profile.ring);
-    // Nothing found is offered yet. It is filed, verified below, and picked up
-    // by the next top up once Bright Data says it is readable.
-    if (found.pending.length) await sizeUnknown(found.pending);
-    held = found.groups;
-
-    // Step out one ring. The next look covers suburbs this one did not, and
-    // once the list is full topUpShortMembers stops calling here at all, so
-    // the widening stops on its own.
-    await db
-      .update(profiles)
-      .set({ searchRing: profile.ring + 1 })
-      .where(eq(profiles.userId, userId));
-  }
-  // Verification is not tied to searching. A member whose rings are used up
-  // could have dozens of groups already found for their town and no way to get
-  // them checked, so they sat in the catalogue for good. Andrew had twenty
-  // seven Cairns groups waiting behind that.
-  if (held.length < room) {
-    try {
-      const mentionsTheirPatch = await patchMatcher(suburbs, profile.state);
-      const waiting = await db
-        .select({ slug: foundGroups.slug, name: foundGroups.name, suburb: foundGroups.suburb })
-        .from(foundGroups)
-        .where(and(eq(foundGroups.state, profile.state), eq(foundGroups.checked, 0)))
-        .limit(60);
-      const mine = waiting
-        .filter((g) => mentionsTheirPatch(`${g.suburb} ${g.name}`))
-        .map((g) => g.slug);
-      if (mine.length) await sizeUnknown(mine);
-    } catch {
-      // Verification is a nicety here. The top up carries on without it.
-    }
-  }
-
-  if (!held.length) return 0;
-
   const dropped = new Set(
     (
       await db
@@ -473,6 +435,50 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
     for (const r of rows) haveSlugs.add(groupSlug(r.url));
   }
   const haveNames = new Set(mine.map((g) => g.name.trim().toLowerCase()));
+
+  // Counted against what they do not already have, not against everything the
+  // catalogue holds. Scott sat on eleven groups with eleven held, so held was
+  // never below room and the search never ran again: the catalogue was full of
+  // groups he was already watching.
+  const isNew = (c: Candidate) => !haveSlugs.has(c.slug) && !dropped.has(c.slug);
+
+  if (allowSearch && held.filter(isNew).length < room && profile.ring <= MAX_RING) {
+    const found = await candidatesFor(suburbs, profile.state, profile.ring);
+    // Nothing found is offered yet. It is filed, verified below, and picked up
+    // by the next top up once Bright Data says it is readable.
+    if (found.pending.length) await sizeUnknown(found.pending);
+    held = found.groups;
+
+    // Step out one ring. The next look covers suburbs this one did not, and
+    // once the list is full topUpShortMembers stops calling here at all, so
+    // the widening stops on its own.
+    await db
+      .update(profiles)
+      .set({ searchRing: profile.ring + 1 })
+      .where(eq(profiles.userId, userId));
+  }
+  // Verification is not tied to searching. A member whose rings are used up
+  // could have dozens of groups already found for their town and no way to get
+  // them checked, so they sat in the catalogue for good. Andrew had twenty
+  // seven Cairns groups waiting behind that.
+  if (held.filter(isNew).length < room) {
+    try {
+      const mentionsTheirPatch = await patchMatcher(suburbs, profile.state);
+      const waiting = await db
+        .select({ slug: foundGroups.slug, name: foundGroups.name, suburb: foundGroups.suburb })
+        .from(foundGroups)
+        .where(and(eq(foundGroups.state, profile.state), eq(foundGroups.checked, 0)))
+        .limit(60);
+      const mine = waiting
+        .filter((g) => mentionsTheirPatch(`${g.suburb} ${g.name}`))
+        .map((g) => g.slug);
+      if (mine.length) await sizeUnknown(mine);
+    } catch {
+      // Verification is a nicety here. The top up carries on without it.
+    }
+  }
+
+  if (!held.length) return 0;
 
   const wanted = rank(held, suburbs)
     .filter((c) => !haveSlugs.has(c.slug) && !dropped.has(c.slug))

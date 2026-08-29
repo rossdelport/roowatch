@@ -63,6 +63,9 @@ const NOT_HERE = new RegExp(
       "middle river|\\bmd\\b|\\bmi\\b|\\bva\\b|\\bmn\\b|\\bmo\\b|\\bky\\b|\\boh\\b|\\bnj\\b",
       "ontario|alberta|manitoba|saskatchewan|winnipeg|toronto|vancouver|calgary",
       "british columbia|nova scotia|quebec|aldergrove|langley",
+      // Port Hawkesbury is in Nova Scotia and says so nowhere. A "Port" in
+      // front of an Australian suburb name is nearly always somewhere else.
+      "port hawkesbury|cape breton|newfoundland|saskatoon|mississauga",
       "yorkshire|lancashire|devon|essex|surrey|scotland|ireland|wales",
       // Doncaster is a suburb of Melbourne and a city in South Yorkshire, and
       // the English one names its county about as often as Perth names WA.
@@ -95,7 +98,7 @@ const AU_SIGNAL =
 
 /** A group about something else entirely. Nobody there is after a plumber. */
 const NOT_FOR_US =
-  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|realtors?|realty|real estate|tiny house|holiday|tourism|creative|expats?|yoga|pilates|zumba|\bgym\b|fitness|crossfit|bootcamp|climb(ing|ers?)|hiking|bushwalk|walking group|runners?|parkrun|cycl(ing|ists?)|\bride\b|\bmtb\b|\bbmx\b|spiritual|meditation|mindfulness|psychic|tarot|astrology|reiki|wellness|employment|\bjobs?\b|hiring|recruit\w*|vacanc\w*|careers?|book club|quilting|sewing|crochet|photography|birding|birdwatch\w*|\bpets?\b|\bdogs?\b|\bcats?\b|puppies|kittens|playgroup|homeschool|\buni\b|university|students?|backpacker|travel|camping|boating|\bsurf\b|skate|martial arts|boxing|dance|choir|theatre|museum|genealogy|politics|election|protest|vegan|recipes?|cooking|baking|weight loss)\b/i;
+  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|realtors?|realty|real estate|tiny house|holiday|tourism|creative|expats?|yoga|pilates|zumba|\bgym\b|fitness|crossfit|bootcamp|climb(ing|ers?)|hiking|bushwalk|walking group|runners?|parkrun|cycl(ing|ists?)|\bride\b|\bmtb\b|\bbmx\b|spiritual|meditation|mindfulness|psychic|tarot|astrology|reiki|wellness|employment|\bjobs?\b|hiring|recruit\w*|vacanc\w*|careers?|book club|quilting|sewing|crochet|photography|birding|birdwatch\w*|\bpets?\b|\bdogs?\b|\bcats?\b|puppies|kittens|playgroup|homeschool|\buni\b|university|students?|backpacker|travel|camping|boating|\bsurf\b|skate|martial arts|boxing|dance|choir|theatre|museum|genealogy|politics|election|protest|vegan|recipes?|cooking|baking|weight loss|history|heritage|genealog\w*)\b/i;
 
 /**
  * Phrasing that belongs to a post rather than to a group. A group is called
