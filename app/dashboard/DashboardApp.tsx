@@ -1317,7 +1317,7 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
   );
 
   const [website, setWebsite] = useState(draft.website ?? known?.website ?? "");
-  const [gbpUrl, setGbpUrl] = useState(draft.gbpUrl ?? known?.gbpUrl ?? "");
+  const [gbpUrl] = useState(draft.gbpUrl ?? known?.gbpUrl ?? "");
   const [businessName, setBusinessName] = useState(draft.businessName ?? known?.businessName ?? "");
   const [services, setServices] = useState(draft.services ?? known?.services ?? "");
   const [trade, setTrade] = useState(draft.trade ?? known?.trade ?? "");
@@ -1671,9 +1671,6 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
             <p className="muted">We read these to work out your trade and your suburbs. It saves you the typing.</p>
             <label className="lbl">Your website <span className="req">*</span></label>
             <input placeholder="https://mybusiness.com.au" value={website} onChange={(e) => setWebsite(e.target.value)} autoFocus />
-            <label className="lbl">Your Google listing (if you have one)</label>
-            <input placeholder="https://maps.google.com/maps/place/..." value={gbpUrl} onChange={(e) => setGbpUrl(e.target.value)} />
-            <p className="tiny">Open your business on Google Maps and copy the address bar.</p>
           </>
         )}
 
@@ -5215,6 +5212,16 @@ const CSS = `
 .yes-mark{color:var(--mint);display:flex;flex:none;padding-top:2px;}
 
 @media(max-width:640px){
+  /* A phone keyboard does not shrink vh, so an 80vh modal kept its Continue
+     button underneath the keyboard. dvh does shrink. The padding comes down
+     too: 32px a side plus the overlay's 20px left 271px of usable width on a
+     375px phone. */
+  .overlay{padding:10px;}
+  .modal{max-height:88vh;max-height:88dvh;padding:24px 18px 18px;}
+  .modal .wiz-body{margin:0 -18px;padding:0 18px;}
+  .modal h2{font-size:19px;}
+  .modal-x{right:10px;top:10px;}
+  .wiz-top{margin-bottom:14px;}
   .modal-wide{padding:24px 18px;}
   .adder-row{flex-wrap:wrap;}
   .adder-input{flex:1 1 100%;}
