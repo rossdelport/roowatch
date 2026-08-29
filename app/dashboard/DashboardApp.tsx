@@ -5270,7 +5270,7 @@ const CSS = `
 .mock.search{border-radius:99px;color:var(--muted);}
 .mock-ico,.mock-lock{color:#a8b0c0;display:flex;flex:none;}
 .mock-ico svg,.mock-lock svg{height:14px;width:14px;}
-.mock-url{color:var(--muted);font-family:var(--font-geist-mono),monospace;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mock-url{color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .mock-url b{color:var(--ink);}
 .help-warn{background:#fdece8;border-radius:12px;display:grid;gap:8px;padding:14px 16px;}
 .help-warn p{align-items:flex-start;display:flex;font-size:13px;font-weight:600;gap:8px;line-height:1.45;margin:0;}
