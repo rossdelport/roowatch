@@ -217,7 +217,6 @@ export default function DashboardApp() {
    * closing it loses nothing, and being trapped in a modal on a phone with no
    * way out is worse than an unfinished watchlist.
    */
-  const [wizardHidden, setWizardHidden] = useState(false);
   const [adminTab, setAdminTab] = useState<AdminTab | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [usageDays, setUsageDays] = useState(14);
@@ -569,28 +568,15 @@ export default function DashboardApp() {
           )}
         </main>
 
-        {/* Put aside, not abandoned. Every answer is saved, so this walks them
-            straight back to the step they left. */}
-        {needsOnboarding && wizardHidden && !needsCard && (
-          <button className="resume-setup" onClick={() => setWizardHidden(false)}>
-            <span>
-              <strong>Finish setting up</strong>
-              <em>We are not watching anything for you yet. Your answers are saved.</em>
-            </span>
-            <i>{I.arrow ?? "›"}</i>
-          </button>
-        )}
-
         {needsCard ? (
           <NeedCard me={me} onRefresh={refresh} onLogout={logout} />
-        ) : needsOnboarding && !wizardHidden ? (
+        ) : needsOnboarding ? (
           <Onboarding
             me={me}
             // Only reached by somebody already paying, or if checkout could
             // not be opened. The celebration now fires on the way back from
             // Stripe instead.
             onDone={refresh}
-            onClose={() => setWizardHidden(true)}
           />
         ) : null}
 
@@ -1307,7 +1293,7 @@ function readDraft(raw: string | null | undefined): Draft {
   }
 }
 
-function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClose: () => void }) {
+function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const known = me.profile;
   // Read once. Later saves must not pull the member back to an older step.
   const [draft] = useState(() => readDraft(known?.wizardDraft));
@@ -1337,6 +1323,22 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
 
   const chosenTrade = trade === OTHER_TRADE ? tradeOther.trim() : trade;
   const planGroups = me.plan?.groups ?? PLANS.local.groups;
+  // The page behind the wizard was still scrolling under the overlay on a
+  // phone, so a tradie mid setup could drag the dashboard around behind it.
+  // overscroll-behavior on .overlay stops the scroll chaining; this stops the
+  // page moving at all.
+  useEffect(() => {
+    const html = document.documentElement;
+    const prevHtml = html.style.overflow;
+    const prevBody = document.body.style.overflow;
+    html.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtml;
+      document.body.style.overflow = prevBody;
+    };
+  }, []);
+
   const step = STAGES.indexOf(stage);
 
   function say(message: string) {
@@ -1643,14 +1645,6 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
           </div>
         )}
 
-        <button
-          className="modal-x"
-          onClick={onClose}
-          aria-label="Close setup"
-          title="Close. Your answers are saved."
-        >
-          {I.x}
-        </button>
         <div className="wiz-top">
           <div className="steps-dots">
             {STAGES.map((s, i) => (
@@ -4616,7 +4610,7 @@ const CSS = `
    still enabled, just below the screen with no way to reach it.
    flex-start plus margin:auto keeps a short modal centred and keeps a
    tall one fully scrollable from its very top. */
-.overlay{align-items:flex-start;animation:dRise .3s var(--ease) both;backdrop-filter:blur(4px);background:rgba(17,29,54,.55);display:flex;inset:0;justify-content:center;overflow-y:auto;padding:20px;position:fixed;z-index:50;}
+.overlay{align-items:flex-start;overscroll-behavior:contain;animation:dRise .3s var(--ease) both;backdrop-filter:blur(4px);background:rgba(17,29,54,.55);display:flex;inset:0;justify-content:center;overflow-y:auto;padding:20px;position:fixed;z-index:50;}
 .modal{animation:dPop .45s var(--ease) both;background:#fff;border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;margin:auto;max-height:80vh;max-width:460px;padding:32px;width:100%;}
 /* Everything between the heading and the buttons scrolls, so the buttons are
    always reachable and the page behind never grows. */
