@@ -39,7 +39,7 @@ import { groups, scanJobs, sources } from "../../../../db/schema";
 const GROUPS_PER_BATCH = 12;
 /** Snapshots allowed in flight at once. Tested clean at 15. This is the brake
  *  that stops a backlog turning into hundreds of open collections. */
-const MAX_INFLIGHT = 40;
+const MAX_INFLIGHT = 12;
 /** Most groups we will pick up in a single tick. */
 const SOURCES_PER_TICK = 500;
 /**
@@ -70,7 +70,20 @@ const MIN_WINDOW_MINUTES = 3;
 const TOP_UP_EVERY_TICK = false;
 /** Poll briefly after triggering so a fast snapshot is collected now rather
  *  than a minute from now. Median collection is about 60 seconds. */
-const INLINE_WAIT_MS = 45_000;
+/**
+ * Zero, on purpose.
+ *
+ * This used to wait 45 seconds after triggering, sweeping every 5 seconds, so
+ * one tick could parse the same snapshots nine times over. Cloudflare kills a
+ * cron that overruns its CPU budget, and the whole tick died before anything
+ * was written down: the scanner was off for twenty hours and nobody noticed
+ * because the failure is invisible from inside the worker.
+ *
+ * Collection belongs to the next tick's sweep, which is what the two step
+ * design at the top of this file describes anyway. Snapshots land a minute
+ * later instead of seconds. That is a fair price for a scanner that runs.
+ */
+const INLINE_WAIT_MS = 0;
 const POLL_EVERY_MS = 5_000;
 /** A collection still running after this is treated as dead and dropped. */
 const JOB_STALE_MINUTES = 20;
