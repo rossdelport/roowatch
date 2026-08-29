@@ -479,7 +479,7 @@ export async function topUpShortMembers(): Promise<number> {
   // clever version compiled to SQL D1 rejected, and the whole call sits inside
   // a catch in the cron, so it failed every tick without saying a word.
   const rows = await db
-    .select({ userId: profiles.userId, plan: profiles.plan })
+    .select({ userId: profiles.userId, plan: profiles.plan, lastTopUp: profiles.lastTopUp })
     .from(profiles)
     .where(
       sql`${profiles.onboardedAt} IS NOT NULL
@@ -489,17 +489,23 @@ export async function topUpShortMembers(): Promise<number> {
     .limit(TOP_UP_PER_TICK * 4);
 
   // Who is short, and by how much.
-  const short: { userId: string; have: number }[] = [];
+  const short: { userId: string; have: number; lastTopUp: number }[] = [];
   for (const row of rows) {
     const mine = await db
       .select({ id: groups.id })
       .from(groups)
       .where(and(eq(groups.userId, row.userId), eq(groups.status, "watching")));
-    if (mine.length < groupLimit(row.plan)) short.push({ userId: row.userId, have: mine.length });
+    if (mine.length < groupLimit(row.plan)) {
+      short.push({ userId: row.userId, have: mine.length, lastTopUp: row.lastTopUp });
+    }
   }
-  // Emptiest first, because the one search we can afford this tick should go
-  // to the member with the least. Somebody on eighteen of twenty can wait.
-  short.sort((a, b) => a.have - b.have);
+  // Longest waiting first, not emptiest first.
+  //
+  // Emptiest first starved everybody else. One member sat on zero groups
+  // because his state had nothing verified yet, so he won the single search
+  // slot on every tick forever, and a member on three groups never got a turn
+  // at all. Whoever has gone longest without a look goes next.
+  short.sort((a, b) => a.lastTopUp - b.lastTopUp);
 
   let filled = 0;
   let searchLeft = 1;
