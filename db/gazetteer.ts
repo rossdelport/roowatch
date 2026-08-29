@@ -135,6 +135,75 @@ export async function resolvePlaces(
  * ones again. The last edge is the end of it: past about forty postcodes we
  * are in a different part of the state and it is not their patch any more.
  */
+/**
+ * Australian place names that are also somewhere else.
+ *
+ * Colonists named their suburbs after home, so nearly every collision is a
+ * British one. Padding a search with Doncaster brought back South Yorkshire;
+ * padding with Kew brought back a rugby club in London and a garden in Queens.
+ * Catching those one town at a time only works until the next one.
+ *
+ * So we never guess with a name on this list. It is used for suburbs we chose
+ * ourselves, never for suburbs a member typed: a plumber who says he works in
+ * Richmond means his Richmond, and that is not in doubt.
+ *
+ * A name here that is not an Australian suburb simply never matches anything,
+ * so the list is allowed to be generous.
+ */
+const SHARED_NAMES = new Set(
+  [
+    // London and the home counties, which is where most of them come from
+    "richmond", "kew", "chelsea", "kensington", "paddington", "camden", "islington",
+    "hackney", "greenwich", "woolwich", "eltham", "bromley", "beckenham", "sydenham",
+    "dulwich", "lewisham", "brixton", "clapham", "balham", "tooting", "streatham",
+    "battersea", "fulham", "putney", "wimbledon", "merton", "mitcham", "morden",
+    "sutton", "cheam", "carshalton", "wallington", "purley", "croydon", "norwood",
+    "enfield", "barnet", "harrow", "ealing", "acton", "chiswick", "hammersmith",
+    "hounslow", "isleworth", "brentford", "twickenham", "surbiton", "kingston",
+    "epsom", "ascot", "woking", "guildford", "dorking", "reigate", "redhill",
+    "leatherhead", "esher", "caterham", "nutfield", "hampstead", "highgate",
+    "marylebone", "mayfair", "pimlico", "bayswater", "maida vale", "belgravia",
+    "chertsey", "staines", "windsor", "eton", "slough", "watford", "romford",
+    // English towns and cities
+    "doncaster", "sheffield", "leeds", "bradford", "rotherham", "barnsley",
+    "nottingham", "leicester", "derby", "york", "lancaster", "durham", "carlisle",
+    "preston", "blackburn", "burnley", "bolton", "wigan", "oldham", "rochdale",
+    "stockport", "salford", "warrington", "chester", "crewe", "stafford",
+    "coventry", "warwick", "rugby", "stratford", "worcester", "gloucester",
+    "cheltenham", "bath", "bristol", "cotham", "clifton", "redland", "exeter", "plymouth", "torquay", "truro",
+    "salisbury", "winchester", "southampton", "portsmouth", "brighton", "hastings",
+    "eastbourne", "canterbury", "rochester", "maidstone", "dartford", "dover",
+    "folkestone", "ashford", "reading", "oxford", "cambridge", "norwich",
+    "ipswich", "colchester", "chelmsford", "luton", "bedford", "northampton",
+    "peterborough", "lincoln", "hull", "middlesbrough", "sunderland", "gateshead",
+    "newcastle", "durham", "kendal", "keswick", "harrogate", "ripon", "selby",
+    "beverley", "grimsby", "scunthorpe", "mansfield", "chesterfield", "matlock",
+    "buxton", "macclesfield", "congleton", "nantwich", "shrewsbury", "telford",
+    "hereford", "malvern", "evesham", "banbury", "bicester", "swindon", "devizes",
+    "trowbridge", "yeovil", "taunton", "bridgwater", "weymouth", "dorchester",
+    "poole", "bournemouth", "christchurch", "ringwood", "romsey", "andover",
+    "basingstoke", "farnham", "aldershot", "camberley", "bracknell", "maidenhead",
+    "henley", "marlow", "amersham", "aylesbury", "hertford", "ware", "royston",
+    "huntingdon", "ely", "newmarket", "bury", "sudbury", "braintree", "witham",
+    // Scotland, Wales and Ireland
+    "armadale", "balmoral", "hamilton", "paisley", "greenock", "ayr", "dumfries",
+    "stirling", "perth", "dundee", "aberdeen", "inverness", "elgin", "montrose",
+    "arbroath", "falkirk", "linlithgow", "bathgate", "livingston", "kilmarnock",
+    "irvine", "troon", "lanark", "moffat", "melrose", "kelso", "jedburgh",
+    "cardiff", "swansea", "newport", "wrexham", "bangor", "conwy", "denbigh",
+    "brecon", "monmouth", "pembroke", "tenby", "carmarthen", "llanelli",
+    "dublin", "cork", "limerick", "galway", "kildare", "wicklow", "wexford",
+    "waterford", "kilkenny", "athlone", "belfast", "lisburn", "bangor",
+    // North America and New Zealand
+    "boston", "springfield", "portland", "salem", "franklin", "clinton",
+    "madison", "auburn", "milton", "newton", "concord", "lexington", "georgetown",
+    "arlington", "manchester", "aurora", "hudson", "troy", "rome", "athens",
+    "berlin", "dover", "greenwich", "stamford", "norwalk", "danbury", "waterbury",
+    "nelson", "napier", "hastings", "blenheim", "wanaka", "gisborne", "timaru",
+    "oamaru", "invercargill", "whangarei", "taupo", "rotorua", "levin",
+  ].map((n) => n.toLowerCase())
+);
+
 const RING_EDGES = [0, 3, 9, 18, 30, 42];
 
 /** The last ring there is. Beyond this we stop looking and say so. */
@@ -195,6 +264,10 @@ export async function nearbySuburbs(
     const name = r.locality.trim();
     if (!name || theirs.has(name.toUpperCase())) continue;
     if (POSTAL_ARTIFACT.test(name)) continue;
+    // Never guess with a name that belongs to two countries. This is a suburb
+    // we chose, not one they gave us, so there is nothing to lose by skipping
+    // it and a Yorkshire noticeboard to gain by not.
+    if (SHARED_NAMES.has(name.toLowerCase())) continue;
     const held = best.get(r.postcode);
     if (!held || name.length < held.length) best.set(r.postcode, name);
   }

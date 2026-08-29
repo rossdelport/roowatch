@@ -95,7 +95,7 @@ const AU_SIGNAL =
 
 /** A group about something else entirely. Nobody there is after a plumber. */
 const NOT_FOR_US =
-  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|tiny house|holiday|tourism|creative|expats?)\b/i;
+  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|realtors?|realty|real estate|tiny house|holiday|tourism|creative|expats?)\b/i;
 
 /**
  * Phrasing that belongs to a post rather than to a group. A group is called
@@ -154,6 +154,39 @@ function readResults(results: { title?: string; url?: string }[]): FoundGroup[] 
     });
   }
   return out;
+}
+
+/**
+ * One raw search, titles and blurbs only.
+ *
+ * Used to work out where a business is when its own website never says. A
+ * trade site often has no address at all, but the directories that list it do:
+ * "Brightside Solar, Solar Installer, Joondalup WA" is a Yellow Pages title.
+ */
+export async function searchText(
+  query: string
+): Promise<{ title: string; description: string }[]> {
+  const key = process.env.BRAVE_SEARCH_KEY;
+  if (!key) return [];
+  try {
+    const res = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10&country=au`,
+      { headers: { Accept: "application/json", "X-Subscription-Token": key } }
+    );
+    if (!res.ok) {
+      console.error("brave text", res.status, (await res.text().catch(() => "")).slice(0, 200));
+      return [];
+    }
+    const data = (await res.json()) as {
+      web?: { results?: { title?: string; description?: string }[] };
+    };
+    return (data.web?.results ?? []).map((r) => ({
+      title: String(r.title ?? ""),
+      description: String(r.description ?? ""),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 async function braveSearch(query: string, key: string): Promise<FoundGroup[]> {

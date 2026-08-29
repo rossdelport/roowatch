@@ -3,6 +3,7 @@ import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { profiles, users } from "../../../../db/schema";
 import { resolvePlaces } from "../../../../db/gazetteer";
+import { searchText } from "../../../../db/groupsearch";
 import { TRADES } from "../../../../db/trades";
 import { nameFromMapsUrl, normaliseUrl, readSite } from "../../../../db/website";
 
@@ -88,7 +89,13 @@ async function readGoogle(
 /** Claude reads the page and pulls out the trade, the suburbs and the services. */
 async function readWithClaude(
   text: string
-): Promise<{ trade: string; suburbs: string[]; services: string; businessName: string } | null> {
+): Promise<{
+  trade: string;
+  suburbs: string[];
+  services: string;
+  businessName: string;
+  baseSuburb: string;
+} | null> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key || !text) return null;
 
@@ -111,13 +118,14 @@ async function readWithClaude(
 Website text: "${text}"
 
 Reply with only JSON in this shape:
-{"businessName":"","trade":"","services":"","suburbs":[]}
+{"businessName":"","trade":"","services":"","suburbs":[],"baseSuburb":""}
 
 trade must be exactly one of these, or "" if you cannot tell:
 ${TRADES.join(", ")}
 
 services: one short plain sentence about the jobs they do.
-suburbs: Australian suburbs or towns they say they serve. Up to 20. Use [] if none are named. Do not guess. Do not include states or countries.`,
+suburbs: Australian suburbs or towns they say they serve. Up to 20. Use [] if none are named. Do not guess. Do not include states or countries.
+baseSuburb: the one suburb or town the business itself is in, from an address, a footer, or a contact page. "" if it is not on the page. Do not guess.`,
           },
         ],
       }),
@@ -132,12 +140,83 @@ suburbs: Australian suburbs or towns they say they serve. Up to 20. Use [] if no
       trade: String(parsed.trade ?? "").trim(),
       services: String(parsed.services ?? "").trim().slice(0, 400),
       businessName: String(parsed.businessName ?? "").trim().slice(0, 120),
+      baseSuburb: String(parsed.baseSuburb ?? "").trim().slice(0, 80),
       suburbs: Array.isArray(parsed.suburbs)
         ? parsed.suburbs.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 20)
         : [],
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Where is this business, according to the rest of the web?
+ *
+ * A trade website is often three pages and a phone number, with no address and
+ * no service areas anywhere on it. The directories that list the same business
+ * are far more consistent: a Yellow Pages, hipages or Oneflare result almost
+ * always carries the suburb in its title. So when the site itself says nothing
+ * we read what everyone else says about it.
+ *
+ * Two searches and one cheap Haiku call, and only for the member who would
+ * otherwise have had to type their whole patch in by hand.
+ */
+async function placesFromWeb(businessName: string, trade: string): Promise<string[]> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key || !businessName) return [];
+
+  const hits = (
+    await Promise.all([
+      searchText(`"${businessName}" ${trade} australia`),
+      searchText(`"${businessName}" contact address suburb`),
+    ])
+  ).flat();
+  if (!hits.length) return [];
+
+  const text = hits
+    .map((r) => `${r.title} ${r.description}`)
+    .join("\n")
+    .slice(0, 6000);
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages: [
+          {
+            role: "user",
+            content: `These are search results about an Australian business called "${businessName}".
+
+${text}
+
+Which Australian suburbs or towns is this business in or working in?
+
+Reply with only JSON: {"suburbs":[]}
+
+Up to 8. Names only, no states, no postcodes, no countries. Use [] if the
+results are about a different business or name no place. Do not guess.`,
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { content?: { type: string; text?: string }[] };
+    const raw = data.content?.find((c) => c.type === "text")?.text ?? "";
+    const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+    return Array.isArray(parsed.suburbs)
+      ? parsed.suburbs.map((s: unknown) => String(s).trim()).filter(Boolean).slice(0, 8)
+      : [];
+  } catch {
+    return [];
   }
 }
 
@@ -190,8 +269,21 @@ export async function POST(request: Request) {
   // street name must never land in their service area. The lookup runs against
   // the full gazetteer, so it also tells us which state they work in and the
   // member never has to pick one.
-  const found = [...(ai?.suburbs ?? []), ...(google?.suburb ? [google.suburb] : [])];
-  const place = await resolvePlaces(found, state);
+  const found = [
+    ...(ai?.suburbs ?? []),
+    ...(ai?.baseSuburb ? [ai.baseSuburb] : []),
+    ...(google?.suburb ? [google.suburb] : []),
+  ];
+  let place = await resolvePlaces(found, state);
+
+  // Last resort. Plenty of trade sites are three pages and a phone number and
+  // never say where they work. The directories that list them do say it, so we
+  // ask the web where this business is rather than send them away with nothing.
+  const businessName = ai?.businessName || google?.name || nameFromMapsUrl(gbpUrl);
+  if (!place.suburbs.length && businessName) {
+    const web = await placesFromWeb(businessName, trade);
+    if (web.length) place = await resolvePlaces(web, state);
+  }
   const suburbs = place.suburbs;
 
   const notes: string[] = [];
@@ -205,7 +297,7 @@ export async function POST(request: Request) {
   }
 
   const result: Scan = {
-    businessName: ai?.businessName || google?.name || nameFromMapsUrl(gbpUrl),
+    businessName,
     // Only ever hand back a trade the dropdown actually holds.
     trade: (TRADES as readonly string[]).includes(trade) ? trade : "",
     state: state || place.state,
