@@ -44,11 +44,30 @@ export const FILL_TARGET = 20;
  */
 const SEARCH_PLACES = 6;
 
+/**
+ * A test for "is this group in the patch they actually work in".
+ *
+ * Matching on state alone put a Penrith plumber on Central Coast groups and a
+ * Cairns plumber on the Sunshine Coast. Their own suburbs plus the ones next
+ * door is the real test.
+ */
+async function patchMatcher(suburbs: string[], state: string): Promise<(name: string) => boolean> {
+  const near = new Set(suburbs.map((s) => s.trim().toLowerCase()).filter(Boolean));
+  try {
+    for (const n of await nearbySuburbs(suburbs, state, 12, 0)) near.add(n.toLowerCase());
+  } catch {
+    // No neighbours is fine. Their own suburbs still work.
+  }
+  const places = [...near].filter((p) => p.length > 2);
+  return (name: string) => {
+    const low = name.toLowerCase();
+    return places.some((p) => low.includes(p));
+  };
+}
+
 /** What we already hold for these suburbs, no searching, no cost. */
 async function fromCatalogue(suburbs: string[], state: string): Promise<Candidate[]> {
   const db = getDb();
-  const places = suburbs.map((s) => s.trim().toLowerCase()).filter(Boolean);
-
   // Groups already being watched are the best answer we have: we know they
   // are public, we know they work, and we know their size.
   //
@@ -91,16 +110,7 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
   // them. Queensland was worse: a Cairns plumber was handed the Sunshine
   // Coast, seventeen hundred kilometres down the road. Their own suburbs plus
   // the ones next door is the real test.
-  const near = new Set(places);
-  try {
-    for (const n of await nearbySuburbs(suburbs, state, 12, 0)) near.add(n.toLowerCase());
-  } catch {
-    // No neighbours is fine. Their own suburbs still work.
-  }
-  const mentionsTheirPatch = (name: string) => {
-    const low = name.toLowerCase();
-    return [...near].some((p) => p.length > 2 && low.includes(p));
-  };
+  const mentionsTheirPatch = await patchMatcher(suburbs, state);
 
   const out = new Map<string, Candidate>();
   for (const w of watched) {
@@ -420,6 +430,27 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
       .set({ searchRing: profile.ring + 1 })
       .where(eq(profiles.userId, userId));
   }
+  // Verification is not tied to searching. A member whose rings are used up
+  // could have dozens of groups already found for their town and no way to get
+  // them checked, so they sat in the catalogue for good. Andrew had twenty
+  // seven Cairns groups waiting behind that.
+  if (held.length < room) {
+    try {
+      const mentionsTheirPatch = await patchMatcher(suburbs, profile.state);
+      const waiting = await db
+        .select({ slug: foundGroups.slug, name: foundGroups.name, suburb: foundGroups.suburb })
+        .from(foundGroups)
+        .where(and(eq(foundGroups.state, profile.state), eq(foundGroups.checked, 0)))
+        .limit(60);
+      const mine = waiting
+        .filter((g) => mentionsTheirPatch(`${g.suburb} ${g.name}`))
+        .map((g) => g.slug);
+      if (mine.length) await sizeUnknown(mine);
+    } catch {
+      // Verification is a nicety here. The top up carries on without it.
+    }
+  }
+
   if (!held.length) return 0;
 
   const dropped = new Set(
@@ -527,6 +558,11 @@ export async function topUpShortMembers(): Promise<number> {
   short.sort((a, b) => a.lastTopUp - b.lastTopUp);
 
   let filled = 0;
+  // One a tick while the scanner is running, because a search is forty
+  // queries and the tick has posts to read. The backfill ran three at a time
+  // with the scan paused, because a single slot made members leapfrog each
+  // other: whoever added nothing had their clock set back, which made them the
+  // longest waiting, which won them the next slot, forever.
   let searchLeft = 1;
   for (const row of short.slice(0, TOP_UP_PER_TICK)) {
     const searching = searchLeft > 0;

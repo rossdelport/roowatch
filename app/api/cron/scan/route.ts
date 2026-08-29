@@ -68,6 +68,14 @@ const MIN_WINDOW_MINUTES = 3;
  *  members who were set up before the group finder existed. Back to false
  *  once they are full. */
 const TOP_UP_EVERY_TICK = false;
+
+/**
+ * Temporary. Stops the scan so the watchlist top up gets the whole CPU budget
+ * for itself, which is the only way to run five rings of searching for a
+ * member without the tick being killed. Nobody gets leads while this is on,
+ * so it goes back to false the moment the backfill is done.
+ */
+const SCAN_PAUSED = false;
 /** Poll briefly after triggering so a fast snapshot is collected now rather
  *  than a minute from now. Median collection is about 60 seconds. */
 /**
@@ -249,6 +257,17 @@ export async function POST(request: Request) {
   }
   if (!process.env.BRIGHTDATA_API_KEY) {
     return Response.json({ ok: true, skipped: "brightdata_not_configured" });
+  }
+
+  if (SCAN_PAUSED) {
+    let toppedUp = 0;
+    try {
+      await collectCatalogue();
+      toppedUp = await topUpShortMembers();
+    } catch (err) {
+      console.error("paused tick", err);
+    }
+    return Response.json({ ok: true, scanPaused: true, toppedUp });
   }
 
   const db = getDb();
