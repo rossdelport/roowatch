@@ -1667,8 +1667,8 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
         <div className="wiz-body">
         {stage === "business" && (
           <>
-            <h2>Where can we find your business?</h2>
-            <p className="muted">We read these to work out your trade and your suburbs. It saves you the typing.</p>
+            <h2>Enter your website</h2>
+            <p className="muted">We read it to work out your trade and your suburbs. It saves you the typing.</p>
             <label className="lbl">Your website <span className="req">*</span></label>
             <input placeholder="https://mybusiness.com.au" value={website} onChange={(e) => setWebsite(e.target.value)} autoFocus />
           </>
