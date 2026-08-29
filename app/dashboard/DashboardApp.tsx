@@ -1657,7 +1657,6 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
               <span key={s} className={i === step ? "dot on" : i < step ? "dot done" : "dot"} />
             ))}
           </div>
-        <div className="wiz-body">
           {stage === "groups" && (
             <button className="help-dot" onClick={() => setHelp(true)} aria-label="How to find groups">
               ?
@@ -1665,6 +1664,7 @@ function Onboarding({ me, onDone, onClose }: { me: Me; onDone: () => void; onClo
           )}
         </div>
 
+        <div className="wiz-body">
         {stage === "business" && (
           <>
             <h2>Where can we find your business?</h2>
@@ -4607,6 +4607,8 @@ const CSS = `
 .login-card label{display:block;font-size:12.5px;font-weight:700;margin:16px 0 6px;}
 .dash input,.dash textarea{background:#faf7f2;border:1px solid var(--line);border-radius:10px;color:var(--ink);font-size:14.5px;margin-bottom:0;outline:none;padding:12px 14px;resize:vertical;transition:border-color .2s;width:100%;}
 .dash input:focus,.dash textarea:focus{border-color:var(--coral);}
+.dash select{background:#faf7f2;border:1px solid var(--line);border-radius:10px;color:var(--ink);font-family:inherit;font-size:14.5px;outline:none;padding:12px 14px;transition:border-color .2s;width:100%;}
+.dash select:focus{border-color:var(--coral);}
 .dash textarea{margin-top:10px;}
 
 /* A fixed overlay does not scroll, so a modal taller than the window used
@@ -5223,6 +5225,10 @@ const CSS = `
   .modal-x{right:10px;top:10px;}
   .wiz-top{margin-bottom:14px;}
   .modal-wide{padding:24px 18px;}
+  /* Under 16px, iOS zooms the whole page the moment a field is focused, and
+     the Continue button lands off screen with no way back to it. */
+  .dash input,.dash select,.dash textarea{font-size:16px;}
+  .row.spread .btn{min-height:44px;}
   .adder-row{flex-wrap:wrap;}
   .adder-input{flex:1 1 100%;}
   .adder-row .btn{flex:1;}
