@@ -198,6 +198,16 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
   const [user] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
   if (!user) return;
 
+  // Read before the write. Stripe retries an event whose response it never
+  // received, and the handler is safe to re-run, but a welcome text is not:
+  // getting it twice reads as a broken product on day one.
+  const [before] = await db
+    .select({ status: profiles.subscriptionStatus })
+    .from(profiles)
+    .where(eq(profiles.userId, user.id))
+    .limit(1);
+  const firstTime = !RECOVERED.has(before?.status ?? "");
+
   const { plan, trialEndsAt } = await planFromSession(session);
 
   await db
@@ -211,6 +221,36 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
     .where(eq(profiles.userId, user.id));
 
   await tellRoss(user.id, email, plan);
+  if (firstTime) await welcomeMember(user.id);
+}
+
+/**
+ * The first text a member ever gets from us.
+ *
+ * Sent from here rather than from the browser, because the celebration on
+ * screen depends on somebody making it back from Stripe with the tab still
+ * open. The card clearing is the real event, and this route is the only place
+ * that hears about it for certain.
+ *
+ * Failures are swallowed. A texting outage must never fail the webhook and
+ * make Stripe retry a payment we have already recorded.
+ */
+async function welcomeMember(userId: string) {
+  try {
+    const [row] = await getDb()
+      .select({ phone: profiles.alertPhone })
+      .from(profiles)
+      .where(eq(profiles.userId, userId))
+      .limit(1);
+    const phone = row?.phone?.trim();
+    if (!phone) return;
+    await sendSms(
+      phone,
+      "Welcome to RooWatch. You will now start to receive leads the minute we find them!"
+    );
+  } catch {
+    // Never let a text failure break the webhook.
+  }
 }
 
 /** Ross's mobile. Alerts about the business go here, not to a member. */
