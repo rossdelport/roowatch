@@ -1320,6 +1320,9 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const [help, setHelp] = useState(false);
+  // The paste box stays out of the way. Twenty groups arrive on their own, so
+  // asking a tradie for a Facebook link makes an automatic step look manual.
+  const [manual, setManual] = useState(false);
 
   const chosenTrade = trade === OTHER_TRADE ? tradeOther.trim() : trade;
   const planGroups = me.plan?.groups ?? PLANS.local.groups;
@@ -1757,8 +1760,6 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 ? "We picked these from your suburbs. Rename, delete or add your own, then carry on."
                 : "Private group scanning is coming soon. Paste a public group link to get started."}
             </p>
-            <GroupAdder onAdd={addGroup} />
-
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} filling={finding} />
             <p className="tiny">
               {finding
@@ -1767,6 +1768,20 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 ? "Add at least one group to finish."
                 : `${groupList.length} of ${planGroups} groups. Edit or delete any you do not want.`}
             </p>
+
+            {/* Opened for them when we found nothing, so the screen is never a
+                dead end. Otherwise it waits to be asked for. */}
+            {manual || (!finding && groupList.length === 0) ? (
+              <div className="manual-open">
+                <GroupAdder onAdd={addGroup} />
+              </div>
+            ) : (
+              !finding && (
+                <button className="manual-link" onClick={() => setManual(true)}>
+                  Enter groups manually
+                </button>
+              )
+            )}
           </>
         )}
 
@@ -1906,7 +1921,7 @@ function GroupAdder({ onAdd }: { onAdd: (raw: string) => Promise<boolean> }) {
 
   return (
     <div className="adder">
-      <label className="lbl">Full Facebook group link <span className="req">*</span></label>
+      <label className="lbl">Paste a Facebook group link</label>
       <div className="adder-row">
         <div className={bad ? "adder-input bad" : good ? "adder-input good" : "adder-input"}>
           <input
@@ -1979,7 +1994,10 @@ function GroupRow({ group, index, onRename, onDelete }: {
             }}
           />
         ) : (
-          <strong>{group.name}</strong>
+          <div className="g-name">
+            <span className={done ? "g-tick on" : "g-tick"}>{I.tick}</span>
+            <strong>{group.name}</strong>
+          </div>
         )}
       </td>
       <td className="size-cell">
@@ -5138,6 +5156,15 @@ const CSS = `
 .wiz-brand span{color:var(--muted);font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .wiz-top{align-items:center;display:flex;justify-content:space-between;margin-bottom:20px;}
 .wiz-top .steps-dots{margin:0;}
+.g-name{align-items:center;display:flex;gap:9px;}
+.g-tick{align-items:center;background:var(--line);border-radius:99px;color:#fff;display:inline-flex;flex:none;height:19px;justify-content:center;transition:background .3s var(--ease),transform .3s var(--ease);width:19px;}
+.g-tick.on{background:var(--mint);transform:scale(1);}
+.g-tick svg{height:11px;width:11px;}
+.manual-link{background:none;border:0;color:var(--muted);cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;margin-top:14px;padding:6px 0;text-decoration:underline;text-underline-offset:3px;transition:color .2s;}
+.manual-link:hover{color:var(--coral);}
+.manual-open{animation:manualIn .34s cubic-bezier(.22,1,.36,1) both;margin-top:14px;overflow:hidden;}
+@keyframes manualIn{from{max-height:0;opacity:0;transform:translateY(-6px);}to{max-height:260px;opacity:1;transform:none;}}
+@media(prefers-reduced-motion:reduce){.manual-open{animation:none;}}
 .help-dot{background:#f6f1e9;border:0;border-radius:99px;color:var(--muted);font-size:13px;font-weight:900;height:26px;transition:background .2s,color .2s;width:26px;}
 .help-dot:hover{background:var(--coral);color:#fff;}
 .req{color:var(--coral-deep);}
