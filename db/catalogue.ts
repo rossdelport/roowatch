@@ -517,7 +517,11 @@ export async function topUpShortMembers(): Promise<number> {
       // Bright Data has to read each one first, which lands a minute or two
       // later. Without this the member would sit on an empty watchlist for
       // six hours waiting for a verdict that arrived almost immediately.
-      if (!added && searching) {
+      // Includes the member we could not search for this tick. Somebody on
+      // zero groups who got a catalogue-only pass learned nothing, and making
+      // them wait six hours for the search slot left two paying members
+      // watching nothing for a day.
+      if (!added) {
         await db
           .update(profiles)
           .set({ lastTopUp: now - TOP_UP_GAP_MS + 10 * 60 * 1000 })
