@@ -111,6 +111,20 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
   return [...out.values()];
 }
 
+/**
+ * Does this name really mention this place, rather than merely contain the
+ * letters?
+ *
+ * A plain includes() matched Kew inside AISKEW and handed a Melbourne tradie
+ * "BEDALE NORTHALLERTON AISKEW THIRSK BUY SELL", which is four towns in North
+ * Yorkshire.
+ */
+function namesPlace(haystack: string, place: string): boolean {
+  if (!place) return false;
+  const escaped = place.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`, "i").test(haystack);
+}
+
 /** Rank the way a member would: local and proven first, then by size. */
 function rank(list: Candidate[], suburbs: string[]): Candidate[] {
   const places = suburbs.map((s) => s.toLowerCase()).filter(Boolean);
@@ -173,7 +187,7 @@ export async function candidatesFor(
       found = found.filter((g) => {
         const name = g.name.toLowerCase();
         // Their own suburbs are trusted, as they always were.
-        if (own.some((p) => name.includes(p))) return true;
+        if (own.some((p) => namesPlace(name, p))) return true;
         // Proof on its own face is enough too: a postcode, a state, "council".
         if (looksAustralian(g.name)) return true;
         // Otherwise it has to actually be about the suburb we guessed, and not
@@ -181,7 +195,7 @@ export async function candidatesFor(
         // suburb is what stops a search for Doncaster returning a football
         // league; the foreign list is what stops the ones that do say
         // Doncaster but mean the English one.
-        return added.some((p) => name.includes(p)) && !looksForeign(g.name);
+        return added.some((p) => namesPlace(name, p)) && !looksForeign(g.name);
       });
     }
   } catch (err) {

@@ -73,6 +73,10 @@ const NOT_HERE = new RegExp(
       "london|manchester|twickenham|catterick|teesdale|tyneside|wicklow|emlyn",
       "cornwall|somerset|dorset|norfolk|suffolk|cheshire|durham|northumberland",
       "tasman|motueka|new zealand|christchurch|auckland|dunedin",
+      // Kew is a suburb of Melbourne and a district of London, and there is a
+      // Kew Gardens in Queens. "Queens" on its own is left out, because Queens
+      // Park is a real suburb in both Perth and Sydney.
+      "new york|\\bny\\b|brooklyn|manhattan|bronx|staten island",
     ].join("|") +
     ")\\b",
   "i"
@@ -91,7 +95,7 @@ const AU_SIGNAL =
 
 /** A group about something else entirely. Nobody there is after a plumber. */
 const NOT_FOR_US =
-  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|tiny house|holiday|tourism|creative|expats?)\b/i;
+  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|tiny house|holiday|tourism|creative|expats?)\b/i;
 
 /**
  * Phrasing that belongs to a post rather than to a group. A group is called
