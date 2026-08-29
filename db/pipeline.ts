@@ -596,10 +596,36 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
 export async function dueSources(limit: number) {
   const db = getDb();
   const all = await db.select().from(sources).where(eq(sources.active, 1));
+
+  // A source nobody has budget left for is a source we must stop buying.
+  //
+  // The post cap used to be checked only when handing a post to a member,
+  // which saved the Claude call and nothing else: Bright Data had already
+  // delivered and been paid for the record. On a busy watchlist that is the
+  // difference between a few dollars and a few hundred.
+  //
+  // Sources are shared, so one member running out cannot stop the scan for
+  // everybody else. It stops only when no member watching it is under their
+  // cap.
+  const month = new Date().toISOString().slice(0, 7);
+  const live = await db
+    .select({ sourceId: groups.sourceId, plan: profiles.plan, used: profiles.postsUsed, when: profiles.usageMonth })
+    .from(groups)
+    .innerJoin(profiles, eq(profiles.userId, groups.userId))
+    .where(eq(groups.status, "watching"));
+
+  const hasBudget = new Set<number>();
+  for (const row of live) {
+    if (row.sourceId == null) continue;
+    const used = row.when === month ? row.used : 0;
+    if (used < postLimit(row.plan)) hasBudget.add(row.sourceId);
+  }
+
   const selected = [];
   const urls = new Set<string>();
   for (const source of all.sort((a, b) => a.lastChecked - b.lastChecked)) {
     if (urls.has(source.url)) continue;
+    if (!hasBudget.has(source.id)) continue;
     urls.add(source.url);
     selected.push(source);
     if (selected.length >= limit) break;
