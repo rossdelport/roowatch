@@ -247,6 +247,14 @@
 .fb-first { align-items: center; color: #1877f2; display: inline-flex; font-weight: 700; gap: 4px; white-space: nowrap; }
 .fb-first svg { height: 12px; width: 12px; }
 @media (max-width: 420px) { .fb-first { font-size: 11.5px; } .fb-stats { font-size: 11.5px; } }
+.plans-guarantee { align-items: center; display: flex; gap: 18px; justify-content: center; margin: 30px auto 0; max-width: 460px; text-align: left; }
+.seal { filter: drop-shadow(0 10px 22px rgba(46, 170, 129, .35)); flex: none; height: 84px; width: 84px; }
+.seal-spin { animation: sealSpin 14s linear infinite; transform-origin: 60px 60px; }
+@keyframes sealSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .seal-spin { animation: none; } }
+.guar-copy strong { display: block; font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
+.guar-copy span { color: #55607a; font-size: 14px; line-height: 1.5; }
+@media (max-width: 420px) { .plans-guarantee { gap: 13px; } .seal { height: 66px; width: 66px; } .guar-copy strong { font-size: 15px; } .guar-copy span { font-size: 13.5px; } }
 </style>
 
 
@@ -292,6 +300,8 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
       <a class="button" href="/signup?plan=local" id="cta-hero">Get local leads now</a>
       <p class="r-hero-note">Free for 14 days. Cancel any time.</p>
     </div>
+
+    <div class="plans-guarantee"><svg class="seal" viewBox="0 0 120 120" aria-hidden="true"><g class="seal-spin"><circle cx="60" cy="60" r="58" fill="#2eaa81"/><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"/><circle cx="60" cy="60" r="24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"/><defs><path id="sealcirc-a" d="M60,60 m-38,0 a38,38 0 1,1 76,0 a38,38 0 1,1 -76,0"/></defs><text font-size="11" letter-spacing="1.6" fill="#fff" font-weight="800" font-family="inherit"><textPath href="#sealcirc-a">MONTHLY GUARANTEE &#183; LEAD OR REFUND &#183; </textPath></text></g><path d="M46 61 l10 10 l19 -21" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="guar-copy"><strong>We look after you.</strong><span>If RooWatch does not send you a lead this month, we refund you.</span></div></div>
 
     <div class="rpost" aria-label="Example group post worth real money">
       <div class="rpost-card">
@@ -422,6 +432,8 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
     </div>
 
     <p class="r-lede r-after">Start today. Free for 14 days. Cancel any time.</p>
+
+    <div class="plans-guarantee"><svg class="seal" viewBox="0 0 120 120" aria-hidden="true"><g class="seal-spin"><circle cx="60" cy="60" r="58" fill="#2eaa81"/><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"/><circle cx="60" cy="60" r="24" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="1.5"/><defs><path id="sealcirc-b" d="M60,60 m-38,0 a38,38 0 1,1 76,0 a38,38 0 1,1 -76,0"/></defs><text font-size="11" letter-spacing="1.6" fill="#fff" font-weight="800" font-family="inherit"><textPath href="#sealcirc-b">MONTHLY GUARANTEE &#183; LEAD OR REFUND &#183; </textPath></text></g><path d="M46 61 l10 10 l19 -21" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="guar-copy"><strong>We look after you.</strong><span>If RooWatch does not send you a lead this month, we refund you.</span></div></div>
 
 
     <section class="r-faq" aria-labelledby="faq-title">
