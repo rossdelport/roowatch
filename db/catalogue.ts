@@ -51,7 +51,17 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
         .from(sources)
         .innerJoin(groups, and(eq(groups.sourceId, sources.id), eq(groups.status, "watching")))
         .innerJoin(profiles, and(eq(profiles.userId, groups.userId), eq(profiles.state, state)))
-        .where(sql`${sources.active} = 1 AND ${sources.lastError} NOT LIKE '%rivate%'`)
+        // GLOB, not LIKE: a real group called "Group Buy Perth" must survive.
+        // Only "Group " followed by digits is our own placeholder, made by
+        // labelFromSlug when Facebook put nothing but a number in the address
+        // bar. Facebook hands us the real name with the group's first post, so
+        // a group still wearing a number is one we have never read. Nobody
+        // should be offered a watchlist row that says Group 589657251411693.
+        .where(
+          sql`${sources.active} = 1
+            AND ${sources.lastError} NOT LIKE '%rivate%'
+            AND ${sources.groupName} NOT GLOB 'Group [0-9]*'`
+        )
     : [];
 
   const known = await db
@@ -76,6 +86,8 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
     // are still in here, and a Richmond Hill in Ontario would be scanned every
     // minute at our expense if it slipped back out.
     if (!looksAustralian(g.name)) continue;
+    // Same rule for catalogued rows: a number is not a name.
+    if (/^Group \d+$/.test(g.name)) continue;
     out.set(g.slug, { slug: g.slug, url: g.url, name: g.name, members: g.members, proven: false });
   }
   return [...out.values()];
