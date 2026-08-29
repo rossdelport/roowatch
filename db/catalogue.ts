@@ -1,8 +1,8 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { catalogueJobs, droppedGroups, foundGroups, groups, profiles, sources } from "./schema";
-import { findGroups, looksAustralian } from "./groupsearch";
-import { postcodesFor, postcodesInState } from "./gazetteer";
+import { findGroups, looksAustralian, looksForeign } from "./groupsearch";
+import { nearbySuburbs, postcodesFor, postcodesInState } from "./gazetteer";
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
 import { groupLimit } from "./plans";
@@ -34,6 +34,15 @@ export type Candidate = {
 
 /** Enough to fill a plan without asking the member to think. */
 export const FILL_TARGET = 20;
+
+/**
+ * Suburbs a search will spread itself across.
+ *
+ * findGroups divides a fixed query budget by the number of places, so this is
+ * really a floor on coverage rather than a ceiling: below it, a search wastes
+ * its breadth on one town, and a member ends up with three groups.
+ */
+const SEARCH_PLACES = 6;
 
 /** What we already hold for these suburbs, no searching, no cost. */
 async function fromCatalogue(suburbs: string[], state: string): Promise<Candidate[]> {
@@ -90,8 +99,12 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
     // The same test the search applies. Rows filed before these rules existed
     // are still in here, and a Richmond Hill in Ontario would be scanned every
     // minute at our expense if it slipped back out.
-    if (!looksAustralian(g.name)) continue;
-    // Same rule for catalogued rows: a number is not a name.
+    // Only the foreign test here. The row is already pinned to their state and
+    // matched to their suburbs above, and demanding a postcode or the word
+    // Australia in the name on top of that threw away real local groups.
+    // Filing is where the strict test now lives.
+    if (looksForeign(g.name)) continue;
+    // A number is not a name.
     if (/^Group \d+$/.test(g.name)) continue;
     out.set(g.slug, { slug: g.slug, url: g.url, name: g.name, members: g.members, proven: false });
   }
@@ -126,11 +139,38 @@ export async function candidatesFor(
 
   let found: Awaited<ReturnType<typeof findGroups>> = [];
   try {
+    // A short list gets padded with the suburbs next door. One suburb does not
+    // have twenty Facebook groups in it, and a tradie in Templestowe works in
+    // Bulleen and Doncaster whether or not he thought to type them. Their own
+    // suburbs stay at the front, so the search spends its best queries there,
+    // and ranking still uses only what they actually gave us.
+    const wide =
+      suburbs.length >= SEARCH_PLACES
+        ? suburbs
+        : [...suburbs, ...(await nearbySuburbs(suburbs, state, SEARCH_PLACES - suburbs.length))];
+
     const [postcodeOf, statePostcodes] = await Promise.all([
-      postcodesFor(suburbs, state),
+      postcodesFor(wide, state),
       postcodesInState(state),
     ]);
-    found = await findGroups(suburbs, state, 30, postcodeOf, statePostcodes);
+    found = await findGroups(wide, state, 30, postcodeOf, statePostcodes);
+
+    // A padded suburb is a guess, and some of them are shared with the other
+    // side of the world. Padding with Doncaster brought back Doncaster in
+    // South Yorkshire: a UK community page, a Morrisons on York Road, and a
+    // Saturday football league. None of them said Yorkshire, so nothing in the
+    // foreign list caught them.
+    //
+    // So anything found through a suburb they did not give us has to earn its
+    // place: it must either name one of their real suburbs, or prove it is
+    // Australian on its own. Their own suburbs are trusted as before.
+    if (wide.length > suburbs.length) {
+      const own = suburbs.map((s) => s.trim().toLowerCase()).filter(Boolean);
+      found = found.filter((g) => {
+        const name = g.name.toLowerCase();
+        return own.some((p) => name.includes(p)) || looksAustralian(g.name);
+      });
+    }
   } catch (err) {
     // A search outage must never stop somebody finishing setup, but silence
     // here once cost hours of guessing at an empty result.

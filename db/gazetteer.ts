@@ -122,3 +122,66 @@ export async function resolvePlaces(
     state: FULL[abbr] ?? "",
   };
 }
+
+/**
+ * PO, DC, MC and BC are Australia Post delivery areas, not places anybody
+ * lives. Nobody has ever named a community group after Tunstall Square PO.
+ */
+const POSTAL_ARTIFACT = /\b(PO|DC|MC|BC|LPO|CMA|CMB)$|PO BOX/i;
+
+/**
+ * Suburbs next door to the ones a member gave us.
+ *
+ * A tradie who lists one suburb gets one suburb's worth of searching, and one
+ * suburb does not have twenty Facebook groups. A tradie in Templestowe works
+ * in Bulleen and Doncaster too, he just did not think to type them.
+ *
+ * Nearness comes from the postcode. Australia Post allocates numbers
+ * geographically inside a state, so 3106 sits between 3105 Bulleen and 3107
+ * Templestowe Lower, which are its actual neighbours. This is only used to
+ * widen a search, never to decide whose patch a group belongs to, so being
+ * roughly right is enough.
+ */
+export async function nearbySuburbs(
+  suburbs: string[],
+  state: string,
+  want: number
+): Promise<string[]> {
+  const abbr = stateAbbr(state);
+  if (!abbr || want <= 0) return [];
+
+  const known = await postcodesFor(suburbs, state);
+  const centres = [...new Set([...known.values()].map(Number))].filter(Number.isFinite);
+  if (!centres.length) return [];
+
+  const low = Math.min(...centres) - 3;
+  const high = Math.max(...centres) + 3;
+
+  const rows = await getDb()
+    .select({ locality: postcodes.locality, postcode: postcodes.postcode })
+    .from(postcodes)
+    .where(
+      sql`${postcodes.state} = ${abbr}
+        AND CAST(${postcodes.postcode} AS INTEGER) BETWEEN ${low} AND ${high}`
+    );
+
+  const theirs = new Set(suburbs.map((s) => s.trim().toUpperCase()));
+
+  // One name per postcode. A postcode holds a principal suburb and a handful
+  // of aliases, and searching all of them spends queries to find the same
+  // groups twice. The shortest name is the principal one often enough.
+  const best = new Map<string, string>();
+  for (const r of rows) {
+    const name = r.locality.trim();
+    if (!name || theirs.has(name.toUpperCase())) continue;
+    if (POSTAL_ARTIFACT.test(name)) continue;
+    const held = best.get(r.postcode);
+    if (!held || name.length < held.length) best.set(r.postcode, name);
+  }
+
+  const distance = (pc: string) => Math.min(...centres.map((c) => Math.abs(Number(pc) - c)));
+  return [...best.entries()]
+    .sort((a, b) => distance(a[0]) - distance(b[0]))
+    .slice(0, want)
+    .map(([, name]) => titleCase(name));
+}

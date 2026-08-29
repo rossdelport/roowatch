@@ -64,6 +64,12 @@ const NOT_HERE = new RegExp(
       "ontario|alberta|manitoba|saskatchewan|winnipeg|toronto|vancouver|calgary",
       "british columbia|nova scotia|quebec|aldergrove|langley",
       "yorkshire|lancashire|devon|essex|surrey|scotland|ireland|wales",
+      // Doncaster is a suburb of Melbourne and a city in South Yorkshire, and
+      // the English one names its county about as often as Perth names WA.
+      // These are the words those pages use instead. Derby, Bristol and Hull
+      // are left out on purpose: all three are also Australian places.
+      "\\buk\\b|england|britain|british|sheffield|leeds|bradford|rotherham",
+      "barnsley|nottingham|leicester|glasgow|edinburgh|cardiff|belfast",
       "london|manchester|twickenham|catterick|teesdale|tyneside|wicklow|emlyn",
       "cornwall|somerset|dorset|norfolk|suffolk|cheshire|durham|northumberland",
       "tasman|motueka|new zealand|christchurch|auckland|dunedin",
@@ -174,6 +180,18 @@ async function googleSearch(query: string, key: string, cx: string): Promise<Fou
  */
 export function looksAustralian(name: string): boolean {
   return AU_SIGNAL.test(name) && !NOT_HERE.test(name);
+}
+
+/**
+ * Does this name prove the group is somewhere else?
+ *
+ * The weaker half of the test above, for use where the row is already pinned
+ * to a state. Demanding positive proof there as well threw away real groups:
+ * "Templestowe Business And Community" names no state and no postcode, and it
+ * is still plainly in Victoria.
+ */
+export function looksForeign(name: string): boolean {
+  return NOT_HERE.test(name);
 }
 
 /** True when a search key is configured, so callers can fall back quietly. */
