@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { sendEmail } from "../../../../db/auth";
 import { sendSms } from "../../../../db/sms";
@@ -47,8 +47,21 @@ export async function POST(request: Request) {
     .limit(1);
 
   const quietFor = Math.round((now - Number(freshest?.lastChecked ?? 0)) / 60000);
-  if (quietFor < QUIET_MINUTES) {
-    return Response.json({ ok: true, healthy: true, quietFor });
+
+  // Coverage, not recency.
+  //
+  // The first version asked only when a group was last touched, so one source
+  // being checked occasionally kept it quiet while sixty three others sat
+  // still and nothing was read for three hours. What matters is whether the
+  // scanner is getting round everybody, not whether it managed one.
+  const recent = await db
+    .select({ id: sources.id })
+    .from(sources)
+    .where(and(eq(sources.active, 1), gt(sources.lastChecked, now - QUIET_MINUTES * 60 * 1000)));
+  const covered = Math.round((recent.length / active.length) * 100);
+
+  if (quietFor < QUIET_MINUTES && covered >= 50) {
+    return Response.json({ ok: true, healthy: true, quietFor, covered });
   }
 
   const [mark] = await db.select().from(health).where(eq(health.id, "last_alarm")).limit(1);
@@ -73,7 +86,8 @@ export async function POST(request: Request) {
   const body = [
     "RooWatch has stopped scanning.",
     "",
-    `No group has been checked for ${quietFor} minutes.`,
+    `Only ${covered}% of groups were checked in the last ${QUIET_MINUTES} minutes.`,
+    `The most recently checked group was ${quietFor} minutes ago.`,
     postAge >= 0
       ? `The last post was read ${postAge} minutes ago.`
       : "No posts have ever been read.",
@@ -94,11 +108,11 @@ export async function POST(request: Request) {
   try {
     await sendSms(
       ROSS_MOBILE,
-      `RooWatch has stopped scanning. No group checked for ${quietFor} min. Check your email.`
+      `RooWatch scanning has stalled. Only ${covered}% of groups checked in ${QUIET_MINUTES} min. Check your email.`
     );
   } catch {
     // The email is the alarm. A texting outage must not swallow it.
   }
 
-  return Response.json({ ok: true, alerted: true, quietFor, postAge });
+  return Response.json({ ok: true, alerted: true, quietFor, covered, postAge });
 }

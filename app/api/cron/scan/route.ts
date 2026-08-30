@@ -36,12 +36,12 @@ import { groups, scanJobs, sources } from "../../../../db/schema";
 /** Groups in one snapshot. Small on purpose: how a single snapshot scales with
  *  group count has never been measured, but running many at once has. When in
  *  doubt, more snapshots rather than bigger ones. */
-const GROUPS_PER_BATCH = 12;
+const GROUPS_PER_BATCH = 5;
 /** Snapshots allowed in flight at once. Tested clean at 15. This is the brake
  *  that stops a backlog turning into hundreds of open collections. */
 const MAX_INFLIGHT = 12;
 /** Most groups we will pick up in a single tick. */
-const SOURCES_PER_TICK = 500;
+const SOURCES_PER_TICK = 60;
 /**
  * Do not look at a group again until this long after the last look. The cron
  * interval is the real floor, so this only stops a group missing its turn when
