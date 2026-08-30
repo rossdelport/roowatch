@@ -47,8 +47,16 @@ const SOURCES_PER_TICK = 60;
  * interval is the real floor, so this only stops a group missing its turn when
  * a collection finishes just after a tick.
  */
-const MIN_GAP_MINUTES = 1;
-const BUFFER_MINUTES = 1;
+const MIN_GAP_MINUTES = 3;
+/**
+ * How much wider than the gap to ask.
+ *
+ * This is the safety margin against Facebook publishing a post late. Posts
+ * have been seen arriving anywhere from 36 seconds to about 4 minutes after
+ * their own timestamp, so the window has to cover the gap plus that lateness
+ * or a post vanishes with no error at all.
+ */
+const BUFFER_MINUTES = 3;
 /**
  * The narrowest look-back we will ever ask for.
  *
@@ -58,11 +66,18 @@ const BUFFER_MINUTES = 1;
  *
  *   duplicate factor = window minutes / minutes between scans
  *
+ * At a one minute gap and a three minute window that factor was three: every
+ * post was bought three times. A three minute gap with a six minute window
+ * keeps the same three minute margin for late posts and buys each one twice,
+ * which is a third off the Bright Data bill, about ten dollars a member a
+ * month. The cost is speed: worst case a lead now waits three minutes to be
+ * noticed rather than one.
+ *
  * It is also the safety margin against Facebook publishing a post late. Posts
  * have been seen arriving anywhere from 36 seconds to about 4 minutes after
  * their own timestamp. Narrow this and late posts vanish with no error at all.
  */
-const MIN_WINDOW_MINUTES = 3;
+const MIN_WINDOW_MINUTES = 6;
 
 /** Temporary: run the watchlist top up on every tick, to fill the backlog of
  *  members who were set up before the group finder existed. Back to false
