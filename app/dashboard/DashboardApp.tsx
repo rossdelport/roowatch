@@ -3982,10 +3982,10 @@ function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
           <p className="muted">Add APIFY_TOKEN as a worker secret to start scanning. Until then the pipeline sits idle and you can still send leads by hand from the Members tab.</p>
         </div>
       )}
-      {!keys.anthropic && keys.apify && (
+      {!keys.anthropic && (
         <div className="card">
-          <h3>Matching runs on keywords</h3>
-          <p className="muted">Add ANTHROPIC_API_KEY for proper intent matching. Keywords work, but they let more noise through.</p>
+          <h3>Lead filter is stopped</h3>
+          <p className="muted">Add ANTHROPIC_API_KEY before scanning. RooWatch will not send guessed leads when the high-precision filter is unavailable.</p>
         </div>
       )}
 

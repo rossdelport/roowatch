@@ -1,6 +1,8 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { POST as runScan } from "../app/api/cron/scan/route";
+import { POST as runHealth } from "../app/api/cron/health/route";
 
 interface Env {
   ASSETS: Fetcher;
@@ -44,26 +46,30 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
 
-  async scheduled(_event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     if (!env.CRON_SECRET) return;
 
-    const call = (path: string) =>
-      worker.fetch(
-        new Request(`https://roowatch.com.au${path}`, {
-          method: "POST",
-          headers: { "x-cron-secret": env.CRON_SECRET! },
-        }),
-        env,
-        ctx
-      );
+    const request = () =>
+      new Request("https://roowatch.com.au/api/cron/scan", {
+        method: "POST",
+        headers: { "x-cron-secret": env.CRON_SECRET! },
+      });
 
-    ctx.waitUntil(call("/api/cron/scan"));
+    // Calling the route through Vinext made every tick initialise the full
+    // app router before it reached the scanner. The cron has a much smaller
+    // CPU budget than a normal request, so call the handlers directly.
+    ctx.waitUntil(runScan(request()));
 
-    // Its own request, so it has its own CPU budget. The whole point of the
-    // watchdog is to survive the thing it is watching: sharing an invocation
-    // with the scan would mean a killed tick takes the alarm down with it, and
-    // that is exactly the failure it exists to catch.
-    ctx.waitUntil(call("/api/cron/health"));
+    // Both tasks share one scheduled invocation budget even when registered
+    // with waitUntil. Keep the watchdog off the hot path while retaining a
+    // fifteen-minute heartbeat for a stalled scanner.
+    const scheduledTime =
+      typeof event === "object" && event !== null && "scheduledTime" in event
+        ? Number((event as { scheduledTime?: unknown }).scheduledTime)
+        : 0;
+    if (scheduledTime && new Date(scheduledTime).getUTCMinutes() % 15 === 0) {
+      ctx.waitUntil(runHealth(request()));
+    }
   },
 };
 

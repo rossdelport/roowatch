@@ -1,5 +1,14 @@
 import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
+import {
+  buildLeadClassifierPrompt,
+  hasLeadProfile,
+  LeadFilterError,
+  obviousNonLeadReason,
+  parseLeadDecision,
+  rejectedLeadDecision,
+  type LeadMemberProfile,
+} from "./leadfilter";
 import { sendEmail } from "./auth";
 import { groupSlug, postPermalink } from "./fbgroups";
 import { postLimit, smsLimit } from "./plans";
@@ -329,70 +338,68 @@ async function maybeText(
   }
 }
 
-/** Decide whether a post is a lead for one member. Claude first, keywords as fallback. */
+/**
+ * Decide whether a post is a lead for one member.
+ *
+ * This path is intentionally fail-closed. A keyword guess is worse than a
+ * delayed lead: it spends the member's attention and makes the product look
+ * broken. A failed or malformed model response is retried with the post on the
+ * next scan instead of being turned into a false alert.
+ */
 export async function classifyPost(
   post: FetchedPost,
-  member: { services: string; location: string; brief: string }
-): Promise<{ match: boolean; reason: string }> {
+  member: LeadMemberProfile,
+  context: { groupName: string }
+) {
+  if (!hasLeadProfile(member)) {
+    throw new LeadFilterError("lead_filter_profile_incomplete");
+  }
+
+  const obviousReject = obviousNonLeadReason(post.text);
+  if (obviousReject) return rejectedLeadDecision(obviousReject);
+
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  const wants = [member.brief, member.services].filter(Boolean).join(". ");
-
-  if (anthropicKey) {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 150,
-          messages: [
-            {
-              role: "user",
-              content: `You check Facebook group posts for a local business.
-
-The business: ${wants}
-Their area: ${member.location}
-
-The post: "${post.text.slice(0, 1200)}"
-
-Is this post a sales lead for the business? A lead means the poster wants to hire, buy, or get a recommendation for this kind of service. Small talk, jokes, spam, people offering their own services, and unrelated topics are not leads.
-
-Reply with only JSON: {"match": true or false, "reason": "one short plain sentence"}`,
-            },
-          ],
-        }),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as {
-          content?: { type: string; text?: string }[];
-        };
-        const text = data.content?.find((c) => c.type === "text")?.text ?? "";
-        const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
-        return {
-          match: Boolean(parsed.match),
-          reason: String(parsed.reason ?? "").slice(0, 200),
-        };
-      }
-    } catch {
-      // fall through to keywords
-    }
+  if (!anthropicKey) {
+    throw new LeadFilterError("lead_filter_not_configured");
   }
 
-  const keywords = wants
-    .toLowerCase()
-    .split(/[^a-z]+/)
-    .filter((w) => w.length > 3);
-  const hay = post.text.toLowerCase();
-  const asking = /recommend|looking for|anyone know|who do|need a|quote|hire/.test(hay);
-  const hit = keywords.find((k) => hay.includes(k));
-  if (asking && hit) {
-    return { match: true, reason: `They are asking for ${hit}.` };
+  const prompt = buildLeadClassifierPrompt(post.text, member, context);
+  let res: Response;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      signal: AbortSignal.timeout(12_000),
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 220,
+        temperature: 0,
+        system: prompt.system,
+        messages: [{ role: "user", content: prompt.user }],
+      }),
+    });
+  } catch {
+    throw new LeadFilterError("lead_filter_request_failed");
   }
-  return { match: false, reason: "" };
+
+  if (!res.ok) {
+    throw new LeadFilterError(`lead_filter_http_${res.status}`);
+  }
+
+  let data: { content?: { type: string; text?: string }[] };
+  try {
+    data = (await res.json()) as { content?: { type: string; text?: string }[] };
+  } catch {
+    throw new LeadFilterError("lead_filter_invalid_response");
+  }
+  const text = data.content?.find((c) => c.type === "text")?.text ?? "";
+  const decision = parseLeadDecision(text);
+  if (!decision) throw new LeadFilterError("lead_filter_invalid_response");
+  return decision;
 }
 
 /** Run one source end to end: fetch, dedup, match per member, alert. */
@@ -457,24 +464,25 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
           const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
           if (!user || !profile) continue;
 
-          // Fair use. Reading a post costs money, so a member who is far past
-          // their monthly allowance stops being charged for until next month.
-          // The allowance comes from their plan, so this doubles as the cap on
-          // what any one member can ever cost us.
+          // Fair use. A successful classifier call costs money, so a member who
+          // is far past their monthly allowance stops being charged for until
+          // next month. The allowance comes from their plan, so this doubles as
+          // the cap on what any one member can ever cost us.
           const month = new Date().toISOString().slice(0, 7);
           const used = profile.usageMonth === month ? profile.postsUsed : 0;
           if (used >= postLimit(profile.plan)) continue;
-          await db
-            .update(profiles)
-            .set({ postsUsed: used + 1, usageMonth: month })
-            .where(eq(profiles.userId, userId));
 
           try {
             const verdict = await classifyPost(post, {
+              trade: profile.trade,
               services: profile.services,
               location: profile.location,
               brief: profile.brief,
-            });
+            }, { groupName: source.groupName });
+            await db
+              .update(profiles)
+              .set({ postsUsed: used + 1, usageMonth: month })
+              .where(eq(profiles.userId, userId));
             if (!verdict.match) continue;
 
             summary.matches += 1;
@@ -547,6 +555,18 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
               .set({ emailSent: 1 })
               .where(eq(alerts.id, alert.id));
           } catch (err) {
+            if (err instanceof LeadFilterError) {
+              console.warn(JSON.stringify({
+                event: "lead_filter_error",
+                code: err.code,
+                sourceId: source.id,
+                postId: post.id,
+              }));
+              // A member can clear their profile after onboarding. Do not let
+              // one incomplete watcher hold a shared post open for every other
+              // member, and do not count a classifier call that never ran.
+              if (err.code === "lead_filter_profile_incomplete") continue;
+            }
             postOk = false;
             summary.error ||= err instanceof Error ? err.message : "alert_failed";
           }
