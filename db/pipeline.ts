@@ -45,6 +45,7 @@ const POSTS_PER_GROUP_CAP = 25;
 
 const BD_DATASET = "gd_lz11l67o2cb3r0lkj3"; // Facebook - Posts by group URL
 const BD_API = "https://api.brightdata.com/datasets/v3";
+const BD_REQUEST_TIMEOUT_MS = 30_000;
 
 function bdHeaders() {
   const key = process.env.BRIGHTDATA_API_KEY;
@@ -63,7 +64,11 @@ export async function bdTrigger(sourceUrls: string[], since: Date): Promise<stri
 
   const res = await fetch(
     `${BD_API}/trigger?dataset_id=${BD_DATASET}&include_errors=true&limit_per_input=${POSTS_PER_GROUP_CAP}`,
-    { method: "POST", headers: bdHeaders(), body: JSON.stringify(body) }
+    {
+      method: "POST",
+      headers: bdHeaders(),
+      body: JSON.stringify(body),
+    }
   );
   if (!res.ok) throw new Error(`brightdata_trigger_${res.status}`);
 
@@ -75,7 +80,10 @@ export async function bdTrigger(sourceUrls: string[], since: Date): Promise<stri
 export type BdProgress = { status: string; records: number; errors: number };
 
 export async function bdProgress(snapshotId: string): Promise<BdProgress> {
-  const res = await fetch(`${BD_API}/progress/${snapshotId}`, { headers: bdHeaders() });
+  const res = await fetch(`${BD_API}/progress/${snapshotId}`, {
+    headers: bdHeaders(),
+    signal: AbortSignal.timeout(BD_REQUEST_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`brightdata_progress_${res.status}`);
   const d = (await res.json()) as Partial<BdProgress>;
   return {
@@ -112,6 +120,7 @@ export async function bdCollect(
 ): Promise<{ posts: Map<string, FetchedPost[]>; facts: Map<string, GroupFacts> }> {
   const res = await fetch(`${BD_API}/snapshot/${snapshotId}?format=json`, {
     headers: bdHeaders(),
+    signal: AbortSignal.timeout(BD_REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`brightdata_snapshot_${res.status}`);
 

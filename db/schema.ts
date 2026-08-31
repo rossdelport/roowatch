@@ -106,10 +106,10 @@ export const sources = sqliteTable("sources", {
  * collection for the same groups and we would pay twice.
  */
 /**
- * A tiny key value table for the watchdog.
+ * A tiny key value table for scanner coordination and the watchdog.
  *
- * Only one row so far: when the last "the scanner has stopped" email went out,
- * so a dead scanner does not send one every minute for a day.
+ * It holds the last alarm time and short timestamp leases. Expired leases are
+ * safe to claim after a Worker is killed because no cleanup hook will run.
  */
 export const health = sqliteTable("health", {
   id: text("id").primaryKey(),

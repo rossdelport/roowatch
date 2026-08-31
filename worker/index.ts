@@ -22,6 +22,12 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
+interface ScheduledController {
+  cron?: string;
+}
+
+const HEALTH_CRON = "2,17,32,47 * * * *";
+
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
 // To route SVGs through the optimizer (with security headers), set
@@ -46,30 +52,25 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
 
-  async scheduled(event: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (!env.CRON_SECRET) return;
 
-    const request = () =>
-      new Request("https://roowatch.com.au/api/cron/scan", {
+    const request = (path: string) =>
+      new Request(`https://roowatch.com.au${path}`, {
         method: "POST",
         headers: { "x-cron-secret": env.CRON_SECRET! },
       });
 
-    // Calling the route through Vinext made every tick initialise the full
-    // app router before it reached the scanner. The cron has a much smaller
-    // CPU budget than a normal request, so call the handlers directly.
-    ctx.waitUntil(runScan(request()));
-
-    // Both tasks share one scheduled invocation budget even when registered
-    // with waitUntil. Keep the watchdog off the hot path while retaining a
-    // fifteen-minute heartbeat for a stalled scanner.
-    const scheduledTime =
-      typeof event === "object" && event !== null && "scheduledTime" in event
-        ? Number((event as { scheduledTime?: unknown }).scheduledTime)
-        : 0;
-    if (scheduledTime && new Date(scheduledTime).getUTCMinutes() % 15 === 0) {
-      ctx.waitUntil(runHealth(request()));
+    // Separate cron expressions create separate Worker invocations. The
+    // watchdog must keep its CPU budget when a heavy scan invocation is killed.
+    if (event.cron === HEALTH_CRON) {
+      ctx.waitUntil(runHealth(request("/api/cron/health")));
+      return;
     }
+
+    // Calling the route through Vinext made every tick initialise the full app
+    // router before it reached the scanner, so cron calls the handler directly.
+    ctx.waitUntil(runScan(request("/api/cron/scan")));
   },
 };
 

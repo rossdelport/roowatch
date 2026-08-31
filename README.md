@@ -31,10 +31,10 @@ order:
 Facebook groups
       |
       v
-  cron every 5 minutes  ......  app/api/cron/scan/route.ts
+  cron every minute  ..........  app/api/cron/scan/route.ts
       |
       v
-  scraper  ..................  db/pipeline.ts (Apify today, Bright Data next)
+  Bright Data scraper  ........  db/pipeline.ts
       |
       v
   dedup against seen_posts  ..  db/pipeline.ts

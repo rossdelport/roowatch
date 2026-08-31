@@ -93,13 +93,13 @@ export async function POST(request: Request) {
       : "No posts have ever been read.",
     `${active.length} groups should be being watched right now.`,
     "",
-    "Nobody is getting leads while this is true.",
+    "Some groups may miss leads while this is true.",
     "",
-    "The usual cause is the cron exceeding its CPU limit, which leaves no",
-    "error anywhere at all. Look with: npx wrangler tail roowatch",
+    "RooWatch will try to recover on its next scan. It skips old work and",
+    "retries a failed collection once when it is safe.",
     "",
-    "Stranded collections have caused it before. Clearing them fixed it:",
-    "DELETE FROM scan_jobs WHERE (strftime('%s','now')*1000 - started_at) > 3600000",
+    "If this does not recover, check the live log with:",
+    "npx wrangler tail roowatch",
   ].join("\n");
 
   await sendEmail(WATCHER, "RooWatch scanner has stopped", body);

@@ -18,8 +18,16 @@ It runs in two phases across cron ticks. To see what phase it is in:
 npx wrangler d1 execute roowatch-db --remote --command="SELECT * FROM scan_jobs;"
 ```
 
-A row means a collection is in flight. No row means the next tick will trigger
-one. A row older than 20 minutes gets dropped automatically.
+A row means a collection is in flight. `running` is waiting for Bright Data.
+`collecting` is owned by one Worker. `retry` gets one more collection attempt.
+No row means the next tick can trigger one. A row or collection claim older
+than 20 minutes gets dropped automatically.
+
+The scanner starts live work before it handles group-finder jobs. It claims
+finished jobs before reading them, checkpoints each finished group, and limits
+how many results one tick can process. A separate 15-minute cron runs the
+watchdog. If an alert arrives, recovery is already running. There is no process
+to restart and no need to delete every open job.
 
 ### Pausing it
 

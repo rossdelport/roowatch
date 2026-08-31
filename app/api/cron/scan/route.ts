@@ -1,9 +1,17 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bdCollect, bdProgress, bdTrigger, dueSources, processSource, type GroupFacts } from "../../../../db/pipeline";
 import { groupSlug } from "../../../../db/fbgroups";
 import { collectCatalogue, topUpShortMembers } from "../../../../db/catalogue";
 import { groups, scanJobs, sources } from "../../../../db/schema";
+import { claimLease, releaseLease } from "../../../../db/lease";
+import {
+  collectionClaim,
+  collectionFailureAction,
+  jobExpiryReason,
+  parseJobState,
+  parseSourceIds,
+} from "../../../../db/scanqueue";
 
 /**
  * The scanner.
@@ -40,6 +48,8 @@ const GROUPS_PER_BATCH = 5;
 /** Snapshots allowed in flight at once. Tested clean at 15. This is the brake
  *  that stops a backlog turning into hundreds of open collections. */
 const MAX_INFLIGHT = 12;
+/** Finished snapshots are the CPU-heavy part. Two keeps one tick bounded. */
+const MAX_READY_COLLECTIONS_PER_TICK = 2;
 /** Most groups we will pick up in a single tick. */
 const SOURCES_PER_TICK = 60;
 /**
@@ -91,29 +101,20 @@ const TOP_UP_EVERY_TICK = false;
  * so it goes back to false the moment the backfill is done.
  */
 const SCAN_PAUSED = false;
-/** Poll briefly after triggering so a fast snapshot is collected now rather
- *  than a minute from now. Median collection is about 60 seconds. */
-/**
- * Zero, on purpose.
- *
- * This used to wait 45 seconds after triggering, sweeping every 5 seconds, so
- * one tick could parse the same snapshots nine times over. Cloudflare kills a
- * cron that overruns its CPU budget, and the whole tick died before anything
- * was written down: the scanner was off for twenty hours and nobody noticed
- * because the failure is invisible from inside the worker.
- *
- * Collection belongs to the next tick's sweep, which is what the two step
- * design at the top of this file describes anyway. Snapshots land a minute
- * later instead of seconds. That is a fair price for a scanner that runs.
- */
-const INLINE_WAIT_MS = 0;
-const POLL_EVERY_MS = 5_000;
-/** A collection still running after this is treated as dead and dropped. */
-const JOB_STALE_MINUTES = 20;
+/** Only one cron invocation may choose and trigger due sources at a time. */
+const TRIGGER_LEASE_ID = "scan_trigger_lease";
+/** Longer than Cloudflare's 15-minute scheduled invocation limit. */
+const TRIGGER_LEASE_MS = 16 * 60 * 1000;
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+type StoredJob = {
+  id: number;
+  snapshotId: string;
+  sourceIds: string;
+  startedAt: number;
+  status: string;
+};
 
-type Job = { id: number; snapshotId: string; sourceIds: string; startedAt: number };
+type Job = Omit<StoredJob, "sourceIds"> & { sourceIds: number[] };
 
 /**
  * How far back to ask. A little wider than the real gap so a skipped tick
@@ -136,15 +137,16 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /** Read a finished snapshot, alert on anything new, and close the job off. */
-async function collectJob(job: Job) {
+async function collectJob(job: Job, claimMarker: string) {
   const db = getDb();
-  const ids: number[] = JSON.parse(job.sourceIds);
-  const rows = ids.length
-    ? await db.select().from(sources).where(inArray(sources.id, ids))
+  const rows = job.sourceIds.length
+    ? await db.select().from(sources).where(inArray(sources.id, job.sourceIds))
     : [];
 
   if (!rows.length) {
-    await db.delete(scanJobs).where(eq(scanJobs.id, job.id));
+    await db
+      .delete(scanJobs)
+      .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)));
     return 0;
   }
 
@@ -152,7 +154,8 @@ async function collectJob(job: Job) {
     job.snapshotId,
     rows.map((s) => s.url)
   );
-  for (const source of rows) {
+  for (let index = 0; index < rows.length; index += 1) {
+    const source = rows[index];
     const slug = groupSlug(source.url);
     const posts = byGroup.get(slug) ?? [];
     await processSource(source.id, posts);
@@ -160,9 +163,20 @@ async function collectJob(job: Job) {
     // of every pass, so learning first would have the reason wiped a moment
     // after we wrote it down.
     await learnAbout(source, facts.get(slug), posts.length > 0);
+
+    // A CPU kill later in this snapshot must not replay groups already done.
+    // The current group stays in the row until all of its work has finished.
+    const [checkpointed] = await db
+      .update(scanJobs)
+      .set({ sourceIds: JSON.stringify(rows.slice(index + 1).map((row) => row.id)) })
+      .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)))
+      .returning({ id: scanJobs.id });
+    if (!checkpointed) throw new Error("scanner_claim_lost");
   }
 
-  await db.delete(scanJobs).where(eq(scanJobs.id, job.id));
+  await db
+    .delete(scanJobs)
+    .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)));
   return rows.length;
 }
 
@@ -224,17 +238,101 @@ async function learnAbout(
   await db.update(sources).set({ lastError: next }).where(eq(sources.id, source.id));
 }
 
-/**
- * Check every open snapshot once. Ready ones are collected, dead ones dropped.
- * Returns the jobs that are still going.
- */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Validate local state and discard work that can no longer finish. */
+async function loadOpenJobs() {
+  const db = getDb();
+  const rows = (await db
+    .select({
+      id: scanJobs.id,
+      snapshotId: scanJobs.snapshotId,
+      sourceIds: scanJobs.sourceIds,
+      startedAt: scanJobs.startedAt,
+      status: scanJobs.status,
+    })
+    .from(scanJobs)
+    .orderBy(asc(scanJobs.startedAt))) as StoredJob[];
+
+  const jobs: Job[] = [];
+  let malformed = 0;
+  let recovered = 0;
+  let resumed = 0;
+  const now = Date.now();
+
+  for (const row of rows) {
+    const sourceIds = parseSourceIds(row.sourceIds);
+    const expiry =
+      sourceIds === null ? "malformed_source_ids" : jobExpiryReason({ ...row, sourceIds }, now);
+    if (sourceIds !== null && !expiry) {
+      jobs.push({ ...row, sourceIds });
+      continue;
+    }
+
+    if (sourceIds !== null && expiry === "stale_first_claim") {
+      const retryStatus = `retry:${Date.now()}`;
+      const [reset] = await db
+        .update(scanJobs)
+        .set({ status: retryStatus })
+        .where(and(eq(scanJobs.id, row.id), eq(scanJobs.status, row.status)))
+        .returning({ id: scanJobs.id });
+      if (reset) {
+        resumed += 1;
+        jobs.push({ ...row, sourceIds, status: retryStatus });
+        console.error("scanner_job_resumed", {
+          jobId: row.id,
+          snapshotId: row.snapshotId,
+          reason: expiry,
+        });
+        continue;
+      }
+
+      // Another invocation changed the claim after our read. Keep the sources
+      // busy for this tick so recovery cannot trigger a duplicate snapshot.
+      jobs.push({ ...row, sourceIds });
+      continue;
+    }
+
+    const deleted = await db
+      .delete(scanJobs)
+      .where(and(eq(scanJobs.id, row.id), eq(scanJobs.status, row.status)))
+      .returning({ id: scanJobs.id });
+    if (!deleted.length) {
+      // Another invocation changed the job after our read. Keep its sources
+      // busy for this tick so recovery cannot trigger a duplicate snapshot.
+      if (sourceIds !== null) jobs.push({ ...row, sourceIds });
+      continue;
+    }
+
+    if (sourceIds === null) malformed += 1;
+    else recovered += 1;
+    console.error("scanner_job_removed", {
+      jobId: row.id,
+      snapshotId: row.snapshotId,
+      reason: expiry,
+    });
+  }
+
+  return { jobs, malformed, recovered, resumed };
+}
+
+/** Check open snapshots and collect only a bounded number of ready ones. */
 async function sweep(jobs: Job[]) {
   const db = getDb();
   const stillRunning: Job[] = [];
   let collected = 0;
+  let completed = 0;
+  let retried = 0;
+  let recovered = 0;
+  let readyClaims = 0;
 
   const states = await Promise.all(
     jobs.map(async (job) => {
+      if (parseJobState(job.status)?.kind === "collecting") {
+        return { job, status: "collecting" };
+      }
       try {
         return { job, status: (await bdProgress(job.snapshotId)).status };
       } catch {
@@ -244,25 +342,79 @@ async function sweep(jobs: Job[]) {
   );
 
   for (const { job, status } of states) {
-    const ageMinutes = (Date.now() - job.startedAt) / 60000;
+    if (status === "collecting") {
+      stillRunning.push(job);
+      continue;
+    }
+
+    if (status === "failed") {
+      const deleted = await db
+        .delete(scanJobs)
+        .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, job.status)))
+        .returning({ id: scanJobs.id });
+      if (deleted.length) recovered += 1;
+      else stillRunning.push(job);
+      continue;
+    }
+
     if (status === "ready") {
-      try {
-        collected += await collectJob(job);
-      } catch {
-        // Leave the row alone. The next tick tries again, and the stale check
-        // below eventually drops it if the snapshot is genuinely broken.
+      if (readyClaims >= MAX_READY_COLLECTIONS_PER_TICK) {
         stillRunning.push(job);
+        continue;
+      }
+
+      const claim = collectionClaim(job.status, Date.now());
+      if (!claim) {
+        stillRunning.push(job);
+        continue;
+      }
+      const [claimed] = await db
+        .update(scanJobs)
+        .set({ status: claim.marker })
+        .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claim.expected)))
+        .returning({ id: scanJobs.id });
+      if (!claimed) {
+        stillRunning.push(job);
+        continue;
+      }
+
+      readyClaims += 1;
+      try {
+        collected += await collectJob({ ...job, status: claim.marker }, claim.marker);
+        completed += 1;
+      } catch (error) {
+        console.error("scanner_collection_failed", {
+          jobId: job.id,
+          snapshotId: job.snapshotId,
+          attempt: claim.attempt,
+          error: errorMessage(error),
+        });
+        const failure = collectionFailureAction(claim.attempt, Date.now());
+        if (failure.kind === "retry") {
+          const [reset] = await db
+            .update(scanJobs)
+            .set({ status: failure.status })
+            .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claim.marker)))
+            .returning({ id: scanJobs.id });
+          if (reset) {
+            retried += 1;
+            stillRunning.push({ ...job, status: failure.status });
+          }
+        } else {
+          const deleted = await db
+            .delete(scanJobs)
+            .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claim.marker)))
+            .returning({ id: scanJobs.id });
+          if (deleted.length) recovered += 1;
+        }
       }
       continue;
     }
-    if (status === "failed" || ageMinutes > JOB_STALE_MINUTES) {
-      await db.delete(scanJobs).where(eq(scanJobs.id, job.id));
-      continue;
-    }
+
     stillRunning.push(job);
   }
 
-  return { stillRunning, collected };
+  return { stillRunning, collected, completed, retried, recovered };
 }
 
 export async function POST(request: Request) {
@@ -286,79 +438,88 @@ export async function POST(request: Request) {
   }
 
   const db = getDb();
-  const open = (await db.select().from(scanJobs)) as Job[];
-  const { stillRunning, collected } = await sweep(open);
-
-  // Sizing up newly discovered groups, kept beside the real scan rather than
-  // inside it. It alerts nobody and writes only to the catalogue, so a failure
-  // here can never cost a member a lead.
+  let leaseToken: number | null = null;
   try {
-    await collectCatalogue();
-  } catch {
-    // Never let catalogue work break a scan.
+    leaseToken = await claimLease(TRIGGER_LEASE_ID, TRIGGER_LEASE_MS);
+  } catch (error) {
+    console.error("scanner_trigger_lease_failed", { error: errorMessage(error) });
   }
 
-  // Groups already inside a running snapshot must not be asked for again.
-  // Their lastChecked has not moved yet, so they still look due.
-  const busy = new Set<number>();
-  for (const job of stillRunning) {
-    for (const id of JSON.parse(job.sourceIds) as number[]) busy.add(id);
-  }
-
-  const slots = MAX_INFLIGHT - stillRunning.length;
-  if (slots <= 0) {
-    return Response.json({ ok: true, collected, inflight: stillRunning.length, triggered: 0 });
-  }
-
-  const due = (await dueSources(SOURCES_PER_TICK)).filter(
-    (s) => !busy.has(s.id) && Date.now() - s.lastChecked > MIN_GAP_MINUTES * 60 * 1000
-  );
-  if (!due.length) {
-    return Response.json({ ok: true, collected, inflight: stillRunning.length, triggered: 0 });
-  }
-
-  const batches = chunk(due, GROUPS_PER_BATCH).slice(0, slots);
+  let loaded: Awaited<ReturnType<typeof loadOpenJobs>>;
+  let open: Job[];
   const started: Job[] = [];
+  let dueCount = 0;
+  let batchCount = 0;
 
-  await Promise.all(
-    batches.map(async (batch) => {
-      const since = sinceFor(batch);
-      try {
-        const snapshotId = await bdTrigger(
-          batch.map((s) => s.url),
-          since
+  try {
+    loaded = await loadOpenJobs();
+    open = loaded.jobs;
+
+    // Trigger first. If collection later exhausts CPU, the next paid work is
+    // already recorded and can finish on another tick.
+    if (leaseToken) {
+      const busy = new Set(open.flatMap((job) => job.sourceIds));
+      const slots = Math.max(0, MAX_INFLIGHT - open.length);
+      if (slots > 0) {
+        const due = (await dueSources(SOURCES_PER_TICK)).filter(
+          (source) =>
+            !busy.has(source.id) &&
+            Date.now() - source.lastChecked > MIN_GAP_MINUTES * 60 * 1000
         );
-        const [row] = await db
-          .insert(scanJobs)
-          .values({
-            snapshotId,
-            sourceIds: JSON.stringify(batch.map((s) => s.id)),
-            startedAt: Date.now(),
-          })
-          .returning({
-            id: scanJobs.id,
-            snapshotId: scanJobs.snapshotId,
-            sourceIds: scanJobs.sourceIds,
-            startedAt: scanJobs.startedAt,
-          });
-        if (row) started.push(row as Job);
-      } catch {
-        // One failed trigger must not stop the other batches. These groups keep
-        // their old lastChecked, so the next tick picks them up with a wider
-        // window and nothing is lost.
-      }
-    })
-  );
+        const batches = chunk(due, GROUPS_PER_BATCH).slice(0, slots);
+        dueCount = batches.reduce((total, batch) => total + batch.length, 0);
+        batchCount = batches.length;
 
-  // Give the quick ones a chance to land now instead of next tick.
-  let inlineCollected = 0;
-  const deadline = Date.now() + INLINE_WAIT_MS;
-  let waiting = started;
-  while (waiting.length && Date.now() < deadline) {
-    await sleep(POLL_EVERY_MS);
-    const result = await sweep(waiting);
-    inlineCollected += result.collected;
-    waiting = result.stillRunning;
+        await Promise.all(
+          batches.map(async (batch) => {
+            const sourceIds = batch.map((source) => source.id);
+            try {
+              const snapshotId = await bdTrigger(
+                batch.map((source) => source.url),
+                sinceFor(batch)
+              );
+              const [row] = await db
+                .insert(scanJobs)
+                .values({
+                  snapshotId,
+                  sourceIds: JSON.stringify(sourceIds),
+                  startedAt: Date.now(),
+                  status: "running",
+                })
+                .returning({
+                  id: scanJobs.id,
+                  snapshotId: scanJobs.snapshotId,
+                  startedAt: scanJobs.startedAt,
+                  status: scanJobs.status,
+                });
+              if (row) started.push({ ...row, sourceIds });
+            } catch (error) {
+              console.error("scanner_trigger_failed", {
+                sourceIds,
+                error: errorMessage(error),
+              });
+            }
+          })
+        );
+      }
+    }
+  } finally {
+    if (leaseToken) {
+      await releaseLease(TRIGGER_LEASE_ID, leaseToken).catch((error) => {
+        console.error("scanner_trigger_lease_release_failed", { error: errorMessage(error) });
+      });
+    }
+  }
+
+  const swept = await sweep(open);
+
+  // Catalogue work is last. A finder failure can no longer block live scan
+  // triggering or collection in the same tick.
+  let catalogued = 0;
+  try {
+    catalogued = await collectCatalogue();
+  } catch (error) {
+    console.error("catalogue_collection_failed", { error: errorMessage(error) });
   }
 
   // Last, and rarely. Topping somebody up can run forty searches and read the
@@ -370,18 +531,25 @@ export async function POST(request: Request) {
   if (TOP_UP_EVERY_TICK || new Date().getMinutes() % 10 === 0) {
     try {
       toppedUp = await topUpShortMembers();
-    } catch {
-      // A top up must never cost anybody a lead.
+    } catch (error) {
+      console.error("catalogue_top_up_failed", { error: errorMessage(error) });
     }
   }
 
   return Response.json({
     ok: true,
     toppedUp,
-    collected: collected + inlineCollected,
+    catalogued,
+    collected: swept.collected,
+    completedJobs: swept.completed,
+    retriedJobs: swept.retried,
+    recoveredJobs: loaded.recovered + swept.recovered,
+    resumedJobs: loaded.resumed,
+    malformedJobs: loaded.malformed,
     triggered: started.length,
-    groups: due.length,
-    batches: batches.length,
-    inflight: stillRunning.length + waiting.length,
+    groups: dueCount,
+    batches: batchCount,
+    inflight: swept.stillRunning.length + started.length,
+    triggerSkipped: !leaseToken,
   });
 }

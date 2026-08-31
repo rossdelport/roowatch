@@ -270,9 +270,9 @@ cron ticks.
 ```
 tick A   trigger a collection for every due group
          write the snapshot id into scan_jobs
-         wait up to 170 seconds in case it finishes now
-tick B   an outstanding job exists, so collect it instead of triggering
+tick B   claim a ready job so only one Worker can collect it
          read the posts, alert, move sources.lastChecked
+         checkpoint each finished group in scan_jobs
 ```
 
 **The `scan_jobs` row is the important part.** It is what stops a later tick
@@ -283,7 +283,13 @@ running. That would be paying twice.
 collection costs us the records it fetched but can never lose a post: the next
 trigger simply asks for a wider window.
 
-A job still running after 20 minutes is treated as dead and dropped.
+A job still running after 20 minutes is treated as dead and dropped. A normal
+collection error gets one retry. If a Worker is killed while collecting, the
+claim expires and the bad job is dropped without blocking the other jobs.
+
+Live scan batches are triggered before finished snapshots are collected. Only
+two finished scan jobs and one catalogue job may be collected in a tick. This
+keeps one large response from consuming the whole Worker CPU budget.
 
 ### Proof it works
 

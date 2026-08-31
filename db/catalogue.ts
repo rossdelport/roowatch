@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { catalogueJobs, droppedGroups, foundGroups, groups, profiles, sources } from "./schema";
 import { findGroups, looksAustralian, looksForeign } from "./groupsearch";
@@ -6,6 +6,8 @@ import { MAX_RING, nearbySuburbs, postcodesFor, postcodesInState } from "./gazet
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
 import { groupLimit } from "./plans";
+import { claimLease, releaseLease } from "./lease";
+import { JOB_STALE_MS, parseSlugs } from "./scanqueue";
 
 /**
  * RooWatch's own catalogue of Australian Facebook groups.
@@ -43,6 +45,13 @@ export const FILL_TARGET = 20;
  * its breadth on one town, and a member ends up with three groups.
  */
 const SEARCH_PLACES = 6;
+const CATALOGUE_JOBS_CHECKED_PER_TICK = 5;
+const CATALOGUE_READY_PER_TICK = 1;
+const CATALOGUE_TRIGGER_LEASE_ID = "catalogue_trigger_lease";
+/** Longer than Cloudflare's 15-minute scheduled invocation limit. */
+const CATALOGUE_TRIGGER_LEASE_MS = 16 * 60 * 1000;
+const CATALOGUE_LEASE_ID = "catalogue_collection_lease";
+const CATALOGUE_LEASE_MS = 20 * 60 * 1000;
 
 /**
  * A test for "is this group in the patch they actually work in".
@@ -278,19 +287,30 @@ export async function candidatesFor(
 export async function sizeUnknown(slugs: string[]): Promise<void> {
   if (!slugs.length) return;
   const db = getDb();
-
-  const rows = await db
-    .select({ slug: foundGroups.slug, url: foundGroups.url, checked: foundGroups.checked })
-    .from(foundGroups)
-    .where(inArray(foundGroups.slug, slugs.slice(0, 20)));
-
-  // Unchecked, not unsized. A quiet public group is verified but will never
-  // report members, and filtering on members alone would re-snapshot it on
-  // every single setup, forever.
-  const need = rows.filter((r) => !r.checked);
-  if (!need.length) return;
-
+  let leaseToken: number | null = null;
   try {
+    leaseToken = await claimLease(CATALOGUE_TRIGGER_LEASE_ID, CATALOGUE_TRIGGER_LEASE_MS);
+    if (!leaseToken) return;
+
+    // Setup polls while verification is in flight. Do not buy the same check
+    // on every poll just because the catalogue row is still unchecked.
+    const queuedRows = await db.select({ slugs: catalogueJobs.slugs }).from(catalogueJobs);
+    const queued = new Set<string>();
+    for (const job of queuedRows) {
+      for (const slug of parseSlugs(job.slugs) ?? []) queued.add(slug);
+    }
+
+    const rows = await db
+      .select({ slug: foundGroups.slug, url: foundGroups.url, checked: foundGroups.checked })
+      .from(foundGroups)
+      .where(inArray(foundGroups.slug, slugs.slice(0, 20)));
+
+    // Unchecked, not unsized. A quiet public group is verified but will never
+    // report members, and filtering on members alone would re-snapshot it on
+    // every single setup, forever.
+    const need = rows.filter((r) => !r.checked && !queued.has(r.slug));
+    if (!need.length) return;
+
     const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const snapshotId = await bdTrigger(need.map((r) => r.url), since);
     await db.insert(catalogueJobs).values({
@@ -298,8 +318,19 @@ export async function sizeUnknown(slugs: string[]): Promise<void> {
       slugs: JSON.stringify(need.map((r) => r.slug)),
       startedAt: Date.now(),
     });
-  } catch {
+  } catch (error) {
     // Sizing is a nicety. Setup carries on without it.
+    console.error("catalogue_trigger_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    if (leaseToken) {
+      await releaseLease(CATALOGUE_TRIGGER_LEASE_ID, leaseToken).catch((error) => {
+        console.error("catalogue_trigger_lease_release_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
   }
 }
 
@@ -311,63 +342,98 @@ export async function sizeUnknown(slugs: string[]): Promise<void> {
  */
 export async function collectCatalogue(): Promise<number> {
   const db = getDb();
-  const jobs = await db.select().from(catalogueJobs);
-  if (!jobs.length) return 0;
+  const leaseToken = await claimLease(CATALOGUE_LEASE_ID, CATALOGUE_LEASE_MS);
+  if (!leaseToken) return 0;
 
-  let done = 0;
-  for (const job of jobs) {
-    let status = "unknown";
-    try {
-      status = (await bdProgress(job.snapshotId)).status;
-    } catch {
-      status = "unknown";
-    }
+  try {
+    const jobs = await db
+      .select()
+      .from(catalogueJobs)
+      .orderBy(asc(catalogueJobs.startedAt))
+      .limit(CATALOGUE_JOBS_CHECKED_PER_TICK);
+    if (!jobs.length) return 0;
 
-    const tooOld = Date.now() - job.startedAt > 20 * 60 * 1000;
-    if (status !== "ready") {
-      if (status === "failed" || tooOld) {
+    let done = 0;
+    let readyAttempted = 0;
+    for (const job of jobs) {
+      const slugs = parseSlugs(job.slugs);
+      const tooOld = Date.now() - job.startedAt > JOB_STALE_MS;
+      if (!slugs || tooOld) {
         await db.delete(catalogueJobs).where(eq(catalogueJobs.id, job.id));
+        console.error("catalogue_job_removed", {
+          jobId: job.id,
+          snapshotId: job.snapshotId,
+          reason: slugs ? "stale_snapshot" : "malformed_slugs",
+        });
+        continue;
       }
-      continue;
-    }
 
-    const slugs = JSON.parse(job.slugs) as string[];
-    const rows = await db
-      .select({ slug: foundGroups.slug, url: foundGroups.url })
-      .from(foundGroups)
-      .where(inArray(foundGroups.slug, slugs));
-
-    try {
-      const { facts } = await bdCollect(job.snapshotId, rows.map((r) => r.url));
-      for (const row of rows) {
-        const fact = facts.get(row.slug);
-        if (!fact) continue;
-        const patch: Record<string, unknown> = {};
-        if (fact.members) patch.members = fact.members;
-        if (fact.name) patch.name = fact.name;
-        // The snapshot was ready and this group was not flagged private, so
-        // Bright Data got in. That is the same standard the live scanner uses
-        // and it is what makes the row safe to offer somebody.
-        patch.checked = 1;
-        // A private group can never be watched, so drop it from the catalogue
-        // rather than keep offering it to people.
-        if (fact.private) {
-          await db.delete(foundGroups).where(eq(foundGroups.slug, row.slug));
-          continue;
-        }
-        if (Object.keys(patch).length) {
-          await db.update(foundGroups).set(patch).where(eq(foundGroups.slug, row.slug));
-        }
+      let status = "unknown";
+      try {
+        status = (await bdProgress(job.snapshotId)).status;
+      } catch {
+        status = "unknown";
       }
-      done += rows.length;
-    } catch {
-      // Leave the job for the next tick; the stale check drops it eventually.
-      continue;
-    }
 
-    await db.delete(catalogueJobs).where(eq(catalogueJobs.id, job.id));
+      if (status === "failed") {
+        await db.delete(catalogueJobs).where(eq(catalogueJobs.id, job.id));
+        continue;
+      }
+      if (status !== "ready" || readyAttempted >= CATALOGUE_READY_PER_TICK) continue;
+
+      readyAttempted += 1;
+      const rows = slugs.length
+        ? await db
+            .select({ slug: foundGroups.slug, url: foundGroups.url })
+            .from(foundGroups)
+            .where(inArray(foundGroups.slug, slugs))
+        : [];
+
+      try {
+        const { facts } = await bdCollect(job.snapshotId, rows.map((r) => r.url));
+        for (const row of rows) {
+          const fact = facts.get(row.slug);
+          if (!fact) continue;
+          const patch: Record<string, unknown> = {};
+          if (fact.members) patch.members = fact.members;
+          if (fact.name) patch.name = fact.name;
+          // The snapshot was ready and this group was not flagged private, so
+          // Bright Data got in. That is the same standard the live scanner uses
+          // and it is what makes the row safe to offer somebody.
+          patch.checked = 1;
+          // A private group can never be watched, so drop it from the catalogue
+          // rather than keep offering it to people.
+          if (fact.private) {
+            await db.delete(foundGroups).where(eq(foundGroups.slug, row.slug));
+            continue;
+          }
+          if (Object.keys(patch).length) {
+            await db.update(foundGroups).set(patch).where(eq(foundGroups.slug, row.slug));
+          }
+        }
+        done += rows.length;
+      } catch (error) {
+        console.error("catalogue_job_failed", {
+          jobId: job.id,
+          snapshotId: job.snapshotId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Catalogue work is optional and runs again from the unchecked row.
+        // One broken snapshot must not own the only collection slot for 20 min.
+        await db.delete(catalogueJobs).where(eq(catalogueJobs.id, job.id));
+        continue;
+      }
+
+      await db.delete(catalogueJobs).where(eq(catalogueJobs.id, job.id));
+    }
+    return done;
+  } finally {
+    await releaseLease(CATALOGUE_LEASE_ID, leaseToken).catch((error) => {
+      console.error("catalogue_lease_release_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
-  return done;
 }
 
 /**
