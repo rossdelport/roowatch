@@ -1509,7 +1509,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         const res = await fetch("/api/onboarding/suggest-groups", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ state, suburbs }),
+          body: JSON.stringify({ state, suburbs, trade: chosenTrade }),
         });
         const d = (await res.json()) as {
           groups?: { name: string; url: string; members?: number }[];
@@ -1545,7 +1545,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     setFinding(true);
     void pull();
     return () => { stop = true; };
-  }, [stage, state, suburbs, planGroups]);
+  }, [stage, state, suburbs, planGroups, chosenTrade]);
 
   async function addGroup(raw: string) {
     const parsed = parseGroupInput(raw);

@@ -1,7 +1,12 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import { catalogueJobs, droppedGroups, foundGroups, groups, profiles, sources } from "./schema";
-import { findGroups, looksAustralian, looksForeign } from "./groupsearch";
+import {
+  findGroups,
+  isAcceptableGroupName,
+  looksAustralian,
+  nameMentionsPlace,
+} from "./groupsearch";
 import { MAX_RING, nearbySuburbs, postcodesFor, postcodesInState } from "./gazetteer";
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
@@ -68,10 +73,7 @@ async function patchMatcher(suburbs: string[], state: string): Promise<(name: st
     // No neighbours is fine. Their own suburbs still work.
   }
   const places = [...near].filter((p) => p.length > 2);
-  return (name: string) => {
-    const low = name.toLowerCase();
-    return places.some((p) => low.includes(p));
-  };
+  return (name: string) => places.some((p) => nameMentionsPlace(name, p));
 }
 
 /** What we already hold for these suburbs, no searching, no cost. */
@@ -108,7 +110,11 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
   const known = await db
     .select()
     .from(foundGroups)
-    .where(eq(foundGroups.checked, 1))
+    .where(
+      state
+        ? and(eq(foundGroups.checked, 1), eq(foundGroups.state, state))
+        : eq(foundGroups.checked, 1)
+    )
     .orderBy(desc(foundGroups.members))
     .limit(200);
 
@@ -125,6 +131,7 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
   for (const w of watched) {
     const slug = groupSlug(w.url);
     if (!slug) continue;
+    if (!isAcceptableGroupName(w.name, true)) continue;
     if (!mentionsTheirPatch(w.name)) continue;
     out.set(slug, { slug, url: w.url, name: w.name, members: w.members, proven: true });
   }
@@ -134,14 +141,10 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
     // Same test. The old one accepted any row from the same state, which is
     // how somebody ended up watching the other end of it.
     if (!mentionsTheirPatch(`${g.suburb} ${g.name}`)) continue;
-    // The same test the search applies. Rows filed before these rules existed
-    // are still in here, and a Richmond Hill in Ontario would be scanned every
-    // minute at our expense if it slipped back out.
-    // Only the foreign test here. The row is already pinned to their state and
-    // matched to their suburbs above, and demanding a postcode or the word
-    // Australia in the name on top of that threw away real local groups.
-    // Filing is where the strict test now lives.
-    if (looksForeign(g.name)) continue;
+    // The same semantic and foreign tests the search applies. Rows filed before
+    // these rules existed are still in here, and a foreign hobby group would be
+    // scanned every minute at our expense if it slipped back out.
+    if (!isAcceptableGroupName(g.name, true)) continue;
     // A number is not a name.
     if (/^Group \d+$/.test(g.name)) continue;
     out.set(g.slug, { slug: g.slug, url: g.url, name: g.name, members: g.members, proven: false });
@@ -149,25 +152,11 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
   return [...out.values()];
 }
 
-/**
- * Does this name really mention this place, rather than merely contain the
- * letters?
- *
- * A plain includes() matched Kew inside AISKEW and handed a Melbourne tradie
- * "BEDALE NORTHALLERTON AISKEW THIRSK BUY SELL", which is four towns in North
- * Yorkshire.
- */
-function namesPlace(haystack: string, place: string): boolean {
-  if (!place) return false;
-  const escaped = place.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`, "i").test(haystack);
-}
-
 /** Rank the way a member would: local and proven first, then by size. */
 function rank(list: Candidate[], suburbs: string[]): Candidate[] {
   const places = suburbs.map((s) => s.toLowerCase()).filter(Boolean);
   return list
-    .map((c) => ({ c, local: places.some((p) => c.name.toLowerCase().includes(p)) }))
+    .map((c) => ({ c, local: places.some((p) => nameMentionsPlace(c.name, p)) }))
     .sort(
       (a, b) =>
         Number(b.local) - Number(a.local) ||
@@ -183,7 +172,8 @@ function rank(list: Candidate[], suburbs: string[]): Candidate[] {
 export async function candidatesFor(
   suburbs: string[],
   state: string,
-  ring = 0
+  ring = 0,
+  trade = ""
 ): Promise<{ groups: Candidate[]; searched: boolean; pending: string[] }> {
   const held = await fromCatalogue(suburbs, state);
   if (held.length >= FILL_TARGET) {
@@ -208,7 +198,7 @@ export async function candidatesFor(
       postcodesFor(wide, state),
       postcodesInState(state),
     ]);
-    found = await findGroups(wide, state, 30, postcodeOf, statePostcodes);
+    found = await findGroups(wide, state, 30, postcodeOf, statePostcodes, trade);
 
     // A padded suburb is a guess, and some of them are shared with the other
     // side of the world. Padding with Doncaster brought back Doncaster in
@@ -225,15 +215,15 @@ export async function candidatesFor(
       found = found.filter((g) => {
         const name = g.name.toLowerCase();
         // Their own suburbs are trusted, as they always were.
-        if (own.some((p) => namesPlace(name, p))) return true;
+        if (own.some((p) => nameMentionsPlace(name, p))) return true;
         // Proof on its own face is enough too: a postcode, a state, "council".
         if (looksAustralian(g.name)) return true;
-        // Otherwise it has to actually be about the suburb we guessed, and not
-        // read as somewhere else. Requiring the name to carry the guessed
-        // suburb is what stops a search for Doncaster returning a football
-        // league; the foreign list is what stops the ones that do say
-        // Doncaster but mean the English one.
-        return added.some((p) => namesPlace(name, p)) && !looksForeign(g.name);
+        // Otherwise it has to actually be about the suburb we guessed and
+        // carry an Australian signal of its own. A nearby name is only a hint:
+        // Bunbury's Picton search returned Picton-to-Campbelltown groups in
+        // New South Wales with no state in the title. Without a postcode,
+        // state or council signal we cannot safely hand that to a tradie.
+        return added.some((p) => nameMentionsPlace(name, p)) && looksAustralian(g.name);
       });
     }
   } catch (err) {
@@ -384,7 +374,7 @@ export async function collectCatalogue(): Promise<number> {
       readyAttempted += 1;
       const rows = slugs.length
         ? await db
-            .select({ slug: foundGroups.slug, url: foundGroups.url })
+            .select({ slug: foundGroups.slug, url: foundGroups.url, name: foundGroups.name })
             .from(foundGroups)
             .where(inArray(foundGroups.slug, slugs))
         : [];
@@ -394,6 +384,15 @@ export async function collectCatalogue(): Promise<number> {
         for (const row of rows) {
           const fact = facts.get(row.slug);
           if (!fact) continue;
+          const name = fact.name || row.name;
+          // A readable page can still be the wrong kind of group. Do not mark
+          // a stale or newly renamed hobby group as safe merely because Bright
+          // Data could open it. Removing it prevents another member inheriting
+          // the same bad result.
+          if (!isAcceptableGroupName(name, true)) {
+            await db.delete(foundGroups).where(eq(foundGroups.slug, row.slug));
+            continue;
+          }
           const patch: Record<string, unknown> = {};
           if (fact.members) patch.members = fact.members;
           if (fact.name) patch.name = fact.name;
@@ -456,6 +455,7 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
     .select({
       state: profiles.state,
       location: profiles.location,
+      trade: profiles.trade,
       plan: profiles.plan,
       ring: profiles.searchRing,
     })
@@ -509,7 +509,7 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
   const isNew = (c: Candidate) => !haveSlugs.has(c.slug) && !dropped.has(c.slug);
 
   if (allowSearch && held.filter(isNew).length < room && profile.ring <= MAX_RING) {
-    const found = await candidatesFor(suburbs, profile.state, profile.ring);
+    const found = await candidatesFor(suburbs, profile.state, profile.ring, profile.trade);
     // Nothing found is offered yet. It is filed, verified below, and picked up
     // by the next top up once Bright Data says it is readable.
     if (found.pending.length) await sizeUnknown(found.pending);
@@ -549,6 +549,9 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
   const wanted = rank(held, suburbs)
     .filter((c) => !haveSlugs.has(c.slug) && !dropped.has(c.slug))
     .filter((c) => !haveNames.has(c.name.trim().toLowerCase()))
+    // A final guard before creating a billable source. It protects this path
+    // if another catalogue writer changes a row between the read and insert.
+    .filter((c) => isAcceptableGroupName(c.name, true))
     .slice(0, room);
   if (!wanted.length) return 0;
 

@@ -1,4 +1,4 @@
-import { groupSlug } from "./fbgroups";
+import { groupSlug } from "./fbgroups.ts";
 
 /**
  * Finding Facebook groups for a member, without touching Facebook.
@@ -23,11 +23,10 @@ export type FoundGroup = {
 };
 
 /**
- * Where people actually ask for a tradie.
+ * Search angles for places where people actually ask for a tradie.
  *
- * "Buy swap sell" is first on purpose. It is an almost exclusively Australian
- * way of naming a group and it scored twenty out of twenty on locality in
- * testing, where every other phrase leaked overseas.
+ * These are search angles, not acceptance rules. A buy/swap/sell search can
+ * still return a camera or boat group, so the name gate below is final.
  */
 const ANGLES = [
   "community",
@@ -38,8 +37,8 @@ const ANGLES = [
   "community group",
   "recommendations",
   "local business",
-  "mums",
-  "what's on",
+  "local services",
+  "neighbourhood",
 ];
 
 /**
@@ -50,6 +49,19 @@ const ANGLES = [
  * suburbs rather than spent on the first one.
  */
 const MAX_QUERIES = 40;
+
+/** Keep the member's niche in the search without making it a hard name gate. */
+function tradeSearchTerm(trade: string): string {
+  const low = String(trade ?? "").trim().toLowerCase();
+  if (!low) return "";
+  if (/landscap|garden|lawn/.test(low)) return "landscaping gardening";
+  if (/air con|air-condition|hvac/.test(low)) return "air conditioning";
+  if (/solar/.test(low)) return "solar";
+  if (/pest/.test(low)) return "pest control";
+  if (/car detailing|detail/.test(low)) return "car detailing";
+  const words = low.replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+  return words.slice(0, 3).join(" ");
+}
 
 /** Places that are not here. Seen in real results, not guessed at. */
 const NOT_HERE = new RegExp(
@@ -75,6 +87,7 @@ const NOT_HERE = new RegExp(
       "barnsley|nottingham|leicester|glasgow|edinburgh|cardiff|belfast",
       "london|manchester|twickenham|catterick|teesdale|tyneside|wicklow|emlyn",
       "cornwall|somerset|dorset|norfolk|suffolk|cheshire|durham|northumberland",
+      "sutton-in-ashfield|kirkby-in-ashfield|nottinghamshire",
       "tasman|motueka|new zealand|christchurch|auckland|dunedin",
       // Kew is a suburb of Melbourne and a district of London, and there is a
       // Kew Gardens in Queens. "Queens" on its own is left out, because Queens
@@ -96,9 +109,43 @@ const NOT_HERE = new RegExp(
 const AU_SIGNAL =
   /\b(nsw|vic|qld|wa|sa|tas|nt|act|australia|aussie|\d{4}|shire|council|hunter|gippsland|riverina|illawarra)\b/i;
 
-/** A group about something else entirely. Nobody there is after a plumber. */
-const NOT_FOR_US =
-  /\b(football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild|musician|band|anime|crypto|forex|church|bible|dating|singles|fishing|4wd|motorbike|caravan|knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\brfc\b|rugby|\bcars?\b|traffic|aged care|for sale|merch|hotel|cafe|restaurant|realtors?|realty|real estate|tiny house|holiday|tourism|creative|expats?|yoga|pilates|zumba|\bgym\b|fitness|crossfit|bootcamp|climb(ing|ers?)|hiking|bushwalk|walking group|runners?|parkrun|cycl(ing|ists?)|\bride\b|\bmtb\b|\bbmx\b|spiritual|meditation|mindfulness|psychic|tarot|astrology|reiki|wellness|employment|\bjobs?\b|hiring|recruit\w*|vacanc\w*|careers?|book club|quilting|sewing|crochet|photography|birding|birdwatch\w*|\bpets?\b|\bdogs?\b|\bcats?\b|puppies|kittens|playgroup|homeschool|\buni\b|university|students?|backpacker|travel|camping|boating|\bsurf\b|skate|martial arts|boxing|dance|choir|theatre|museum|genealogy|politics|election|protest|vegan|recipes?|cooking|baking|weight loss|history|heritage|genealog\w*)\b/i;
+/** A group about something else entirely. Nobody there is after a tradie. */
+const NOT_FOR_US = new RegExp(
+  "\\b(" +
+    [
+      // Hobbies, sport and social clubs.
+      "football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild",
+      "musician|band|anime|crypto|forex|dating|singles|fishing|4wd|4x4|motorbike|caravan",
+      "knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\\brfc\\b|rugby|for sale",
+      "yoga|pilates|zumba|\\bgym\\b|fitness|crossfit|bootcamp|climb(ing|ers?)|hiking",
+      "bushwalk|walking group|runners?|parkrun|cycl(ing|ists?)|\\bride\\b|\\bmtb\\b|\\bbmx\\b",
+      "spiritual|meditation|mindfulness|psychic|tarot|astrology|reiki|wellness|social club",
+      "bowling club|riding club|book club|quilt\\w*|sewing|crochet|dance|choir|theatre|museum",
+      "travel|surf|skate|martial arts|boxing|boating",
+      // Pets, animals and conservation.
+      "\\banimal\\b|\\bpet(?:s)?\\b|\\bdog(?:s)?\\b|\\bcat(?:s)?\\b|pupp(?:y|ies)|kittens?|playgroup|homeschool",
+      "rescue|rehoming|adopt(?:ion|ing)?|wildlife|livestock|horses?|equine|pon(?:y|ies)",
+      "nature|conservation|environment|birding|birdwatch\\w*",
+      // Goods-specific buy/sell groups, where the BSS angle is misleading.
+      "camera|photograph(?:y|er)?|jewell?ery|\\blego\\b|boats?|tinn(?:y|ies)|camping",
+      "\\bford\\b|\\bcars?\\b|\\btrucks?\\b|\\butes?\\b|\\b4wd\\b",
+      // Food, events, fundraising and political activity.
+      "food|takeaway|hotel|cafe|restaurant|coffee|bak(?:e|ing)|recipes?",
+      "events?|functions?|fundrais(?:er|ing)|things to do|social calendar",
+      "politics|election|protest|petition|campaign|activis[mt]",
+      // Property, jobs and education.
+      "realtors?|realty|real estate|property management|tiny house|holiday|tourism",
+      "employment|\\bjobs?\\b|hiring|recruit\\w*|vacanc\\w*|careers?",
+      "\\buni\\b|university|students?|student accommodation|backpacker|research",
+      "academic|psychology|research participation|girl guiding|scouts?",
+      // Faith, cultural and other non-service groups seen in the catalogue.
+      "church|bible|mosque|temple|pinoy|filipino|south africans?|kiwis?|expats?",
+      "creative|artists?|craft|genealogy|history|heritage|vegan|cooking|weight loss",
+      "aged care|traffic|merch|support group|community support",
+    ].join("|") +
+    ")\\b",
+  "i"
+);
 
 /**
  * Phrasing that belongs to a post rather than to a group. A group is called
@@ -117,7 +164,15 @@ const NOT_A_NAME =
  * homeowners actually talk, and it has to survive NOT_FOR_US as well.
  */
 const GOOD =
-  /\b(community|noticeboard|notice board|buy.?swap.?sell|bss|locals?|residents?|tradie|trades|services|recommend|help|info|news|marketplace|garage sale)\b/i;
+  /\b(community|noticeboard|notice board|neighbou?rhood|bss|locals?|residents?|tradie|trades|services?|recommend|help|info|news|marketplace|garage sale|local|business(?:es)?|classifieds?|area|hub|mums?|parents?)\b/i;
+
+/** Common buy/sell word orders, including "buy, swap or sell". */
+const BUY_SELL =
+  /\b(?:buy[\s,\/&-]+(?:and|or|&)?[\s,\/&-]*(?:swap[\s,\/&-]+(?:and|or|&)?[\s,\/&-]*sell|sell)|sell[\s,\/&-]+(?:and|or|&)?[\s,\/&-]*swap)\b/i;
+
+function hasGoodSignal(name: string): boolean {
+  return GOOD.test(name) || BUY_SELL.test(name);
+}
 
 /** Titles come back with the site name bolted on. */
 function tidyName(raw: string): string {
@@ -127,6 +182,41 @@ function tidyName(raw: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
+}
+
+/**
+ * One deterministic name gate for every automatic group path.
+ *
+ * Search results, old catalogue rows and Bright Data's later group name can
+ * all describe the same URL differently. Keeping this test pure and shared
+ * stops an old row bypassing the rules that a fresh Brave result obeys.
+ */
+export function groupNameRejection(name: string): string {
+  const clean = tidyName(name);
+  if (!clean || clean.length < 3) return "empty_name";
+  if (/^Group \d+$/i.test(clean)) return "numeric_placeholder";
+  if (/^\d+[a-z]?\s/i.test(clean)) return "post_or_address";
+  if (NOT_A_NAME.test(clean)) return "post_title";
+  if (NOT_FOR_US.test(clean)) return "non_tradie_topic";
+  if (!hasGoodSignal(clean)) return "no_local_group_signal";
+  return "";
+}
+
+/** True when an automatically discovered name is safe to offer. */
+export function isAcceptableGroupName(name: string, rejectForeign = false): boolean {
+  return !groupNameRejection(name) && (!rejectForeign || !NOT_HERE.test(tidyName(name)));
+}
+
+/** Match a locality as a name, not as a substring of another locality. */
+export function nameMentionsPlace(haystack: string, place: string): boolean {
+  const q = String(place ?? "").trim();
+  if (q.length < 3) return false;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Treat a hyphen as part of a compound name. This keeps ASHFIELD from
+  // matching Sutton-in-Ashfield, a common Brave result for the WA suburb.
+  return new RegExp(`(^|[^a-z0-9-])${escaped}([^a-z0-9-]|$)`, "i").test(
+    String(haystack ?? "")
+  );
 }
 
 function readResults(results: { title?: string; url?: string }[]): FoundGroup[] {
@@ -142,25 +232,14 @@ function readResults(results: { title?: string; url?: string }[]): FoundGroup[] 
     // asking more questions, not from mining post text.
     if (/\/(posts|permalink|videos|photos)\//i.test(url)) continue;
     const name = tidyName(r.title ?? "");
-    if (!name || name.length < 3) continue;
-    if (NOT_FOR_US.test(name)) continue;
-    // Must look like somewhere locals talk, not merely somewhere.
-    if (!GOOD.test(name)) continue;
-
-    // A permalink title is the post, not always the group. Splitting on the
-    // pipe gets the group name most of the time and a street address the rest,
-    // so a permalink only counts when what is left actually reads like a
-    // group. Without this Perth came back with "Wray Hotel, Fremantle" and
-    // "3 Little Shenton Lane" sitting in somebody's watchlist.
-    // A group is named, not narrated. Anything that reads like a sentence is
-    // a post that slipped through.
-    if (/^\d+[a-z]?\s/i.test(name)) continue;
-    if (NOT_A_NAME.test(name)) continue;
+    // Must look like somewhere locals talk, not merely somewhere. This is
+    // deliberately shared with catalogue rows filed before the rule existed.
+    if (!isAcceptableGroupName(name)) continue;
     out.push({
       name,
       url: `https://www.facebook.com/groups/${slug}`,
       slug,
-      score: GOOD.test(name) ? 3 : 0,
+      score: hasGoodSignal(name) ? 3 : 0,
       auSure: AU_SIGNAL.test(name),
       foreign: NOT_HERE.test(name),
     });
@@ -182,7 +261,7 @@ export async function searchText(
   if (!key) return [];
   try {
     const res = await fetch(
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10&country=au`,
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=10&country=AU&search_lang=en&ui_lang=en-AU&safesearch=strict&spellcheck=false&result_filter=web`,
       { headers: { Accept: "application/json", "X-Subscription-Token": key } }
     );
     if (!res.ok) {
@@ -203,7 +282,7 @@ export async function searchText(
 
 async function braveSearch(query: string, key: string): Promise<FoundGroup[]> {
   const res = await fetch(
-    `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=20&country=au`,
+    `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=20&country=AU&search_lang=en&ui_lang=en-AU&safesearch=strict&spellcheck=false&result_filter=web&extra_snippets=true`,
     { headers: { Accept: "application/json", "X-Subscription-Token": key } }
   );
   if (!res.ok) {
@@ -282,12 +361,18 @@ export async function findGroups(
   /** Postcode for each of their suburbs, uppercased key. */
   postcodeOf: Map<string, string> = new Map(),
   /** Every postcode in their state, for spotting somebody else's patch. */
-  statePostcodes: Set<string> = new Set()
+  statePostcodes: Set<string> = new Set(),
+  /** Optional niche used to improve ranking, never to admit a bad group. */
+  trade = ""
 ): Promise<FoundGroup[]> {
   const brave = process.env.BRAVE_SEARCH_KEY;
   const gKey = process.env.GOOGLE_SEARCH_KEY;
   const gCx = process.env.GOOGLE_SEARCH_CX;
   if (!brave && !(gKey && gCx)) return [];
+  if (!STATE_WORDS[state]) {
+    console.error("group_search_state_rejected", state);
+    return [];
+  }
 
   // Every suburb they gave us, not the first three. A tradie who drives to six
   // suburbs wants groups in all six.
@@ -299,9 +384,17 @@ export async function findGroups(
   // two each. Either way the bill is the same.
   const perPlace = Math.max(1, Math.floor(MAX_QUERIES / places.length));
 
+  const niche = tradeSearchTerm(trade);
+  // A niche-specific search finds trade recommendation groups that a generic
+  // "community" query misses. Generic angles stay in the pool because the
+  // best local group is usually a broad neighbourhood page, not a trade club.
+  const angles = niche
+    ? [`${niche} recommendations`, `${niche} local services`, ...ANGLES]
+    : ANGLES;
+
   const jobs: { place: string; query: string }[] = [];
   for (const place of places) {
-    for (const angle of ANGLES.slice(0, perPlace)) {
+    for (const angle of angles.slice(0, perPlace)) {
       // The postcode goes in when we know it. It was the single strongest
       // signal in testing: the only two genuine Richmond, Victoria results out
       // of thirty nine both carried 3121 in the name.
@@ -346,8 +439,7 @@ export async function findGroups(
     return places.some((p) => {
       const q = p.trim().toLowerCase();
       if (q.length < 3) return false;
-      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`, "i").test(low);
+      return nameMentionsPlace(low, q);
     });
   };
 

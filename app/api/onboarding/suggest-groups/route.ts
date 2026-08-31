@@ -1,6 +1,8 @@
 import { currentUser } from "../../../../db/auth";
 import { candidatesFor, sizeUnknown } from "../../../../db/catalogue";
 import { searchConfigured } from "../../../../db/groupsearch";
+import { resolvePlaces } from "../../../../db/gazetteer";
+import { isKnownState } from "../../../../db/trades";
 
 /**
  * The groups we hand a member during setup, so they never have to go hunting.
@@ -19,11 +21,26 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     state?: string;
     suburbs?: string[];
+    trade?: string;
   };
   const state = String(body.state ?? "").trim();
   const suburbs = (body.suburbs ?? []).map((s) => String(s).trim()).filter(Boolean);
+  const trade = String(body.trade ?? "").trim().slice(0, 80);
 
-  const { groups, searched, pending } = await candidatesFor(suburbs, state);
+  // The wizard is client-side, so do not let a hand-built request search an
+  // arbitrary suburb under the wrong state. Canonical places also stop a
+  // typo or a country name becoming a Brave query and a catalogue row.
+  if (!isKnownState(state) || !suburbs.length) {
+    console.error("group_search_scope_rejected", { state, suburbs: suburbs.length });
+    return Response.json({ ok: true, groups: [], searched: false, pending: 0, sizing: 0 });
+  }
+  const canonical = await resolvePlaces(suburbs, state);
+  if (canonical.state !== state || !canonical.suburbs.length) {
+    console.error("group_search_places_rejected", { state, suburbs });
+    return Response.json({ ok: true, groups: [], searched: false, pending: 0, sizing: 0 });
+  }
+
+  const { groups, searched, pending } = await candidatesFor(canonical.suburbs, state, 0, trade);
 
   // Everything the search just found, plus anything catalogued we have never
   // read. One snapshot answers both questions at once: is it public, and how
