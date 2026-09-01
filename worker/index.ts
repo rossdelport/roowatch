@@ -23,10 +23,11 @@ interface ExecutionContext {
 }
 
 interface ScheduledController {
-  cron?: string;
+  cron: string;
 }
 
-const HEALTH_CRON = "2,17,32,47 * * * *";
+const SCAN_CRON = "* * * * *";
+const HEALTH_CRON = "0 * * * *";
 
 // Image security config. SVG sources with .svg extension auto-skip the
 // optimization endpoint on the client side (served directly, no proxy).
@@ -70,7 +71,12 @@ const worker = {
 
     // Calling the route through Vinext made every tick initialise the full app
     // router before it reached the scanner, so cron calls the handler directly.
-    ctx.waitUntil(runScan(request("/api/cron/scan")));
+    if (event.cron === SCAN_CRON) {
+      ctx.waitUntil(runScan(request("/api/cron/scan")));
+      return;
+    }
+
+    console.error("unknown_cron_ignored", { cron: event.cron });
   },
 };
 

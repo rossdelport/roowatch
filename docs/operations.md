@@ -23,11 +23,12 @@ A row means a collection is in flight. `running` is waiting for Bright Data.
 No row means the next tick can trigger one. A row or collection claim older
 than 20 minutes gets dropped automatically.
 
-The scanner starts live work before it handles group-finder jobs. It claims
-finished jobs before reading them, checkpoints each finished group, and limits
-how many results one tick can process. A separate 15-minute cron runs the
-watchdog. If an alert arrives, recovery is already running. There is no process
-to restart and no need to delete every open job.
+The scanner starts live work before it handles group-finder jobs. Each snapshot
+contains one group and each tick claims no more than one finished snapshot. A
+separate hourly cron checks both recent progress and one-hour coverage. If the
+scanner is stalled, it removes only queue jobs that are already stale. The next
+minute tick then starts fresh work automatically. Recovery has its own hourly
+cooldown and email has a separate four-hour cooldown.
 
 ### Pausing it
 

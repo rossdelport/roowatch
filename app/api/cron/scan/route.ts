@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { bdCollect, bdProgress, bdTrigger, dueSources, processSource, type GroupFacts } from "../../../../db/pipeline";
 import { groupSlug } from "../../../../db/fbgroups";
@@ -41,15 +41,16 @@ import {
  *    simply asks for a wider window.
  */
 
-/** Groups in one snapshot. Small on purpose: how a single snapshot scales with
- *  group count has never been measured, but running many at once has. When in
- *  doubt, more snapshots rather than bigger ones. */
-const GROUPS_PER_BATCH = 5;
-/** Snapshots allowed in flight at once. Tested clean at 15. This is the brake
- *  that stops a backlog turning into hundreds of open collections. */
-const MAX_INFLIGHT = 12;
-/** Finished snapshots are the CPU-heavy part. Two keeps one tick bounded. */
-const MAX_READY_COLLECTIONS_PER_TICK = 2;
+/**
+ * One group per snapshot keeps collection below the Free Worker CPU ceiling.
+ * A larger snapshot used to be claimed as one unit, get killed part way
+ * through, then hold its queue slot until the stale claim expired.
+ */
+const GROUPS_PER_BATCH = 1;
+/** Keep progress polling and queue repair bounded as well as supplier work. */
+const MAX_INFLIGHT = 6;
+/** One ready group is the most useful work one 10 ms invocation can finish. */
+const MAX_READY_COLLECTIONS_PER_TICK = 1;
 /** Most groups we will pick up in a single tick. */
 const SOURCES_PER_TICK = 60;
 /**
@@ -136,48 +137,68 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-/** Read a finished snapshot, alert on anything new, and close the job off. */
-async function collectJob(job: Job, claimMarker: string) {
-  const db = getDb();
-  const rows = job.sourceIds.length
-    ? await db.select().from(sources).where(inArray(sources.id, job.sourceIds))
-    : [];
+type CollectionResult = {
+  collected: number;
+  completed: boolean;
+  next: Job | null;
+};
 
-  if (!rows.length) {
-    await db
+/** Finish one claimed group and release any remainder for the next cron. */
+async function finishClaim(
+  job: Job,
+  claimMarker: string,
+  remaining: number[],
+  collected: number
+): Promise<CollectionResult> {
+  const db = getDb();
+  if (!remaining.length) {
+    const removed = await db
       .delete(scanJobs)
-      .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)));
-    return 0;
+      .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)))
+      .returning({ id: scanJobs.id });
+    if (!removed.length) throw new Error("scanner_claim_lost");
+    return { collected, completed: true, next: null };
   }
+
+  const startedAt = Date.now();
+  const [checkpointed] = await db
+    .update(scanJobs)
+    .set({ sourceIds: JSON.stringify(remaining), status: "running", startedAt })
+    .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)))
+    .returning({ id: scanJobs.id });
+  if (!checkpointed) throw new Error("scanner_claim_lost");
+  return {
+    collected,
+    completed: false,
+    next: { ...job, sourceIds: remaining, status: "running", startedAt },
+  };
+}
+
+/** Read and finish one group from a ready snapshot. */
+async function collectJob(job: Job, claimMarker: string): Promise<CollectionResult> {
+  const sourceId = job.sourceIds[0];
+  if (!sourceId) return finishClaim(job, claimMarker, [], 0);
+
+  const db = getDb();
+  const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1);
+  const remaining = job.sourceIds.slice(1);
+  if (!source) return finishClaim(job, claimMarker, remaining, 0);
 
   const { posts: byGroup, facts } = await bdCollect(
     job.snapshotId,
-    rows.map((s) => s.url)
+    [source.url]
   );
-  for (let index = 0; index < rows.length; index += 1) {
-    const source = rows[index];
-    const slug = groupSlug(source.url);
-    const posts = byGroup.get(slug) ?? [];
-    await processSource(source.id, posts);
-    // After, never before. processSource writes its own lastError at the end
-    // of every pass, so learning first would have the reason wiped a moment
-    // after we wrote it down.
-    await learnAbout(source, facts.get(slug), posts.length > 0);
+  const slug = groupSlug(source.url);
+  const posts = byGroup.get(slug) ?? [];
+  await processSource(source.id, posts);
+  // After, never before. processSource writes its own lastError at the end
+  // of every pass, so learning first would have the reason wiped a moment
+  // after we wrote it down.
+  await learnAbout(source, facts.get(slug), posts.length > 0);
 
-    // A CPU kill later in this snapshot must not replay groups already done.
-    // The current group stays in the row until all of its work has finished.
-    const [checkpointed] = await db
-      .update(scanJobs)
-      .set({ sourceIds: JSON.stringify(rows.slice(index + 1).map((row) => row.id)) })
-      .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)))
-      .returning({ id: scanJobs.id });
-    if (!checkpointed) throw new Error("scanner_claim_lost");
-  }
-
-  await db
-    .delete(scanJobs)
-    .where(and(eq(scanJobs.id, job.id), eq(scanJobs.status, claimMarker)));
-  return rows.length;
+  // The claim is released in the same write as the checkpoint. A killed tick
+  // can strand at most this one group, never a five-group batch.
+  return finishClaim(job, claimMarker, remaining, 1);
 }
 
 /**
@@ -380,8 +401,10 @@ async function sweep(jobs: Job[]) {
 
       readyClaims += 1;
       try {
-        collected += await collectJob({ ...job, status: claim.marker }, claim.marker);
-        completed += 1;
+        const result = await collectJob({ ...job, status: claim.marker }, claim.marker);
+        collected += result.collected;
+        if (result.completed) completed += 1;
+        if (result.next) stillRunning.push(result.next);
       } catch (error) {
         console.error("scanner_collection_failed", {
           jobId: job.id,
