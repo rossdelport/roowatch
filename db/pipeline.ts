@@ -2,8 +2,11 @@ import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import {
   buildLeadClassifierPrompt,
+  buildLeadClassifierRequest,
   hasLeadProfile,
+  LEAD_FILTER_REQUEST_TIMEOUT_MS,
   LeadFilterError,
+  leadResponseError,
   obviousNonLeadReason,
   parseLeadDecision,
   rejectedLeadDecision,
@@ -382,32 +385,59 @@ export async function classifyPost(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
-      signal: AbortSignal.timeout(12_000),
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 220,
-        temperature: 0,
-        system: prompt.system,
-        messages: [{ role: "user", content: prompt.user }],
-      }),
+      signal: AbortSignal.timeout(LEAD_FILTER_REQUEST_TIMEOUT_MS),
+      body: JSON.stringify(buildLeadClassifierRequest(prompt)),
     });
   } catch {
     throw new LeadFilterError("lead_filter_request_failed");
   }
 
   if (!res.ok) {
+    console.warn(JSON.stringify({
+      event: "lead_filter_http_error",
+      status: res.status,
+      requestId: res.headers.get("request-id") ?? res.headers.get("x-request-id") ?? "",
+    }));
     throw new LeadFilterError(`lead_filter_http_${res.status}`);
   }
 
-  let data: { content?: { type: string; text?: string }[] };
+  let data: {
+    content?: { type: string; text?: string }[];
+    stop_reason?: string;
+    usage?: { output_tokens?: number };
+  };
   try {
-    data = (await res.json()) as { content?: { type: string; text?: string }[] };
+    data = (await res.json()) as typeof data;
   } catch {
     throw new LeadFilterError("lead_filter_invalid_response");
   }
   const text = data.content?.find((c) => c.type === "text")?.text ?? "";
+  const diagnostics = {
+    stopReason: String(data.stop_reason ?? "unknown"),
+    outputTokens: Number(data.usage?.output_tokens ?? 0),
+    textLength: text.length,
+    fenced: text.includes("```"),
+    startsWithObject: text.trimStart().startsWith("{"),
+    endsWithObject: text.trimEnd().endsWith("}"),
+  };
+  const stopError = leadResponseError(data.stop_reason);
+  if (stopError) {
+    console.warn(JSON.stringify({
+      event: "lead_filter_contract_error",
+      code: stopError,
+      ...diagnostics,
+    }));
+    throw new LeadFilterError(stopError);
+  }
   const decision = parseLeadDecision(text);
-  if (!decision) throw new LeadFilterError("lead_filter_invalid_response");
+  if (!decision) {
+    console.warn(JSON.stringify({
+      event: "lead_filter_contract_error",
+      code: "lead_filter_invalid_response",
+      ...diagnostics,
+    }));
+    throw new LeadFilterError("lead_filter_invalid_response");
+  }
   return decision;
 }
 

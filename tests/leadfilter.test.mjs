@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildLeadClassifierPrompt,
+  buildLeadClassifierRequest,
   hasLeadProfile,
   LEAD_CONFIDENCE_THRESHOLD,
+  LEAD_DECISION_JSON_SCHEMA,
+  LEAD_FILTER_MAX_TOKENS,
+  LEAD_FILTER_MODEL,
+  leadResponseError,
   obviousNonLeadReason,
   parseLeadDecision,
   splitBrief,
@@ -81,6 +86,41 @@ test("classifier prompt includes trade, group context, and hard exclusions", () 
   assert.match(prompt.user, /Newcastle &amp; Hunter Community/);
   assert.match(prompt.user, /other gardeners offering work/);
   assert.match(prompt.user, /Can anyone recommend/);
+});
+
+test("Anthropic structured output enforces every parser field", () => {
+  assert.equal(LEAD_DECISION_JSON_SCHEMA.type, "object");
+  assert.equal(LEAD_DECISION_JSON_SCHEMA.additionalProperties, false);
+  assert.deepEqual(
+    [...LEAD_DECISION_JSON_SCHEMA.required].sort(),
+    Object.keys(LEAD_DECISION_JSON_SCHEMA.properties).sort()
+  );
+  assert.deepEqual(LEAD_DECISION_JSON_SCHEMA.properties.evidence.required, [
+    "service",
+    "intent",
+    "location",
+  ]);
+  assert.equal(LEAD_DECISION_JSON_SCHEMA.properties.match.type, "boolean");
+  assert.equal(LEAD_DECISION_JSON_SCHEMA.properties.confidence.type, "number");
+});
+
+test("classifier request sends the schema through the current API field", () => {
+  const request = buildLeadClassifierRequest({ system: "system rules", user: "post data" });
+  assert.equal(request.model, LEAD_FILTER_MODEL);
+  assert.equal(request.max_tokens, LEAD_FILTER_MAX_TOKENS);
+  assert.equal(request.system, "system rules");
+  assert.deepEqual(request.messages, [{ role: "user", content: "post data" }]);
+  assert.equal(request.output_config.format.type, "json_schema");
+  assert.deepEqual(request.output_config.format.schema, LEAD_DECISION_JSON_SCHEMA);
+  assert.equal("output_format" in request, false);
+});
+
+test("only a normally completed Anthropic response is accepted", () => {
+  assert.equal(leadResponseError("end_turn"), "");
+  assert.equal(leadResponseError("max_tokens"), "lead_filter_output_truncated");
+  assert.equal(leadResponseError("refusal"), "lead_filter_refused");
+  assert.equal(leadResponseError("model_context_window_exceeded"), "lead_filter_incomplete_response");
+  assert.equal(leadResponseError(undefined), "lead_filter_incomplete_response");
 });
 
 test("a complete, high-confidence structured verdict is a lead", () => {

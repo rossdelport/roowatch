@@ -9,6 +9,9 @@
 export const LEAD_FILTER_VERSION = "v2";
 /** High precision matters more than volume for a paid alert. */
 export const LEAD_CONFIDENCE_THRESHOLD = 0.9;
+export const LEAD_FILTER_REQUEST_TIMEOUT_MS = 30_000;
+export const LEAD_FILTER_MAX_TOKENS = 512;
+export const LEAD_FILTER_MODEL = "claude-haiku-4-5-20251001";
 
 export type LeadMemberProfile = {
   trade?: string;
@@ -40,6 +43,67 @@ export type LeadDecision = {
   evidence: LeadEvidence;
 };
 
+/**
+ * Ask Anthropic to enforce the same shape the local parser checks.
+ *
+ * Prompt-only JSON failed in production when the model returned a response
+ * outside this contract. Structured output prevents fences, missing fields,
+ * and string booleans before the response reaches RooWatch.
+ */
+export const LEAD_DECISION_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    match: { type: "boolean" },
+    service_match: { type: "boolean" },
+    buyer_intent: { type: "boolean" },
+    local_match: { type: "boolean" },
+    provider_or_ad: { type: "boolean" },
+    diy_or_information: { type: "boolean" },
+    already_resolved: { type: "boolean" },
+    confidence: { type: "number" },
+    reason: { type: "string" },
+    evidence: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        service: { type: "string" },
+        intent: { type: "string" },
+        location: { type: "string" },
+      },
+      required: ["service", "intent", "location"],
+    },
+  },
+  required: [
+    "match",
+    "service_match",
+    "buyer_intent",
+    "local_match",
+    "provider_or_ad",
+    "diy_or_information",
+    "already_resolved",
+    "confidence",
+    "reason",
+    "evidence",
+  ],
+} as const;
+
+export function buildLeadClassifierRequest(prompt: { system: string; user: string }) {
+  return {
+    model: LEAD_FILTER_MODEL,
+    max_tokens: LEAD_FILTER_MAX_TOKENS,
+    temperature: 0,
+    system: prompt.system,
+    messages: [{ role: "user", content: prompt.user }],
+    output_config: {
+      format: {
+        type: "json_schema",
+        schema: LEAD_DECISION_JSON_SCHEMA,
+      },
+    },
+  };
+}
+
 export class LeadFilterError extends Error {
   readonly code: string;
 
@@ -48,6 +112,14 @@ export class LeadFilterError extends Error {
     this.name = "LeadFilterError";
     this.code = code;
   }
+}
+
+/** A structured response is usable only when the model finished normally. */
+export function leadResponseError(stopReason: unknown): string {
+  if (stopReason === "end_turn") return "";
+  if (stopReason === "max_tokens") return "lead_filter_output_truncated";
+  if (stopReason === "refusal") return "lead_filter_refused";
+  return "lead_filter_incomplete_response";
 }
 
 /** A usable profile must say both what the member does and where they work. */
