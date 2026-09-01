@@ -77,6 +77,7 @@ type Group = {
   name: string;
   status: string;
   url?: string;
+  sourceId?: number | null;
   /** Why we cannot read it, in Facebook's words. Empty when all is well. */
   problem?: string;
 };
@@ -3578,6 +3579,7 @@ function UserModal({ member, onClose, onAction }: {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [repairOpen, setRepairOpen] = useState(false);
   const dirty =
     name !== member.name || businessName !== member.businessName || brief !== member.brief;
 
@@ -3672,6 +3674,17 @@ function UserModal({ member, onClose, onAction }: {
             </section>
 
             <section className="um-section">
+              <h4 className="um-label">Groups</h4>
+              <p className="um-note">
+                Review every group they are watching. A rescan replaces one group only after
+                Bright Data has checked that the replacement is public and suitable.
+              </p>
+              <button className="btn ghost" disabled={busy} onClick={() => setRepairOpen(true)}>
+                Review and rescan groups
+              </button>
+            </section>
+
+            <section className="um-section">
               <h4 className="um-label">Their details</h4>
               <div className="form-grid">
                 <label className="field">
@@ -3763,6 +3776,106 @@ function UserModal({ member, onClose, onAction }: {
               >
                 Delete and cancel billing
               </button>
+            </section>
+          </div>
+        </div>
+      </div>
+      {repairOpen && (
+        <GroupRepairModal
+          member={member}
+          onClose={() => setRepairOpen(false)}
+          onAction={onAction}
+        />
+      )}
+    </Portal>
+  );
+}
+
+/**
+ * The repair list is a second modal so Ross can work through one member's
+ * watchlist without losing the details behind it. Rows are plain divs rather
+ * than buttons, so the rescan action cannot accidentally submit or open a
+ * parent card.
+ */
+function GroupRepairModal({ member, onClose, onAction }: {
+  member: Member;
+  onClose: () => void;
+  onAction: (path: string, payload: Record<string, unknown>) => Promise<boolean>;
+}) {
+  const [runningId, setRunningId] = useState<number | null>(null);
+  const [topUpBusy, setTopUpBusy] = useState(false);
+  const [flash, setFlash] = useState("");
+
+  async function rescan(group: Group) {
+    setRunningId(group.id);
+    setFlash("");
+    const ok = await onAction("/api/admin/groups", {
+      action: "rescan",
+      userId: member.id,
+      groupId: group.id,
+    });
+    setFlash(ok
+      ? `${group.name} was replaced with the best checked match.`
+      : "No checked replacement was ready. If new groups were found, wait a minute and try again.");
+    setRunningId(null);
+  }
+
+  async function topUp() {
+    setTopUpBusy(true);
+    setFlash("");
+    const ok = await onAction("/api/admin/groups", { action: "topup", userId: member.id });
+    setFlash(ok
+      ? "Top up finished. The list has been refreshed."
+      : "No checked groups were ready. If new groups were found, wait a minute and try again.");
+    setTopUpBusy(false);
+  }
+
+  return (
+    <Portal>
+      <div className="overlay" onClick={onClose}>
+        <div className="modal group-repair-modal" onClick={(e) => e.stopPropagation()}>
+          <header className="um-head">
+            <div>
+              <span className="admin-eyebrow">GROUP WATCHLIST</span>
+              <strong>{member.businessName || member.name || member.email}</strong>
+              <span className="tiny block">{member.email} · {member.trade || "trade not set"}</span>
+            </div>
+            <button className="um-close" onClick={onClose} aria-label="Close">&times;</button>
+          </header>
+          <div className="um-body">
+            <section className="um-section">
+              <div className="row spread gap">
+                <div>
+                  <h4 className="um-label">Groups they are watching</h4>
+                  <p className="um-note">Rescans run beside the main scanner. They do not pause other members.</p>
+                </div>
+                <button className="btn primary" disabled={topUpBusy || runningId !== null} onClick={topUp}>
+                  {topUpBusy ? "Topping up" : "Top up to plan limit"}
+                </button>
+              </div>
+              <div className="group-repair-list">
+                {member.groups.length === 0 ? (
+                  <div className="empty tight"><p className="muted">No groups are watching yet.</p></div>
+                ) : member.groups.map((group) => (
+                  <div className="group-repair-row" key={group.id}>
+                    <div className="group-repair-copy">
+                      <strong>{group.name}</strong>
+                      <span className="tiny block">
+                        {group.status}{group.sourceId ? ` · source ${group.sourceId}` : " · no source yet"}
+                      </span>
+                      {group.url && <span className="tiny block group-repair-url">{group.url}</span>}
+                    </div>
+                    <button
+                      className="mini"
+                      disabled={topUpBusy || runningId !== null}
+                      onClick={() => rescan(group)}
+                    >
+                      {runningId === group.id ? "Searching" : "Rescan"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {flash && <p className="flash mt">{flash}</p>}
             </section>
           </div>
         </div>

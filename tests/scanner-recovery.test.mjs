@@ -129,6 +129,20 @@ test("live scan work happens before collection, catalogue, and top up", () => {
   assert.doesNotMatch(post, /JSON\.parse\(job\.sourceIds\)/);
 });
 
+test("member top ups use their own lease and leave scanner leases alone", () => {
+  const catalogue = readFileSync("db/catalogue.ts", "utf8");
+  const topUp = catalogue.slice(
+    catalogue.indexOf("export async function topUpMember"),
+    catalogue.indexOf("/** How long before we look at the same member again. */")
+  );
+
+  assert.match(catalogue, /catalogue_top_up:\$\{userId\}/);
+  assert.match(topUp, /claimLease\(leaseId, MEMBER_TOP_UP_LEASE_MS\)/);
+  assert.match(topUp, /return await topUpMemberUnlocked\(userId, allowSearch\)/);
+  assert.match(topUp, /releaseLease\(leaseId, leaseToken\)/);
+  assert.doesNotMatch(topUp, /TRIGGER_LEASE_ID|CATALOGUE_TRIGGER_LEASE_ID|CATALOGUE_LEASE_ID/);
+});
+
 test("claims and checkpoints are conditional, and broken catalogue jobs rotate out", () => {
   const scanner = readFileSync("app/api/cron/scan/route.ts", "utf8");
   const finish = scanner.slice(

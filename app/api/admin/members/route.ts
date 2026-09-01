@@ -10,6 +10,7 @@ import {
   loginTokens,
   profiles,
   sessions,
+  sources,
   users,
 } from "../../../../db/schema";
 
@@ -258,6 +259,15 @@ export async function POST(request: Request) {
   const allUsers = await db.select().from(users).orderBy(desc(users.createdAt));
   const allProfiles = await db.select().from(profiles);
   const allGroups = await db.select().from(groups);
+  const allSources = await db
+    .select({ id: sources.id, url: sources.url, groupName: sources.groupName })
+    .from(sources);
+  const sourceById = new Map(allSources.map((source) => [source.id, source.url]));
+  const sourceByName = new Map<string, string>();
+  for (const source of allSources) {
+    const key = source.groupName.trim().toLowerCase();
+    if (key && !sourceByName.has(key)) sourceByName.set(key, source.url);
+  }
   const allAlerts = await db.select().from(alerts);
   const month = new Date().toISOString().slice(0, 7);
 
@@ -294,7 +304,17 @@ export async function POST(request: Request) {
       brief: profile?.brief ?? "",
       groups: allGroups
         .filter((g) => g.userId === u.id)
-        .map((g) => ({ id: g.id, name: g.name, status: g.status })),
+        .map((g) => ({
+          id: g.id,
+          name: g.name,
+          status: g.status,
+          sourceId: g.sourceId,
+          // A few old rows predate source_id and are matched by group name in
+          // the scanner. Keep their real URL visible in the repair modal too.
+          url: (g.sourceId
+            ? sourceById.get(g.sourceId)
+            : sourceByName.get(g.name.trim().toLowerCase())) ?? "",
+        })),
       alertCount: allAlerts.filter((a) => a.userId === u.id).length,
     };
   });

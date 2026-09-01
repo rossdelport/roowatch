@@ -57,6 +57,17 @@ const CATALOGUE_TRIGGER_LEASE_ID = "catalogue_trigger_lease";
 const CATALOGUE_TRIGGER_LEASE_MS = 16 * 60 * 1000;
 const CATALOGUE_LEASE_ID = "catalogue_collection_lease";
 const CATALOGUE_LEASE_MS = 20 * 60 * 1000;
+/**
+ * A manual top up and the scheduled backfill may touch the same member at
+ * once. Keep their catalogue reads and source inserts apart without taking
+ * the scanner's trigger or collection lease: the live scanner must keep
+ * reading everybody else while one watchlist is being repaired.
+ */
+export const MEMBER_TOP_UP_LEASE_MS = 20 * 60 * 1000;
+
+export function memberTopUpLeaseId(userId: string): string {
+  return `catalogue_top_up:${userId}`;
+}
 
 /**
  * A test for "is this group in the patch they actually work in".
@@ -448,7 +459,42 @@ export async function collectCatalogue(): Promise<number> {
  *  - never a group they deleted, or we would put it straight back every hour
  *  - never past the plan limit, because every group is a group we pay to scan
  */
+/**
+ * Keep one member's scheduled and admin repairs serial, but do not pause the
+ * main scanner. The lease expires after a killed Worker, so a stuck repair
+ * cannot block that member forever.
+ */
 export async function topUpMember(userId: string, allowSearch = false): Promise<number> {
+  const leaseId = memberTopUpLeaseId(userId);
+  let leaseToken: number | null = null;
+  try {
+    leaseToken = await claimLease(leaseId, MEMBER_TOP_UP_LEASE_MS);
+  } catch (error) {
+    console.error("catalogue_top_up_lease_failed", {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 0;
+  }
+  if (!leaseToken) {
+    console.warn("catalogue_top_up_skipped", { userId, reason: "member_lease_busy" });
+    return 0;
+  }
+
+  try {
+    return await topUpMemberUnlocked(userId, allowSearch);
+  } finally {
+    await releaseLease(leaseId, leaseToken).catch((error) => {
+      console.error("catalogue_top_up_lease_release_failed", {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+}
+
+/** The existing catalogue repair work, protected by topUpMember's lease. */
+async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise<number> {
   const db = getDb();
 
   const [profile] = await db
