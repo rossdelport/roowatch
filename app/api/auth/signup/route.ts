@@ -5,6 +5,7 @@ import { hashPassword, passwordProblem } from "../../../../db/password";
 import { profiles, users } from "../../../../db/schema";
 import { PLAN_KEYS, type PlanKey } from "../../../../db/plans";
 import { toE164 } from "../../../../db/sms";
+import { matchTrade } from "../../../../db/trades";
 import { attributionFromRequest, sendCapi } from "../../../../db/capi";
 
 const NOTIFY = ["ross@roowatch.com.au", "rossdelport1998@gmail.com"];
@@ -21,7 +22,8 @@ export async function POST(request: Request) {
   const name = clean(body.name, 80);
   const businessName = clean(body.businessName, 120);
   const phone = clean(body.phone, 40);
-  const trade = clean(body.trade, 60);
+  // Only ever a trade from our own list, carried over from the ad page.
+  const trade = matchTrade(clean(body.trade, 60));
   const state = clean(body.state, 60);
   const wanted = clean(body.plan, 20).toLowerCase();
   const plan = PLAN_KEYS.includes(wanted as PlanKey) ? wanted : "local";
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
   // costing about nine in every ten people who reached this form. Setup asks
   // for all three anyway, and the website scan fills most of them in, so they
   // are collected once somebody is already invested rather than at the door.
+  // The trade still arrives quietly when the ad they clicked named it.
 
   const db = getDb();
   const [taken] = await db

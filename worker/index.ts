@@ -26,7 +26,9 @@ interface ScheduledController {
   cron: string;
 }
 
-const SCAN_CRON = "* * * * *";
+// One scan run every five minutes. Must match vite.config.ts and
+// SCAN_EVERY_MINUTES in app/api/cron/scan/route.ts.
+const SCAN_CRON = "*/5 * * * *";
 const HEALTH_CRON = "0 * * * *";
 
 // Image security config. SVG sources with .svg extension auto-skip the

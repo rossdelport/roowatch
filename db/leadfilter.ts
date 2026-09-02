@@ -6,12 +6,26 @@
  * The contract can therefore be tested without calling Anthropic or D1.
  */
 
-export const LEAD_FILTER_VERSION = "v2";
+export const LEAD_FILTER_VERSION = "v3";
 /** High precision matters more than volume for a paid alert. */
 export const LEAD_CONFIDENCE_THRESHOLD = 0.9;
 export const LEAD_FILTER_REQUEST_TIMEOUT_MS = 30_000;
 export const LEAD_FILTER_MAX_TOKENS = 512;
+/** Reads every post. Cheap, because most posts are not leads. */
 export const LEAD_FILTER_MODEL = "claude-haiku-4-5-20251001";
+/**
+ * Reads only the posts the first model said yes to, and has the last word.
+ *
+ * Members were texted "this is a lead" about a couch for sale and a bloke
+ * looking for work. One cheap model on its own was not careful enough for a
+ * text message that carries our name. A stronger model checks every yes, and
+ * a post is only a lead when both agree. It costs more per post, but only
+ * on the handful of posts a day that get this far. LEAD_VERIFY_MODEL in the
+ * environment overrides the default.
+ */
+export const LEAD_VERIFY_MODEL_DEFAULT = "claude-sonnet-5";
+
+export type LeadPass = "first" | "verify";
 
 export type LeadMemberProfile = {
   trade?: string;
@@ -88,9 +102,12 @@ export const LEAD_DECISION_JSON_SCHEMA = {
   ],
 } as const;
 
-export function buildLeadClassifierRequest(prompt: { system: string; user: string }) {
+export function buildLeadClassifierRequest(
+  prompt: { system: string; user: string },
+  model = LEAD_FILTER_MODEL
+) {
   return {
-    model: LEAD_FILTER_MODEL,
+    model,
     max_tokens: LEAD_FILTER_MAX_TOKENS,
     temperature: 0,
     system: prompt.system,
@@ -154,6 +171,38 @@ export function obviousNonLeadReason(postText: string): string {
   if (/\b(?:dm|message|call|text)\s+(?:me|us)\s+(?:for|to)\b/.test(hay)) {
     return "This post is directing people to a provider, not seeking one.";
   }
+  // Things members were actually texted about. Each is worded so a real
+  // request cannot trip it: "looking for a plumber" is not "looking for
+  // work", "how much would a fence cost" is not "$200 ono", and "our house
+  // is for sale and the lawn needs doing" has no price on it.
+  if (
+    /\bfor sale\b[^.!?\n]*\$\s?\d|\$\s?\d[^.!?\n]*\bfor sale\b|\bpick ?up only\b|\$\s?\d[\d,]*(?:\.\d+)?\s*(?:ono|o\.n\.o|each|ea|firm|neg|negotiable)\b/.test(
+      hay
+    )
+  ) {
+    return "This post is selling something, not asking for a service.";
+  }
+  if (
+    /\b(?:looking|searching|hunting) for (?:any |some |more |casual |part[- ]time |full[- ]time |labouring |extra )?(?:work|a job|jobs)\b|\bavailable for (?:work|hire|jobs)\b|\bany work (?:going|available|around)\b|\btake on (?:more |new |extra )?(?:work|jobs|clients)\b/.test(
+      hay
+    )
+  ) {
+    return "This post is someone looking for work, not a customer.";
+  }
+  if (
+    /\b(?:we are|we're|now|currently) hiring\b|\bposition(?:s)? (?:available|vacant)\b|\bjob vacanc(?:y|ies)\b|\bapply (?:now|within|today|via)\b|\bimmediate start\b/.test(
+      hay
+    )
+  ) {
+    return "This post is a job advertisement, not a customer.";
+  }
+  if (
+    /\bfree to (?:a )?good home\b|\bgiving away\b|\b(?:lost|found|missing) (?:my |our |a |an )?(?:dog|cat|puppy|kitten|pet|bird|rabbit)\b/.test(
+      hay
+    )
+  ) {
+    return "This post is a giveaway or a lost pet, not a request for a service.";
+  }
   return "";
 }
 
@@ -199,10 +248,17 @@ export function splitBrief(brief: string): { include: string; exclude: string } 
 export function buildLeadClassifierPrompt(
   postText: string,
   member: LeadMemberProfile,
-  context: LeadFilterContext
+  context: LeadFilterContext,
+  pass: LeadPass = "first"
 ): { system: string; user: string } {
   const brief = splitBrief(member.brief);
   const trade = member.trade?.trim() ?? "";
+  const verifying =
+    pass === "verify"
+      ? `
+
+A cheaper first check has already said this post is a lead. You are the second opinion and you have the final say. The member will be sent a text message that says "this is a lead" the moment you agree, so the cost of agreeing with a mistake is high and the cost of disagreeing with a borderline post is low. Read the post as a whole and ask what the author actually wants. If it is not plainly a customer trying to get this kind of work done in this area, set match to false.`
+      : "";
 
   return {
     system: `You are RooWatch's high-precision paid lead filter, version ${LEAD_FILTER_VERSION}.
@@ -216,9 +272,19 @@ The member only wants a true result when ALL of these are true:
 4. The author is not offering their own service, advertising, recruiting, selling unrelated goods, asking for work, asking for DIY or general information, describing a completed job, or promoting an event.
 5. The post is not already resolved, merely thanking someone, a testimonial, spam, or a joke.
 
+These are never leads, whatever words they contain:
+- Somebody selling anything: a mower, a trailer, a couch, a car, a house, tools of the member's own trade.
+- Somebody asking for a different kind of business, even a nearby one. A gardener does not want a dentist, a dog sitter, a removalist, or a fencer unless fencing is plainly in their services.
+- A tradesperson or business saying they are available, have openings, are taking on work, or are looking for work.
+- A business advertising, however casually, including "message me", "DM for a quote", a phone number with a price list, or a before and after photo.
+- Somebody asking how to do something themselves, what something should cost, or whether something is normal.
+- Somebody recommending, thanking, or reviewing a business they used.
+- A job advertisement, a lost pet, a giveaway, a community notice, a road closure, a council update, an event, a fundraiser, a poll, a joke, or a rant.
+- A post where the member's trade is only mentioned in passing, for example a story about a plumber who never turned up.
+
 The member's Skip these rules are hard exclusions. Do not use words from those rules as positive service evidence.
 
-Be conservative. If any required fact is uncertain, set match to false and lower confidence. A false positive is worse than a missed borderline post.
+Be conservative. If any required fact is uncertain, set match to false and lower confidence. A false positive is worse than a missed borderline post.${verifying}
 
 Return exactly one JSON object and nothing else. Every field is required. Booleans must be JSON booleans, never strings. confidence must be a number from 0 to 1.
 {

@@ -7,6 +7,7 @@ import { BRIEF_MAX, BRIEF_MIN } from "../../../db/brief";
 import { PLANS, groupLimit, type PlanKey } from "../../../db/plans";
 import { sendCapi } from "../../../db/capi";
 import { isKnownState } from "../../../db/trades";
+import { normaliseUrl } from "../../../db/website";
 
 export async function POST(request: Request) {
   const user = await currentUser(request);
@@ -34,7 +35,11 @@ export async function POST(request: Request) {
     .filter(Boolean)
     .slice(0, 20);
   const brief = (body.brief ?? "").trim();
+  const website = (body.website ?? "").trim().slice(0, 300);
 
+  // A website is a must for every new member. The wizard checks it up front,
+  // and this stops an old tab or a hand made request skipping that.
+  if (!normaliseUrl(website)) return Response.json({ error: "no_website" }, { status: 400 });
   if (!rawTrade) return Response.json({ error: "no_trade" }, { status: 400 });
   if (!suburbs.length) return Response.json({ error: "no_suburbs" }, { status: 400 });
   if (brief.length < BRIEF_MIN) return Response.json({ error: "short_brief" }, { status: 400 });
@@ -49,7 +54,7 @@ export async function POST(request: Request) {
   const values = {
     ...(businessName ? { businessName } : {}),
     trade,
-    website: (body.website ?? "").trim().slice(0, 300),
+    website,
     gbpUrl: (body.gbpUrl ?? "").trim().slice(0, 500),
     services: (body.services ?? "").trim().slice(0, 600),
     // Asked in setup now rather than at signup, and needed here because the

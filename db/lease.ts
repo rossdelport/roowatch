@@ -24,6 +24,30 @@ export async function claimLease(id: string, lifetimeMs: number): Promise<number
   return claimed?.value === expiresAt ? expiresAt : null;
 }
 
+/**
+ * Push a held lease further out. Returns the new token, or null when the
+ * lease is no longer ours, which means the caller should stop what it is
+ * doing rather than race whoever holds it now.
+ *
+ * A long job renews as it goes, so its lease can be short. Short is what
+ * matters: a lease is only ever left behind by a killed Worker, and the next
+ * run waits exactly one lifetime before it can start.
+ */
+export async function renewLease(
+  id: string,
+  token: number,
+  lifetimeMs: number
+): Promise<number | null> {
+  const db = getDb();
+  const expiresAt = Date.now() + lifetimeMs;
+  const [renewed] = await db
+    .update(health)
+    .set({ value: expiresAt })
+    .where(and(eq(health.id, id), eq(health.value, token)))
+    .returning({ value: health.value });
+  return renewed?.value === expiresAt ? expiresAt : null;
+}
+
 export async function releaseLease(id: string, token: number): Promise<void> {
   const db = getDb();
   await db

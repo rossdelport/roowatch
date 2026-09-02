@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   buildLeadClassifierPrompt,
@@ -8,6 +9,7 @@ import {
   LEAD_DECISION_JSON_SCHEMA,
   LEAD_FILTER_MAX_TOKENS,
   LEAD_FILTER_MODEL,
+  LEAD_VERIFY_MODEL_DEFAULT,
   leadResponseError,
   obviousNonLeadReason,
   parseLeadDecision,
@@ -171,4 +173,73 @@ test("real Steve false positives are not eligible without service evidence", () 
     );
     assert.equal(decision?.match, false, post);
   }
+});
+
+test("hard rejects catch what members were actually texted about", () => {
+  const junk = {
+    "Ride on mower for sale, runs well, $850 ono, pick up Toukley.": /selling/i,
+    "Trailer 7x4 pick up only $400 firm": /selling/i,
+    "Qualified carpenter looking for work around the Central Coast, have own tools.": /looking for work/i,
+    "Landscaper available for work, taking on new clients this month, message for a quote": /looking for work|provider/i,
+    "We are hiring! Labourer position available, immediate start, apply now.": /job advertisement/i,
+    "Kittens free to a good home, 8 weeks old, Wyong": /giveaway|lost pet/i,
+    "LOST DOG near Lake Haven, brown kelpie, please share": /giveaway|lost pet/i,
+  };
+  for (const [post, expected] of Object.entries(junk)) {
+    assert.match(obviousNonLeadReason(post), expected, post);
+  }
+
+  // Real requests must not be caught by the new rules.
+  const real = [
+    "Looking for a gardener to tidy the yard before we put the house up for sale, Newcastle",
+    "Our house is for sale and the lawns need doing, can anyone recommend someone in Belmont?",
+    "How much would you expect to pay to have a big gum tree removed? Need it done in Toukley.",
+    "Looking for someone to do a hedge trim and mow at my mums place in Charlestown",
+    "Anyone know a good landscaper who can take on a small retaining wall job in Gosford?",
+  ];
+  for (const post of real) {
+    assert.equal(obviousNonLeadReason(post), "", post);
+  }
+});
+
+test("the prompt spells out what is never a lead", () => {
+  const prompt = buildLeadClassifierPrompt("Can anyone recommend a gardener?", steve, {
+    groupName: "Newcastle Community",
+  });
+  assert.match(prompt.system, /These are never leads, whatever words they contain/);
+  assert.match(prompt.system, /Somebody selling anything/);
+  assert.match(prompt.system, /looking for work/);
+  assert.match(prompt.system, /A gardener does not want a dentist, a dog sitter/);
+  assert.doesNotMatch(prompt.system, /second opinion/);
+});
+
+test("the verify pass is a second, stricter read by a stronger model", () => {
+  const prompt = buildLeadClassifierPrompt(
+    "Can anyone recommend a gardener?",
+    steve,
+    { groupName: "Newcastle Community" },
+    "verify"
+  );
+  assert.match(prompt.system, /second opinion and you have the final say/);
+  assert.match(prompt.system, /set match to false/);
+
+  const request = buildLeadClassifierRequest(prompt, LEAD_VERIFY_MODEL_DEFAULT);
+  assert.equal(request.model, LEAD_VERIFY_MODEL_DEFAULT);
+  assert.notEqual(LEAD_VERIFY_MODEL_DEFAULT, LEAD_FILTER_MODEL);
+  assert.equal(buildLeadClassifierRequest(prompt).model, LEAD_FILTER_MODEL);
+
+  // Both models must say yes, and the second one has the last word. A
+  // failure on either pass throws rather than guessing.
+  const pipeline = readFileSync("db/pipeline.ts", "utf8");
+  const classify = pipeline.slice(
+    pipeline.indexOf("export async function classifyPost"),
+    pipeline.indexOf("async function askLeadModel")
+  );
+  assert.match(classify, /askLeadModel\(anthropicKey, post, member, context, "first", LEAD_FILTER_MODEL\)/);
+  assert.match(classify, /if \(!first\.match\) return first;/);
+  assert.match(classify, /process\.env\.LEAD_VERIFY_MODEL\?\.trim\(\) \|\| LEAD_VERIFY_MODEL_DEFAULT/);
+  assert.match(classify, /askLeadModel\(anthropicKey, post, member, context, "verify", verifyModel\)/);
+  assert.match(classify, /lead_verify_overruled/);
+  assert.match(classify, /return second;\s*\}/);
+  assert.doesNotMatch(classify, /return first;\s*\}/);
 });

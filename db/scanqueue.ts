@@ -1,6 +1,11 @@
 /** Pure scanner queue rules, kept separate so the failure states are testable. */
 
 export const JOB_STALE_MS = 20 * 60 * 1000;
+/**
+ * How long the watchdog lets a collection claim stand. The scanner itself
+ * passes zero: it holds the run lease, so any claim it finds at the start of
+ * a run was left by a run that died.
+ */
 export const COLLECTION_CLAIM_STALE_MS = 20 * 60 * 1000;
 
 export type CollectionAttempt = "first" | "retry";
@@ -57,7 +62,8 @@ export function parseJobState(raw: string): JobState | null {
 
 export function jobExpiryReason(
   job: { status: string; startedAt: number; sourceIds?: readonly number[] },
-  now: number
+  now: number,
+  claimStaleMs = COLLECTION_CLAIM_STALE_MS
 ):
   | "empty_queue"
   | "invalid_status"
@@ -69,7 +75,7 @@ export function jobExpiryReason(
   const state = parseJobState(job.status);
   if (!state) return "invalid_status";
   if (state.kind === "collecting") {
-    if (now - state.claimedAt <= COLLECTION_CLAIM_STALE_MS) return null;
+    if (now - state.claimedAt <= claimStaleMs) return null;
     return state.attempt === "first" ? "stale_first_claim" : "stale_retry_claim";
   }
   if (state.kind === "retry" && state.queuedAt !== null) {

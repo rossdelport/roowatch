@@ -76,12 +76,19 @@ export function findLogo(html: string, base: URL): string {
   return "";
 }
 
-/** Page text and logo from one fetch. Never throws. */
+/**
+ * Page text and logo from one fetch. Never throws.
+ *
+ * `reached` says whether anything answered at that address. A bot wall or a
+ * 404 still counts, because the site is real and we simply could not read it.
+ * A dead domain or a typo does not, and setup refuses to go on without a
+ * website that exists.
+ */
 export async function readSite(
   raw: string,
   limit = 4000
-): Promise<{ text: string; logo: string }> {
-  const empty = { text: "", logo: "" };
+): Promise<{ text: string; logo: string; reached: boolean }> {
+  const empty = { text: "", logo: "", reached: false };
   const url = normaliseUrl(raw);
   if (!url) return empty;
   try {
@@ -89,14 +96,17 @@ export async function readSite(
       headers: { "user-agent": "RooWatchBot/1.0 (+https://roowatch.com.au)" },
       signal: AbortSignal.timeout(7000),
     });
-    if (!res.ok) return empty;
-    if (!(res.headers.get("content-type") ?? "").includes("text/html")) return empty;
+    const answered = { ...empty, reached: true };
+    if (!res.ok) return answered;
+    if (!(res.headers.get("content-type") ?? "").includes("text/html")) return answered;
 
     const html = (await res.text()).slice(0, 200_000);
-    return { text: stripHtml(html, limit), logo: findLogo(html, new URL(res.url || url)) };
-  } catch {
-    // A slow or dead website must never stop onboarding.
-    return empty;
+    return { text: stripHtml(html, limit), logo: findLogo(html, new URL(res.url || url)), reached: true };
+  } catch (error) {
+    // A slow website is still a website. Only a name that nothing answers at
+    // is treated as not there.
+    const slow = error instanceof Error && error.name === "TimeoutError";
+    return { ...empty, reached: slow };
   }
 }
 

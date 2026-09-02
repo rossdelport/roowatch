@@ -186,8 +186,8 @@ export async function POST(request: Request) {
     "Some groups may miss leads while this is true.",
     "",
     recoveryAttempted
-      ? `The watchdog cleared ${recoveredJobs} stale scan jobs. The minute scanner will restart automatically.`
-      : "A recovery attempt already ran within the last hour. The minute scanner is still retrying.",
+      ? `The watchdog cleared ${recoveredJobs} stale scan jobs. The next five minute scan will pick up from here.`
+      : "A recovery attempt already ran within the last hour. The five minute scanner is still retrying.",
     "",
     "If this does not recover, check the live log with:",
     "npx wrangler tail roowatch",

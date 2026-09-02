@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -63,14 +63,21 @@ export const profiles = sqliteTable("profiles", {
    * us a scan. Cleared once they finish.
    */
   wizardDraft: text("wizard_draft").notNull().default(""),
-  /** Unix ms of the last watchlist top up, so it does not search every tick. */
+  /** Unix ms of the last watchlist top up, so it does not run every tick. */
   lastTopUp: integer("last_top_up").notNull().default(0),
   /**
-   * How far out we have already looked for this member's groups. Each top up
-   * that still cannot fill their list searches the next ring of suburbs out,
-   * so nobody gets the same fruitless search run at them every six hours.
+   * How far out we have already looked for this member's groups. Each search
+   * that still cannot fill their list looks at the next ring of suburbs out,
+   * so nobody gets the same fruitless search run at them over and over.
    */
   searchRing: integer("search_ring").notNull().default(0),
+  /**
+   * Unix ms of the last paid search for this member. Once every ring has
+   * been searched the rings rest for a week from this stamp, then start
+   * again from zero: Facebook grows new groups, and a member still short
+   * after a week deserves another look.
+   */
+  lastSearch: integer("last_search").notNull().default(0),
   onboardedAt: text("onboarded_at"),
   /** Set by the Stripe webhook. Empty until a checkout completes. */
   stripeCustomerId: text("stripe_customer_id").notNull().default(""),
@@ -147,7 +154,13 @@ export const seenPosts = sqliteTable("seen_posts", {
   text: text("text").notNull().default(""),
   url: text("url").notNull().default(""),
   author: text("author").notNull().default(""),
-});
+}, (table) => ({
+  // The dashboard reads one member's groups newest first, and the scanner
+  // deletes by age. Without these both were full scans of the biggest table,
+  // and D1 bills every row a scan touches.
+  bySourceSeen: index("seen_posts_source_seen_idx").on(table.sourceId, table.seenAt),
+  bySeen: index("seen_posts_seen_idx").on(table.seenAt),
+}));
 
 export const groups = sqliteTable("groups", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -241,9 +254,14 @@ export const foundGroups = sqliteTable("found_groups", {
   score: integer("score").notNull().default(0),
   foundAt: integer("found_at").notNull().default(0),
   /**
-   * 1 once Bright Data has actually read this group and it came back readable.
+   * 1 once Bright Data has actually read this group and it came back readable
+   * and the model agreed its name is a local community group.
    * A search result proves nothing: a private group's listing looks exactly
    * like a public one's. Only a checked row is ever offered to a member.
+   *
+   * 2 when the group was read fine but the model said it is a hobby, pet,
+   * sport or other group nobody wants. Kept, not deleted, so the next search
+   * for that town cannot file it again and buy the same check twice.
    */
   checked: integer("checked").notNull().default(0),
 });
@@ -286,4 +304,8 @@ export const postcodes = sqliteTable("postcodes", {
   locality: text("locality").notNull(),
   state: text("state").notNull(),
   postcode: text("postcode").notNull(),
-});
+}, (table) => ({
+  // Every lookup starts with a state. This keeps a ring search to one
+  // state's rows rather than the whole country.
+  byState: index("postcodes_state_idx").on(table.state, table.postcode),
+}));

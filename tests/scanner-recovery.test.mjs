@@ -111,22 +111,46 @@ test("a collection retries once and then drops the broken snapshot", () => {
   assert.deepEqual(collectionFailureAction("retry", 5678), { kind: "drop" });
 });
 
-test("live scan work happens before collection, catalogue, and top up", () => {
+test("a run finds a dead run's claims at once, the watchdog waits", () => {
+  const now = 2_000_000_000_000;
+  const claim = `collecting:${now - 1000}:first`;
+  assert.equal(jobExpiryReason({ status: claim, startedAt: now }, now), null);
+  assert.equal(jobExpiryReason({ status: claim, startedAt: now }, now, 0), "stale_first_claim");
+});
+
+test("one run triggers, waits, collects, records, then minds the catalogue", () => {
   const source = readFileSync("app/api/cron/scan/route.ts", "utf8");
   const post = source.slice(source.indexOf("export async function POST"));
+  const lease = post.indexOf("claimLease(SCAN_LEASE_ID, SCAN_LEASE_MS)");
+  const leftovers = post.indexOf("await loadOpenJobs()");
   const trigger = post.indexOf("await bdTrigger(");
-  const sweep = post.indexOf("const swept = await sweep(open)");
+  const run = post.indexOf("await startScanRun(");
+  const sweep = post.indexOf("const swept = await sweep(jobs, run, keepAlive)");
+  const finish = post.indexOf("await finishScanRun(run)");
+  const expire = post.indexOf("await expireSeenPosts()");
   const catalogue = post.indexOf("catalogued = await collectCatalogue()");
   const topUp = post.lastIndexOf("toppedUp = await topUpShortMembers()");
+  const release = post.lastIndexOf("releaseLease(SCAN_LEASE_ID, lease)");
 
-  assert.ok(trigger > 0);
-  assert.ok(trigger < sweep);
-  assert.ok(sweep < catalogue);
+  assert.ok(lease > 0);
+  assert.ok(lease < leftovers);
+  assert.ok(leftovers < trigger);
+  assert.ok(trigger < run);
+  assert.ok(run < sweep);
+  assert.ok(sweep < finish);
+  assert.ok(finish < expire);
+  assert.ok(expire < catalogue);
   assert.ok(catalogue < topUp);
-  assert.match(source, /GROUPS_PER_BATCH = 1/);
-  assert.match(source, /MAX_INFLIGHT = 6/);
-  assert.match(source, /MAX_READY_COLLECTIONS_PER_TICK = 1/);
+  assert.ok(topUp < release);
+  assert.match(source, /SCAN_EVERY_MINUTES = 5/);
+  assert.match(source, /MIN_WINDOW_MINUTES = SCAN_EVERY_MINUTES \+ BUFFER_MINUTES/);
+  assert.match(source, /jobExpiryReason\(\{ \.\.\.row, sourceIds \}, now, 0\)/);
   assert.doesNotMatch(post, /JSON\.parse\(job\.sourceIds\)/);
+  // Groups in an open snapshot are never triggered twice.
+  assert.match(post, /\.filter\(\s*\(source\) => !busy\.has\(source\.id\)\s*\)/);
+  // The lease is renewed on every poll so a killed run frees it quickly.
+  assert.match(post, /while \(jobs\.length\) \{\s*await keepAlive\(\);/);
+  assert.match(post, /renewLease\(SCAN_LEASE_ID, lease!, SCAN_LEASE_MS\)/);
 });
 
 test("member top ups use their own lease and leave scanner leases alone", () => {
@@ -145,9 +169,9 @@ test("member top ups use their own lease and leave scanner leases alone", () => 
 
 test("claims and checkpoints are conditional, and broken catalogue jobs rotate out", () => {
   const scanner = readFileSync("app/api/cron/scan/route.ts", "utf8");
-  const finish = scanner.slice(
-    scanner.indexOf("async function finishClaim"),
-    scanner.indexOf("async function collectJob")
+  const collect = scanner.slice(
+    scanner.indexOf("async function collectJob"),
+    scanner.indexOf("async function learnAbout")
   );
   const sweep = scanner.slice(
     scanner.indexOf("async function sweep"),
@@ -156,19 +180,25 @@ test("claims and checkpoints are conditional, and broken catalogue jobs rotate o
   const catalogue = readFileSync("db/catalogue.ts", "utf8");
   const failedCatalogue = catalogue.slice(catalogue.indexOf('console.error("catalogue_job_failed"'));
 
-  assert.match(finish, /eq\(scanJobs\.status, claimMarker\)[\s\S]*returning\(\{ id: scanJobs\.id \}\)/);
+  assert.match(collect, /eq\(scanJobs\.status, claimMarker\)[\s\S]*returning\(\{ id: scanJobs\.id \}\)/);
+  assert.match(collect, /scanner_claim_lost/);
   assert.match(sweep, /eq\(scanJobs\.status, claim\.expected\)[\s\S]*returning\(\{ id: scanJobs\.id \}\)/);
   assert.match(failedCatalogue.slice(0, 600), /delete\(catalogueJobs\)/);
 });
 
-test("scanner and watchdog use separate cron expressions", () => {
+test("scanner runs every five minutes and the watchdog on the hour", () => {
   const config = readFileSync("vite.config.ts", "utf8");
   const worker = readFileSync("worker/index.ts", "utf8");
+  const scanner = readFileSync("app/api/cron/scan/route.ts", "utf8");
 
-  const configuredHealth = /crons: \["\* \* \* \* \*", "([^"]+)"\]/.exec(config)?.[1];
+  const configured = /crons: \["([^"]+)", "([^"]+)"\]/.exec(config);
+  const routedScan = /const SCAN_CRON = "([^"]+)"/.exec(worker)?.[1];
   const routedHealth = /const HEALTH_CRON = "([^"]+)"/.exec(worker)?.[1];
-  assert.equal(configuredHealth, "0 * * * *");
-  assert.equal(routedHealth, configuredHealth);
+  assert.equal(configured?.[1], "*/5 * * * *");
+  assert.equal(configured?.[2], "0 * * * *");
+  assert.equal(routedScan, configured?.[1]);
+  assert.equal(routedHealth, configured?.[2]);
+  assert.match(scanner, /SCAN_EVERY_MINUTES = 5/);
   assert.match(worker, /event\.cron === HEALTH_CRON/);
   assert.match(worker, /event\.cron === SCAN_CRON/);
   assert.match(worker, /unknown_cron_ignored/);
@@ -176,22 +206,16 @@ test("scanner and watchdog use separate cron expressions", () => {
   assert.match(worker, /runScan\(request\("\/api\/cron\/scan"\)\)/);
 });
 
-test("one claim processes one group and releases any remainder", () => {
+test("a ready snapshot is read whole, every group in it", () => {
   const scanner = readFileSync("app/api/cron/scan/route.ts", "utf8");
   const collect = scanner.slice(
     scanner.indexOf("async function collectJob"),
     scanner.indexOf("async function learnAbout")
   );
-  const finish = scanner.slice(
-    scanner.indexOf("async function finishClaim"),
-    scanner.indexOf("async function collectJob")
-  );
 
-  assert.match(collect, /const sourceId = job\.sourceIds\[0\]/);
-  assert.match(collect, /const remaining = job\.sourceIds\.slice\(1\)/);
-  assert.doesNotMatch(collect, /for \(/);
-  assert.match(finish, /status: "running", startedAt/);
-  assert.match(finish, /scanner_claim_lost/);
+  assert.match(collect, /for \(const source of rows\)/);
+  assert.match(collect, /processSource\(source\.id, posts, \{ run, fact \}\)/);
+  assert.doesNotMatch(collect, /sourceIds\.slice\(1\)/);
 });
 
 test("watchdog recovery runs independently of its email cooldown", () => {

@@ -4,13 +4,17 @@ import {
   buildLeadClassifierPrompt,
   buildLeadClassifierRequest,
   hasLeadProfile,
+  LEAD_FILTER_MODEL,
   LEAD_FILTER_REQUEST_TIMEOUT_MS,
+  LEAD_VERIFY_MODEL_DEFAULT,
   LeadFilterError,
   leadResponseError,
   obviousNonLeadReason,
   parseLeadDecision,
   rejectedLeadDecision,
+  type LeadDecision,
   type LeadMemberProfile,
+  type LeadPass,
 } from "./leadfilter";
 import { sendEmail } from "./auth";
 import { groupSlug, postPermalink } from "./fbgroups";
@@ -56,14 +60,29 @@ function bdHeaders() {
   return { Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
 }
 
-/** Kick off one collection covering every group. Returns the snapshot id. */
-export async function bdTrigger(sourceUrls: string[], since: Date): Promise<string> {
-  const body = sourceUrls.map((url) => ({
-    url,
-    start_date: since.toISOString().replace(/\.\d+Z$/, ".000Z"),
-    end_date: "",
-    user_to_not_include: "",
-  }));
+/** One group in a trigger, with its own look-back when it needs one. */
+export type BdInput = string | { url: string; since: Date };
+
+/**
+ * Kick off one collection covering every group. Returns the snapshot id.
+ *
+ * Each group carries its own start date. A group that missed a run asks for
+ * a wider window without dragging every other group in the snapshot back
+ * with it, which is what happened when one date covered the whole batch.
+ */
+export async function bdTrigger(inputs: BdInput[], since?: Date): Promise<string> {
+  const stamp = (date: Date) => date.toISOString().replace(/\.\d+Z$/, ".000Z");
+  const body = inputs.map((input) => {
+    const url = typeof input === "string" ? input : input.url;
+    const from = typeof input === "string" ? since : input.since;
+    if (!from) throw new Error("brightdata_no_start_date");
+    return {
+      url,
+      start_date: stamp(from),
+      end_date: "",
+      user_to_not_include: "",
+    };
+  });
 
   const res = await fetch(
     `${BD_API}/trigger?dataset_id=${BD_DATASET}&include_errors=true&limit_per_input=${POSTS_PER_GROUP_CAP}`,
@@ -345,6 +364,9 @@ async function maybeText(
       .update(profiles)
       .set({ smsUsed: used + 1, smsMonth: month })
       .where(eq(profiles.userId, profile.userId));
+    // The scanner reuses this profile row for the whole run.
+    profile.smsUsed = used + 1;
+    profile.smsMonth = month;
   } catch {
     // The email still goes. A texting outage is not a lost lead.
   }
@@ -362,7 +384,7 @@ export async function classifyPost(
   post: FetchedPost,
   member: LeadMemberProfile,
   context: { groupName: string }
-) {
+): Promise<LeadDecision> {
   if (!hasLeadProfile(member)) {
     throw new LeadFilterError("lead_filter_profile_incomplete");
   }
@@ -375,7 +397,38 @@ export async function classifyPost(
     throw new LeadFilterError("lead_filter_not_configured");
   }
 
-  const prompt = buildLeadClassifierPrompt(post.text, member, context);
+  // Every post gets the cheap read. Most are not leads and stop here.
+  const first = await askLeadModel(anthropicKey, post, member, context, "first", LEAD_FILTER_MODEL);
+  if (!first.match) return first;
+
+  // The stronger model reads only the posts the cheap one liked, and a post
+  // is a lead only when both say so. If this call fails the post is not
+  // guessed at: the error is thrown, nothing is texted, and the next scan
+  // tries again.
+  const verifyModel = process.env.LEAD_VERIFY_MODEL?.trim() || LEAD_VERIFY_MODEL_DEFAULT;
+  const second = await askLeadModel(anthropicKey, post, member, context, "verify", verifyModel);
+  if (!second.match) {
+    console.warn(JSON.stringify({
+      event: "lead_verify_overruled",
+      postId: post.id,
+      firstReason: first.reason,
+      secondReason: second.reason,
+      confidence: second.confidence,
+    }));
+  }
+  return second;
+}
+
+/** One structured read of one post by one model. Fails closed on anything odd. */
+async function askLeadModel(
+  anthropicKey: string,
+  post: FetchedPost,
+  member: LeadMemberProfile,
+  context: { groupName: string },
+  pass: LeadPass,
+  model: string
+): Promise<LeadDecision> {
+  const prompt = buildLeadClassifierPrompt(post.text, member, context, pass);
   let res: Response;
   try {
     res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -386,19 +439,21 @@ export async function classifyPost(
         "content-type": "application/json",
       },
       signal: AbortSignal.timeout(LEAD_FILTER_REQUEST_TIMEOUT_MS),
-      body: JSON.stringify(buildLeadClassifierRequest(prompt)),
+      body: JSON.stringify(buildLeadClassifierRequest(prompt, model)),
     });
   } catch {
-    throw new LeadFilterError("lead_filter_request_failed");
+    throw new LeadFilterError(`lead_filter_request_failed_${pass}`);
   }
 
   if (!res.ok) {
     console.warn(JSON.stringify({
       event: "lead_filter_http_error",
+      pass,
+      model,
       status: res.status,
       requestId: res.headers.get("request-id") ?? res.headers.get("x-request-id") ?? "",
     }));
-    throw new LeadFilterError(`lead_filter_http_${res.status}`);
+    throw new LeadFilterError(`lead_filter_http_${res.status}_${pass}`);
   }
 
   let data: {
@@ -413,6 +468,8 @@ export async function classifyPost(
   }
   const text = data.content?.find((c) => c.type === "text")?.text ?? "";
   const diagnostics = {
+    pass,
+    model,
     stopReason: String(data.stop_reason ?? "unknown"),
     outputTokens: Number(data.usage?.output_tokens ?? 0),
     textLength: text.length,
@@ -441,23 +498,148 @@ export async function classifyPost(
   return decision;
 }
 
-/** Run one source end to end: fetch, dedup, match per member, alert. */
-export async function processSource(sourceId: number, prefetched?: FetchedPost[]) {
+type SourceRow = typeof sources.$inferSelect;
+type UserRow = typeof users.$inferSelect;
+type ProfileRow = typeof profiles.$inferSelect;
+
+/**
+ * Everything a whole scan needs to know about members, read once.
+ *
+ * A run covers every group we watch. Reading the watcher list, the user and
+ * the profile again for each group multiplied a handful of small tables into
+ * hundreds of queries a run, and every query is both a subrequest and rows
+ * read against the plan's daily limit. The scanner does not need fresher data
+ * than the start of its own run.
+ */
+export type ScanRun = {
+  sources: Map<number, SourceRow>;
+  /** Lowest id per URL. Only that row may alert, see processSource. */
+  canonical: Map<string, number>;
+  watching: { userId: string; sourceId: number | null; name: string }[];
+  users: Map<string, UserRow>;
+  profiles: Map<string, ProfileRow>;
+  /** Groups that had nothing new and no change to record, written in one go. */
+  quiet: number[];
+};
+
+export async function startScanRun(sourceIds: number[]): Promise<ScanRun> {
   const db = getDb();
-  const [source] = await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1);
+  const run: ScanRun = {
+    sources: new Map(),
+    canonical: new Map(),
+    watching: [],
+    users: new Map(),
+    profiles: new Map(),
+    quiet: [],
+  };
+
+  for (const part of chunkList(sourceIds, 80)) {
+    const rows = await db.select().from(sources).where(inArray(sources.id, part));
+    for (const row of rows) run.sources.set(row.id, row);
+  }
+
+  // Every row for these URLs, not just the ones handed in, or a duplicate
+  // could look canonical simply because its twin was not in this run.
+  const urls = [...new Set([...run.sources.values()].map((row) => row.url))];
+  for (const part of chunkList(urls, 80)) {
+    const twins = await db
+      .select({ id: sources.id, url: sources.url })
+      .from(sources)
+      .where(inArray(sources.url, part));
+    for (const twin of twins) {
+      const held = run.canonical.get(twin.url);
+      if (held === undefined || twin.id < held) run.canonical.set(twin.url, twin.id);
+    }
+  }
+
+  run.watching = await db
+    .select({ userId: groups.userId, sourceId: groups.sourceId, name: groups.name })
+    .from(groups)
+    .where(eq(groups.status, "watching"));
+
+  const memberIds = [...new Set(run.watching.map((row) => row.userId))];
+  for (const part of chunkList(memberIds, 80)) {
+    const people = await db.select().from(users).where(inArray(users.id, part));
+    for (const person of people) run.users.set(person.id, person);
+    const details = await db.select().from(profiles).where(inArray(profiles.userId, part));
+    for (const detail of details) run.profiles.set(detail.userId, detail);
+  }
+  return run;
+}
+
+/** Write down the groups that had nothing to say. One query, not one each. */
+export async function finishScanRun(run: ScanRun) {
+  if (!run.quiet.length) return;
+  const db = getDb();
+  const now = Date.now();
+  for (const part of chunkList(run.quiet, 80)) {
+    await db
+      .update(sources)
+      .set({ lastChecked: now, lastCount: 0, lastMatches: 0 })
+      .where(inArray(sources.id, part));
+  }
+  run.quiet = [];
+}
+
+/** Forget fingerprints older than the window Bright Data could re-deliver. */
+export async function expireSeenPosts() {
+  await getDb()
+    .delete(seenPosts)
+    .where(lt(seenPosts.seenAt, Date.now() - SEEN_TTL_DAYS * 864e5));
+}
+
+function chunkList<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** Who gets told about a post in this group. Id when set, name when not. */
+function watchersOf(run: ScanRun, source: SourceRow): string[] {
+  const name = source.groupName.toLowerCase();
+  const ids = new Set<string>();
+  for (const row of run.watching) {
+    if (row.sourceId === source.id) ids.add(row.userId);
+    else if (row.sourceId === null && row.name.toLowerCase() === name) ids.add(row.userId);
+  }
+  return [...ids];
+}
+
+export type ProcessOptions = {
+  /** Present inside the scanner. Absent when an admin runs one group by hand. */
+  run?: ScanRun;
+  /** What the snapshot said about the group beyond its posts. */
+  fact?: GroupFacts;
+};
+
+/** Run one source end to end: fetch, dedup, match per member, alert. */
+export async function processSource(
+  sourceId: number,
+  prefetched?: FetchedPost[],
+  options: ProcessOptions = {}
+) {
+  const db = getDb();
+  const { run, fact } = options;
+  const source =
+    run?.sources.get(sourceId) ??
+    (await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1))[0];
   if (!source) return { error: "no_source" };
 
   // Older deployments could already contain duplicate source URLs. Only the
   // oldest row owns a URL; skipping the others prevents duplicate alerts while
   // still allowing the duplicate to become canonical if the original is
   // removed later.
-  const [canonical] = await db
-    .select({ id: sources.id })
-    .from(sources)
-    .where(eq(sources.url, source.url))
-    .orderBy(asc(sources.id))
-    .limit(1);
-  if (canonical && canonical.id !== source.id) {
+  const canonicalId =
+    run?.canonical.get(source.url) ??
+    (
+      await db
+        .select({ id: sources.id })
+        .from(sources)
+        .where(eq(sources.url, source.url))
+        .orderBy(asc(sources.id))
+        .limit(1)
+    )[0]?.id;
+  if (canonicalId !== undefined && canonicalId !== source.id) {
     await db
       .update(sources)
       .set({ lastChecked: Date.now(), lastError: "duplicate_source" })
@@ -473,7 +655,7 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
     // dedup against seen_posts
     const ids = posts.map((p) => `${source.id}:${p.id}`.slice(0, 190));
     const already = ids.length
-      ? await db.select().from(seenPosts).where(inArray(seenPosts.id, ids))
+      ? await db.select({ id: seenPosts.id }).from(seenPosts).where(inArray(seenPosts.id, ids))
       : [];
     const seenIds = new Set(already.map((r) => r.id));
     const fresh = posts.filter(
@@ -483,24 +665,33 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
 
     if (fresh.length) {
       // members watching a group with this name
-      const watchers = await db
-        .select({ userId: groups.userId })
-        .from(groups)
-        .where(
-          and(
-            eq(groups.status, "watching"),
-            sql`(${groups.sourceId} = ${source.id} OR (${groups.sourceId} IS NULL AND lower(${groups.name}) = lower(${source.groupName})))`
-          )
-        );
-      const watcherIds = [...new Set(watchers.map((w) => w.userId))];
+      let watcherIds: string[];
+      if (run) {
+        watcherIds = watchersOf(run, source);
+      } else {
+        const watchers = await db
+          .select({ userId: groups.userId })
+          .from(groups)
+          .where(
+            and(
+              eq(groups.status, "watching"),
+              sql`(${groups.sourceId} = ${source.id} OR (${groups.sourceId} IS NULL AND lower(${groups.name}) = lower(${source.groupName})))`
+            )
+          );
+        watcherIds = [...new Set(watchers.map((w) => w.userId))];
+      }
 
       for (const post of fresh) {
         const postKey = `${source.id}:${post.id}`.slice(0, 190);
         let postOk = true;
 
         for (const userId of watcherIds) {
-          const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-          const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
+          const user =
+            run?.users.get(userId) ??
+            (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+          const profile =
+            run?.profiles.get(userId) ??
+            (await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1))[0];
           if (!user || !profile) continue;
 
           // Fair use. A successful classifier call costs money, so a member who
@@ -522,6 +713,10 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
               .update(profiles)
               .set({ postsUsed: used + 1, usageMonth: month })
               .where(eq(profiles.userId, userId));
+            // The cached copy has to keep count too, or the cap would only
+            // be checked against what it was when the run began.
+            profile.postsUsed = used + 1;
+            profile.usageMonth = month;
             if (!verdict.match) continue;
 
             summary.matches += 1;
@@ -633,20 +828,31 @@ export async function processSource(sourceId: number, prefetched?: FetchedPost[]
     summary.error = err instanceof Error ? err.message : "unknown";
   }
 
-  await db
-    .update(sources)
-    .set({
-      lastChecked: Date.now(),
-      lastCount: summary.posts,
-      lastMatches: summary.matches,
-      lastError: summary.error,
-    })
-    .where(eq(sources.id, source.id));
+  // What Facebook said about the group outranks our own summary when we
+  // failed, and a snapshot that says nothing is not evidence that a private
+  // group became readable, so the old reason is carried forward.
+  const lastError =
+    summary.error || fact?.error || (summary.posts > 0 ? "" : source.lastError);
 
-  // expire old dedup fingerprints
-  await db
-    .delete(seenPosts)
-    .where(lt(seenPosts.seenAt, Date.now() - SEEN_TTL_DAYS * 864e5));
+  const nothingToRecord =
+    run && summary.posts === 0 && summary.matches === 0 && lastError === source.lastError;
+  if (nothingToRecord) {
+    run.quiet.push(source.id);
+  } else {
+    await db
+      .update(sources)
+      .set({
+        lastChecked: Date.now(),
+        lastCount: summary.posts,
+        lastMatches: summary.matches,
+        lastError,
+      })
+      .where(eq(sources.id, source.id));
+  }
+
+  // The scanner expires fingerprints once per run. A lone admin run still
+  // tidies up after itself.
+  if (!run) await expireSeenPosts();
 
   return summary;
 }

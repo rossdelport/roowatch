@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { groups, seenPosts, sources } from "../../../../db/schema";
@@ -6,26 +6,25 @@ import { groups, seenPosts, sources } from "../../../../db/schema";
 /**
  * Every post we have read in the groups this member watches, newest first.
  *
- * The join through `groups` is what keeps a member inside their own account.
  * seen_posts is shared across everyone watching the same public group, so
  * selecting straight from it would show one tradie another tradie's leads.
+ * The member's own groups are looked up first, then only those sources are
+ * read. It used to be one three way join, and D1 bills every row a query
+ * touches: that join read the whole posts table for each poll and was the
+ * single biggest reason the database hit its daily limit.
  *
- * The match condition is deliberately the same one processSource uses to find
- * watchers: source id when it is set, group name when it is not. Older rows
- * have a null source id, and matching on the id alone returned nothing at all
- * while still looking like a healthy empty list.
+ * A member's group points at a source by id, or by name on older rows. That
+ * is the same rule processSource uses to find watchers, so the dashboard and
+ * the alerts always agree about which groups are theirs.
  *
  * Only 14 days exist. See SEEN_TTL_DAYS in db/pipeline.ts.
  */
-/** A member's group points at a source by id, or by name on older rows. */
-const MATCHES = sql`(${groups.sourceId} = ${sources.id} OR (${groups.sourceId} IS NULL AND lower(${groups.name}) = lower(${sources.groupName})))`;
-
 export async function GET(request: Request) {
   const user = await currentUser(request);
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
-  // The overview ticker polls this every few seconds, so it asks for a short
-  // list. The Posts tab still asks for the lot.
+  // The overview ticker polls this, so it asks for a short list. The Posts
+  // tab still asks for the lot.
   const url = new URL(request.url);
   const asked = Number(url.searchParams.get("limit") ?? 300);
   const limit = Math.min(Math.max(Number.isFinite(asked) ? asked : 300, 1), 300);
@@ -52,43 +51,68 @@ export async function GET(request: Request) {
       ? sent
       : utcMidnight.getTime();
 
-  const rows = await getDb()
+  const db = getDb();
+  const mine = await db
+    .select({ sourceId: groups.sourceId, name: groups.name })
+    .from(groups)
+    .where(and(eq(groups.userId, user.id), eq(groups.status, "watching")));
+
+  const ids = mine.map((g) => g.sourceId).filter((id): id is number => id !== null);
+  const names = mine.filter((g) => g.sourceId === null).map((g) => g.name.toLowerCase());
+  const byId = ids.length ? inArray(sources.id, ids) : undefined;
+  const byName = names.length ? inArray(sql`lower(${sources.groupName})`, names) : undefined;
+  const watched =
+    byId || byName
+      ? await db
+          .select({ id: sources.id, groupName: sources.groupName })
+          .from(sources)
+          .where(byId && byName ? or(byId, byName) : (byId ?? byName))
+      : [];
+
+  if (!watched.length) {
+    return Response.json({ ok: true, posts: [], total: 0, today: 0, keptDays: 14 });
+  }
+
+  const nameOf = new Map(watched.map((s) => [s.id, s.groupName]));
+  const sourceIds = [...nameOf.keys()];
+  const theirs = inArray(seenPosts.sourceId, sourceIds);
+  const fromToday = gte(seenPosts.seenAt, since);
+
+  const rows = await db
     .select({
       id: seenPosts.id,
       seenAt: seenPosts.seenAt,
       text: seenPosts.text,
       url: seenPosts.url,
       author: seenPosts.author,
-      groupName: sources.groupName,
+      sourceId: seenPosts.sourceId,
     })
     .from(seenPosts)
-    .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
-    .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))
-    .where(todayOnly ? sql`${seenPosts.seenAt} >= ${since}` : sql`1 = 1`)
+    .where(todayOnly ? and(theirs, fromToday) : theirs)
     .orderBy(desc(seenPosts.seenAt))
     .limit(limit);
 
-  const [counted] = (await getDb()
-    .select({ n: sql<number>`count(*)` })
-    .from(seenPosts)
-    .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
-    .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))) as {
-    n: number;
-  }[];
-
   // Counted from the same boundary as the list above, or the headline would
   // disagree with the rows underneath it.
-  const [todayRow] = (await getDb()
+  const [todayRow] = await db
     .select({ n: sql<number>`count(*)` })
     .from(seenPosts)
-    .innerJoin(sources, eq(sources.id, seenPosts.sourceId))
-    .innerJoin(groups, and(eq(groups.userId, user.id), eq(groups.status, "watching"), MATCHES))
-    .where(sql`${seenPosts.seenAt} >= ${since}`)) as { n: number }[];
+    .where(and(theirs, fromToday));
+
+  // The ticker never shows the 14 day total, so it does not pay for it.
+  let total = Number(todayRow?.n ?? 0);
+  if (!todayOnly) {
+    const [counted] = await db.select({ n: sql<number>`count(*)` }).from(seenPosts).where(theirs);
+    total = Number(counted?.n ?? 0);
+  }
 
   return Response.json({
     ok: true,
-    posts: rows,
-    total: Number(counted?.n ?? 0),
+    posts: rows.map(({ sourceId, ...post }) => ({
+      ...post,
+      groupName: nameOf.get(sourceId) ?? "",
+    })),
+    total,
     today: Number(todayRow?.n ?? 0),
     keptDays: 14,
   });

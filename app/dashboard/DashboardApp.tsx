@@ -801,7 +801,9 @@ function LiveFeed({ groups, onGo }: {
     }
 
     pull();
-    const timer = setInterval(pull, 9000);
+    // The scanner runs every five minutes, so polling faster than this only
+    // spends database reads to show the same list again.
+    const timer = setInterval(pull, 30_000);
     return () => {
       alive = false;
       clearInterval(timer);
@@ -1085,7 +1087,7 @@ function NeedCard({ me, onRefresh, onLogout }: {
   useEffect(() => {
     // Catches the member who pays in another tab, and covers the second or
     // two between Stripe taking the card and the webhook reaching us.
-    const timer = setInterval(onRefresh, 4000);
+    const timer = setInterval(onRefresh, 10_000);
     return () => clearInterval(timer);
   }, [onRefresh]);
 
@@ -1272,11 +1274,17 @@ function Login() {
 }
 
 type WizardGroup = { url: string; name: string; members?: number };
-type Stage = "business" | "trade" | "suburbs" | "jobs" | "groups" | "review";
-const STAGES: Stage[] = ["business", "trade", "suburbs", "jobs", "groups", "review"];
+// Four screens. Website, then trade and suburbs on one screen because the
+// website scan has usually filled both in, then the brief, then the groups
+// with the start button on them. A review screen used to sit at the end and
+// only added a click between a tradie and paying.
+type Stage = "business" | "details" | "jobs" | "groups";
+const STAGES: Stage[] = ["business", "details", "jobs", "groups"];
+/** Where a draft saved under the old six screen wizard lands now. */
+const OLD_STAGES: Record<string, Stage> = { trade: "details", suburbs: "details", review: "groups" };
 
 type Draft = {
-  stage?: Stage;
+  stage?: string;
   state?: string;
   website?: string;
   gbpUrl?: string;
@@ -1307,11 +1315,15 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
   // Read once. Later saves must not pull the member back to an older step.
   const [draft] = useState(() => readDraft(known?.wizardDraft));
   const [state, setState] = useState(draft.state ?? known?.state ?? "");
-  const [stage, setStage] = useState<Stage>(
-    draft.stage && STAGES.includes(draft.stage) ? draft.stage : "business"
-  );
-
   const [website, setWebsite] = useState(draft.website ?? known?.website ?? "");
+  const [stage, setStage] = useState<Stage>(() => {
+    // No website, no setup. Anyone who got past the first screen before it
+    // was required starts there again.
+    if (!website.trim() || !draft.stage) return "business";
+    if (STAGES.includes(draft.stage as Stage)) return draft.stage as Stage;
+    return OLD_STAGES[draft.stage] ?? "business";
+  });
+
   const [gbpUrl] = useState(draft.gbpUrl ?? known?.gbpUrl ?? "");
   const [businessName, setBusinessName] = useState(draft.businessName ?? known?.businessName ?? "");
   const [services, setServices] = useState(draft.services ?? known?.services ?? "");
@@ -1399,10 +1411,17 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
     return () => clearTimeout(timer);
   }, [stage, state, website, gbpUrl, businessName, services, trade, tradeOther, suburbs, brief, groupList, logo]);
 
-  /** Step 1. Read the website and the Google listing, then move on. */
+  /**
+   * Step 1. Read the website and the Google listing, then move on.
+   *
+   * Only moves on when something answered at that address. A website is a
+   * must for every member, so a typo or a dead domain keeps them on this
+   * screen with the reason, and Continue tries again.
+   */
   async function scan() {
     setScanning(true);
     setNote("");
+    let reached = false;
     try {
       const res = await fetch("/api/onboarding/scan", {
         method: "POST",
@@ -1419,27 +1438,40 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         note?: string;
         error?: string;
       };
+      if (!res.ok) {
+        setNote(
+          data.error === "bad_website"
+            ? "That web address does not look right. Check it and try again."
+            : data.error === "unreachable"
+            ? "We could not reach that website. Check the address and try again."
+            : "We could not check your website. Please try again."
+        );
+        return;
+      }
+      reached = true;
       if (data.logo) setLogo(data.logo);
       if (data.businessName && !businessName) setBusinessName(data.businessName);
       if (data.services && !services) setServices(data.services);
-      if (data.trade) setTrade(data.trade);
+      // The ad they clicked names their trade better than a guess from their
+      // website does, so a trade we already hold stays.
+      if (data.trade && !trade) setTrade(data.trade);
       // The website names the suburbs, the gazetteer names the state. Between
-      // them the whole suburbs step is filled in before it is ever seen.
+      // them the next screen is filled in before it is ever seen.
       if (data.state) setState(data.state);
       if (data.suburbs?.length) setSuburbs(data.suburbs);
-      setNote(
-        data.error === "bad_website"
-          ? "That web address does not look right. You can fill the rest in yourself."
-          : data.note ?? ""
-      );
+      setNote(data.note ?? "");
     } catch {
-      setNote("We could not read your website. You can fill the rest in yourself.");
+      setNote("We could not check your website. Please try again.");
     } finally {
-      // A short pause so the message is readable and the jump is not jarring.
-      setTimeout(() => {
+      if (reached) {
+        // A short pause so the message is readable and the jump is not jarring.
+        setTimeout(() => {
+          setScanning(false);
+          setStage("details");
+        }, 900);
+      } else {
         setScanning(false);
-        setStage("trade");
-      }, 900);
+      }
     }
   }
 
@@ -1474,6 +1506,8 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
       briefTried.current = true;
       askForBrief();
     }
+    // A note belongs to the screen it was written on.
+    setNote("");
     setStage(next);
   }
 
@@ -1509,8 +1543,10 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
 
     let stop = false;
     // Verification runs server side, so the only way to see the result is to
-    // ask again. Twenty seconds, then we show what we have and say so.
-    const deadline = Date.now() + 20_000;
+    // ask again. Bright Data takes a minute or two to read a group, so three
+    // minutes, then we show what we have and say so. Whatever is still being
+    // read lands in their account by itself once they have paid.
+    const deadline = Date.now() + 3 * 60_000;
 
     async function pull(): Promise<void> {
       if (stop) return;
@@ -1542,7 +1578,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         // Keep asking while groups are still being verified and there is room
         // left, until the clock runs out.
         if (Number(d.pending ?? 0) > 0 && total < Math.min(planGroups, 20) && Date.now() < deadline) {
-          setTimeout(() => { void pull(); }, 4000);
+          setTimeout(() => { void pull(); }, 6000);
           return;
         }
       } catch {
@@ -1671,14 +1707,12 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
 
   const canGo: Record<Stage, boolean> = {
     business: Boolean(website.trim()),
-    trade: chosenTrade.length > 1,
-    suburbs: state.length > 1 && suburbs.length > 0,
+    details: chosenTrade.length > 1 && state.length > 1 && suburbs.length > 0,
     jobs: brief.trim().length >= BRIEF_MIN && brief.trim().length <= BRIEF_MAX,
     // At least one, always. Five of the first seven paying members finished
     // setup with none and were watching nothing, which is a customer paying
     // for silence. The suggestions below keep this from costing a card.
     groups: groupList.length > 0,
-    review: true,
   };
 
   return (
@@ -1722,13 +1756,15 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
             <p className="muted">We read it to work out your trade and your suburbs. It saves you the typing.</p>
             <label className="lbl">Your website <span className="req">*</span></label>
             <input placeholder="https://mybusiness.com.au" value={website} onChange={(e) => setWebsite(e.target.value)} autoFocus />
+            {note && <p className="error">{note}</p>}
+            <p className="tiny">Every member needs a website. We check it is real before we go on.</p>
           </>
         )}
 
-        {stage === "trade" && (
+        {stage === "details" && (
           <>
-            <h2>What is your trade?</h2>
-            <p className="muted">This helps us pick out the posts meant for you.</p>
+            <h2>Your trade and your suburbs</h2>
+            <p className="muted">We picked these from your website. Change anything we got wrong.</p>
             {note && <p className="warn-line">{note}</p>}
             <label className="lbl">Your trade <span className="req">*</span></label>
             <select value={trade} onChange={(e) => setTrade(e.target.value)}>
@@ -1744,14 +1780,6 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 <input placeholder="Blind and curtain fitting" value={tradeOther} onChange={(e) => setTradeOther(e.target.value)} autoFocus />
               </>
             )}
-            <p className="tiny">We picked this from your website. Change it if we got it wrong.</p>
-          </>
-        )}
-
-        {stage === "suburbs" && (
-          <>
-            <h2>Where do you work?</h2>
-            <p className="muted">Pick the suburbs you drive to. We only send you jobs from these areas.</p>
             <label className="lbl">Your state <span className="req">*</span></label>
             <select
               value={state}
@@ -1761,6 +1789,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
               {STATES.map((v) => <option key={v} value={v}>{v}</option>)}
             </select>
             {state && <SuburbPicker state={state} chosen={suburbs} onChange={setSuburbs} onSay={say} />}
+            <p className="tiny">Pick the suburbs you drive to. We only send you jobs from these areas.</p>
           </>
         )}
 
@@ -1840,20 +1869,6 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 </button>
               )
             )}
-          </>
-        )}
-
-        {stage === "review" && (
-          <>
-            <h2>All set. Have a quick look.</h2>
-            <p className="muted">Change anything later in Settings.</p>
-            <div className="review">
-              <div className="kv"><span>Trade</span><strong>{chosenTrade || "not set"}</strong></div>
-              <div className="kv"><span>Suburbs</span><strong>{suburbs.join(", ") || "not set"}</strong></div>
-              <div className="kv"><span>Groups</span><strong>{groupList.length} to watch</strong></div>
-            </div>
-            <label className="lbl">The jobs you want</label>
-            <p className="review-brief">{brief}</p>
             {note && <p className="error">{note}</p>}
           </>
         )}
@@ -1861,14 +1876,14 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
         </div>
         <div className="row spread">
           {step > 0 ? (
-            <button className="btn ghost" onClick={() => setStage(STAGES[step - 1])}>Back</button>
+            <button className="btn ghost" onClick={() => { setNote(""); setStage(STAGES[step - 1]); }}>Back</button>
           ) : (
             <span className="tiny">{me.user!.email}</span>
           )}
           {stage === "business" ? (
             <button className="btn primary" disabled={!canGo.business || scanning} onClick={scan}>Continue</button>
-          ) : stage === "review" ? (
-            <button className="btn primary" disabled={busy} onClick={finish}>{busy ? "Saving" : "Start scanning"}</button>
+          ) : stage === "groups" ? (
+            <button className="btn primary" disabled={!canGo.groups || busy} onClick={finish}>{busy ? "Saving" : "Start scanning"}</button>
           ) : (
             <button className="btn primary" disabled={!canGo[stage] || thinking} onClick={goNext}>Continue</button>
           )}

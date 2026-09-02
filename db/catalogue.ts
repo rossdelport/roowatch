@@ -10,6 +10,7 @@ import {
 import { MAX_RING, nearbySuburbs, postcodesFor, postcodesInState } from "./gazetteer";
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
+import { judgeGroupNames } from "./groupjudge";
 import { groupLimit } from "./plans";
 import { claimLease, releaseLease } from "./lease";
 import { JOB_STALE_MS, parseSlugs } from "./scanqueue";
@@ -50,13 +51,29 @@ export const FILL_TARGET = 20;
  * its breadth on one town, and a member ends up with three groups.
  */
 const SEARCH_PLACES = 6;
-const CATALOGUE_JOBS_CHECKED_PER_TICK = 5;
-const CATALOGUE_READY_PER_TICK = 1;
+/** Sizing snapshots looked at in one pass. Every ready one is read. */
+const CATALOGUE_JOBS_CHECKED_PER_PASS = 20;
+/** Groups in one sizing snapshot. */
+const SIZING_PER_SNAPSHOT = 25;
+/** Groups one call to sizeUnknown will queue, across snapshots. */
+const SIZING_PER_CALL = 50;
 const CATALOGUE_TRIGGER_LEASE_ID = "catalogue_trigger_lease";
-/** Longer than Cloudflare's 15-minute scheduled invocation limit. */
-const CATALOGUE_TRIGGER_LEASE_MS = 16 * 60 * 1000;
+/** Held only while a trigger is in flight, so short. */
+const CATALOGUE_TRIGGER_LEASE_MS = 2 * 60 * 1000;
 const CATALOGUE_LEASE_ID = "catalogue_collection_lease";
-const CATALOGUE_LEASE_MS = 20 * 60 * 1000;
+/**
+ * Setup polls collect as well as the cron, so a killed request must not
+ * hold the catalogue for long.
+ */
+const CATALOGUE_LEASE_MS = 5 * 60 * 1000;
+/**
+ * The same suburbs at the same ring are not searched twice in an hour.
+ *
+ * Setup polls candidatesFor every few seconds while groups are verified,
+ * and the first version ran the whole forty query search on every poll.
+ * The lease is never released: it is the memo.
+ */
+const SEARCH_MEMO_MS = 60 * 60 * 1000;
 /**
  * A manual top up and the scheduled backfill may touch the same member at
  * once. Keep their catalogue reads and source inserts apart without taking
@@ -76,10 +93,25 @@ export function memberTopUpLeaseId(userId: string): string {
  * Cairns plumber on the Sunshine Coast. Their own suburbs plus the ones next
  * door is the real test.
  */
-async function patchMatcher(suburbs: string[], state: string): Promise<(name: string) => boolean> {
+/**
+ * The patch reaches as far as we have searched for this member. A search at
+ * ring three files groups that name suburbs in ring three, and a patch that
+ * stopped at ring zero threw every one of them away: the outer rings found
+ * groups nobody was ever allowed to have.
+ */
+async function patchMatcher(
+  suburbs: string[],
+  state: string,
+  ring = 0
+): Promise<(name: string) => boolean> {
   const near = new Set(suburbs.map((s) => s.trim().toLowerCase()).filter(Boolean));
   try {
     for (const n of await nearbySuburbs(suburbs, state, 12, 0)) near.add(n.toLowerCase());
+    for (let r = 1; r <= Math.min(ring, MAX_RING); r += 1) {
+      for (const n of await nearbySuburbs(suburbs, state, SEARCH_PLACES, r)) {
+        near.add(n.toLowerCase());
+      }
+    }
   } catch {
     // No neighbours is fine. Their own suburbs still work.
   }
@@ -88,7 +120,7 @@ async function patchMatcher(suburbs: string[], state: string): Promise<(name: st
 }
 
 /** What we already hold for these suburbs, no searching, no cost. */
-async function fromCatalogue(suburbs: string[], state: string): Promise<Candidate[]> {
+async function fromCatalogue(suburbs: string[], state: string, ring = 0): Promise<Candidate[]> {
   const db = getDb();
   // Groups already being watched are the best answer we have: we know they
   // are public, we know they work, and we know their size.
@@ -118,6 +150,10 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
   // checked = 1 only. A search result proves nothing about whether a group is
   // public: a private group's listing looks identical. Bright Data is the only
   // thing that knows, and this flag is where it writes the answer down.
+  // The whole state, then the patch test below picks out theirs. It used to
+  // take the two hundred biggest, and a quiet group reports no size at all,
+  // so every group that had not posted during its sizing check sorted last
+  // and fell off the end for anyone in a busy state.
   const known = await db
     .select()
     .from(foundGroups)
@@ -127,7 +163,7 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
         : eq(foundGroups.checked, 1)
     )
     .orderBy(desc(foundGroups.members))
-    .limit(200);
+    .limit(2000);
 
   // A group has to name somewhere they actually work.
   //
@@ -136,7 +172,7 @@ async function fromCatalogue(suburbs: string[], state: string): Promise<Candidat
   // them. Queensland was worse: a Cairns plumber was handed the Sunshine
   // Coast, seventeen hundred kilometres down the road. Their own suburbs plus
   // the ones next door is the real test.
-  const mentionsTheirPatch = await patchMatcher(suburbs, state);
+  const mentionsTheirPatch = await patchMatcher(suburbs, state, ring);
 
   const out = new Map<string, Candidate>();
   for (const w of watched) {
@@ -186,8 +222,28 @@ export async function candidatesFor(
   ring = 0,
   trade = ""
 ): Promise<{ groups: Candidate[]; searched: boolean; pending: string[] }> {
-  const held = await fromCatalogue(suburbs, state);
+  const held = await fromCatalogue(suburbs, state, ring);
   if (held.length >= FILL_TARGET) {
+    return { groups: rank(held, suburbs).slice(0, FILL_TARGET), searched: false, pending: [] };
+  }
+
+  // Once an hour for this patch at this ring, whoever asks. Setup polls this
+  // while groups are verified, and two members in one town should share a
+  // search rather than each pay for it.
+  const memo = `search_memo:${state}:${ring}:${[...suburbs]
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join(",")}`.slice(0, 200);
+  let allowed = false;
+  try {
+    allowed = Boolean(await claimLease(memo, SEARCH_MEMO_MS));
+  } catch {
+    // If the memo cannot be read, search. A repeat costs money, a miss
+    // costs a member their groups.
+    allowed = true;
+  }
+  if (!allowed) {
     return { groups: rank(held, suburbs).slice(0, FILL_TARGET), searched: false, pending: [] };
   }
 
@@ -279,11 +335,35 @@ export async function candidatesFor(
 }
 
 /**
- * Open one Bright Data snapshot to size up groups we have never read.
+ * Groups filed for this patch that nobody has verified yet.
+ *
+ * Setup waits on this number, not on what its own search returned: a search
+ * an hour ago by the member next door may have filed thirty groups that are
+ * still being read, and they are this member's groups too.
+ */
+export async function waitingFor(suburbs: string[], state: string, ring = 0): Promise<string[]> {
+  if (!state) return [];
+  const db = getDb();
+  const mentionsTheirPatch = await patchMatcher(suburbs, state, ring);
+  const waiting = await db
+    .select({ slug: foundGroups.slug, name: foundGroups.name, suburb: foundGroups.suburb })
+    .from(foundGroups)
+    .where(and(eq(foundGroups.state, state), eq(foundGroups.checked, 0)))
+    .orderBy(desc(foundGroups.foundAt))
+    .limit(WAITING_PER_TOP_UP);
+  return waiting.filter((g) => mentionsTheirPatch(`${g.suburb} ${g.name}`)).map((g) => g.slug);
+}
+
+/**
+ * Open Bright Data snapshots to size up groups we have never read.
  *
  * A two hour window, because a group has to produce at least one post for
  * Facebook to tell us how many members it has. Empty answers cost nothing, so
  * the quiet ones are free and the busy ones cost a fraction of a cent each.
+ *
+ * Up to SIZING_PER_CALL groups a call, SIZING_PER_SNAPSHOT to a snapshot. It
+ * used to take twenty and open one snapshot, and a search that found forty
+ * left half of them waiting for a top up that might be hours away.
  */
 export async function sizeUnknown(slugs: string[]): Promise<void> {
   if (!slugs.length) return;
@@ -304,7 +384,7 @@ export async function sizeUnknown(slugs: string[]): Promise<void> {
     const rows = await db
       .select({ slug: foundGroups.slug, url: foundGroups.url, checked: foundGroups.checked })
       .from(foundGroups)
-      .where(inArray(foundGroups.slug, slugs.slice(0, 20)));
+      .where(inArray(foundGroups.slug, slugs.slice(0, SIZING_PER_CALL)));
 
     // Unchecked, not unsized. A quiet public group is verified but will never
     // report members, and filtering on members alone would re-snapshot it on
@@ -313,12 +393,15 @@ export async function sizeUnknown(slugs: string[]): Promise<void> {
     if (!need.length) return;
 
     const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const snapshotId = await bdTrigger(need.map((r) => r.url), since);
-    await db.insert(catalogueJobs).values({
-      snapshotId,
-      slugs: JSON.stringify(need.map((r) => r.slug)),
-      startedAt: Date.now(),
-    });
+    for (let i = 0; i < need.length; i += SIZING_PER_SNAPSHOT) {
+      const part = need.slice(i, i + SIZING_PER_SNAPSHOT);
+      const snapshotId = await bdTrigger(part.map((r) => r.url), since);
+      await db.insert(catalogueJobs).values({
+        snapshotId,
+        slugs: JSON.stringify(part.map((r) => r.slug)),
+        startedAt: Date.now(),
+      });
+    }
   } catch (error) {
     // Sizing is a nicety. Setup carries on without it.
     console.error("catalogue_trigger_failed", {
@@ -338,8 +421,13 @@ export async function sizeUnknown(slugs: string[]): Promise<void> {
 /**
  * Read any finished sizing snapshots and write the numbers down.
  *
- * Called from the cron beside the real scanner. Deliberately writes only to
- * the catalogue: no alerts, no seen posts, no member ever hears about it.
+ * Called from the cron beside the real scanner, and from setup while a
+ * member waits. Deliberately writes only to the catalogue: no alerts, no
+ * seen posts, no member ever hears about it.
+ *
+ * Every ready snapshot is read. It used to read one a tick, and with a tick
+ * every five minutes a search that opened four snapshots kept somebody
+ * waiting twenty minutes for groups that had been sitting there all along.
  */
 export async function collectCatalogue(): Promise<number> {
   const db = getDb();
@@ -351,14 +439,14 @@ export async function collectCatalogue(): Promise<number> {
       .select()
       .from(catalogueJobs)
       .orderBy(asc(catalogueJobs.startedAt))
-      .limit(CATALOGUE_JOBS_CHECKED_PER_TICK);
+      .limit(CATALOGUE_JOBS_CHECKED_PER_PASS);
     if (!jobs.length) return 0;
 
-    let done = 0;
-    let readyAttempted = 0;
+    const now = Date.now();
+    const open: { job: (typeof jobs)[number]; slugs: string[] }[] = [];
     for (const job of jobs) {
       const slugs = parseSlugs(job.slugs);
-      const tooOld = Date.now() - job.startedAt > JOB_STALE_MS;
+      const tooOld = now - job.startedAt > JOB_STALE_MS;
       if (!slugs || tooOld) {
         await db.delete(catalogueJobs).where(eq(catalogueJobs.id, job.id));
         console.error("catalogue_job_removed", {
@@ -368,21 +456,25 @@ export async function collectCatalogue(): Promise<number> {
         });
         continue;
       }
+      open.push({ job, slugs });
+    }
+    if (!open.length) return 0;
 
-      let status = "unknown";
-      try {
-        status = (await bdProgress(job.snapshotId)).status;
-      } catch {
-        status = "unknown";
-      }
+    // Ask after every snapshot at once. Each is one small request and they
+    // are independent, so there is no reason to wait for them in a line.
+    const statuses = await Promise.all(
+      open.map(({ job }) => bdProgress(job.snapshotId).then((p) => p.status).catch(() => "unknown"))
+    );
 
+    let done = 0;
+    for (const [i, { job, slugs }] of open.entries()) {
+      const status = statuses[i];
       if (status === "failed") {
         await db.delete(catalogueJobs).where(eq(catalogueJobs.id, job.id));
         continue;
       }
-      if (status !== "ready" || readyAttempted >= CATALOGUE_READY_PER_TICK) continue;
+      if (status !== "ready") continue;
 
-      readyAttempted += 1;
       const rows = slugs.length
         ? await db
             .select({ slug: foundGroups.slug, url: foundGroups.url, name: foundGroups.name })
@@ -392,9 +484,19 @@ export async function collectCatalogue(): Promise<number> {
 
       try {
         const { facts } = await bdCollect(job.snapshotId, rows.map((r) => r.url));
+
+        // Everything Bright Data could open and the word list did not throw
+        // out. The model gets the final say on these below.
+        const readable: { slug: string; name: string; patch: Record<string, unknown> }[] = [];
         for (const row of rows) {
           const fact = facts.get(row.slug);
           if (!fact) continue;
+          // A private group can never be watched, so drop it from the
+          // catalogue rather than keep offering it to people.
+          if (fact.private) {
+            await db.delete(foundGroups).where(eq(foundGroups.slug, row.slug));
+            continue;
+          }
           const name = fact.name || row.name;
           // A readable page can still be the wrong kind of group. Do not mark
           // a stale or newly renamed hobby group as safe merely because Bright
@@ -407,19 +509,30 @@ export async function collectCatalogue(): Promise<number> {
           const patch: Record<string, unknown> = {};
           if (fact.members) patch.members = fact.members;
           if (fact.name) patch.name = fact.name;
-          // The snapshot was ready and this group was not flagged private, so
-          // Bright Data got in. That is the same standard the live scanner uses
-          // and it is what makes the row safe to offer somebody.
-          patch.checked = 1;
-          // A private group can never be watched, so drop it from the catalogue
-          // rather than keep offering it to people.
-          if (fact.private) {
-            await db.delete(foundGroups).where(eq(foundGroups.slug, row.slug));
-            continue;
+          readable.push({ slug: row.slug, name, patch });
+        }
+
+        // The snapshot was ready and these were not flagged private, so
+        // Bright Data got in. That is the same standard the live scanner
+        // uses. The last test is whether a person would call it a community
+        // group, and a word list cannot answer that. If the model cannot be
+        // asked right now the rows stay unchecked and the snapshot stays
+        // queued, so the next pass asks again without buying another read.
+        const verdicts = readable.length ? await judgeGroupNames(readable.map((r) => r.name)) : [];
+        if (!verdicts) {
+          for (const r of readable) {
+            if (Object.keys(r.patch).length) {
+              await db.update(foundGroups).set(r.patch).where(eq(foundGroups.slug, r.slug));
+            }
           }
-          if (Object.keys(patch).length) {
-            await db.update(foundGroups).set(patch).where(eq(foundGroups.slug, row.slug));
-          }
+          console.error("catalogue_judge_unavailable", { jobId: job.id, groups: readable.length });
+          continue;
+        }
+        for (const [k, r] of readable.entries()) {
+          // 2, not deleted: a deleted row would be found and sized again by
+          // the next search for the same town.
+          r.patch.checked = verdicts[k] ? 1 : 2;
+          await db.update(foundGroups).set(r.patch).where(eq(foundGroups.slug, r.slug));
         }
         done += rows.length;
       } catch (error) {
@@ -493,9 +606,22 @@ export async function topUpMember(userId: string, allowSearch = false): Promise<
   }
 }
 
+/**
+ * Once every ring has been searched, how long before they start again.
+ *
+ * Without this a member the rings could not fill was never searched for
+ * again, and the catalogue for their town stopped growing the day they
+ * joined.
+ */
+const RING_RESET_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Rows in the state still waiting for a check that one top up will look at. */
+const WAITING_PER_TOP_UP = 200;
+
 /** The existing catalogue repair work, protected by topUpMember's lease. */
 async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise<number> {
   const db = getDb();
+  const now = Date.now();
 
   const [profile] = await db
     .select({
@@ -504,6 +630,7 @@ async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise
       trade: profiles.trade,
       plan: profiles.plan,
       ring: profiles.searchRing,
+      lastSearch: profiles.lastSearch,
     })
     .from(profiles)
     .where(eq(profiles.userId, userId))
@@ -521,12 +648,24 @@ async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise
   const suburbs = profile.location.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 20);
   if (!suburbs.length || !profile.state) return 0;
 
-  let held = await fromCatalogue(suburbs, profile.state);
+  // Every ring used up and a week gone by: start again from their own town.
+  let ring = profile.ring;
+  if (ring > MAX_RING && now - profile.lastSearch >= RING_RESET_MS) {
+    ring = 0;
+    await db.update(profiles).set({ searchRing: 0 }).where(eq(profiles.userId, userId));
+  }
+  // The patch reaches as far as we have searched for them. profile.ring is
+  // the next ring to look at, so the rings already looked at end one short
+  // of it.
+  const reach = Math.max(0, Math.min(ring, MAX_RING + 1) - 1);
+
+  let held = await fromCatalogue(suburbs, profile.state, reach);
 
   // Searching costs forty Brave queries, so it is rationed: only for somebody
-  // whose watchlist is nearly empty, and only one member per tick. Without it
-  // a member in a state nobody has set up in yet would sit on zero forever,
-  // because the catalogue only grows when somebody searches it.
+  // whose watchlist is short, one member per tick, one ring at a time, and
+  // never twice an hour for the same patch. Without it a member in a state
+  // nobody has set up in yet would sit on zero forever, because the catalogue
+  // only grows when somebody searches it.
   const dropped = new Set(
     (
       await db
@@ -554,8 +693,8 @@ async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise
   // groups he was already watching.
   const isNew = (c: Candidate) => !haveSlugs.has(c.slug) && !dropped.has(c.slug);
 
-  if (allowSearch && held.filter(isNew).length < room && profile.ring <= MAX_RING) {
-    const found = await candidatesFor(suburbs, profile.state, profile.ring, profile.trade);
+  if (allowSearch && held.filter(isNew).length < room && ring <= MAX_RING) {
+    const found = await candidatesFor(suburbs, profile.state, ring, profile.trade);
     // Nothing found is offered yet. It is filed, verified below, and picked up
     // by the next top up once Bright Data says it is readable.
     if (found.pending.length) await sizeUnknown(found.pending);
@@ -563,10 +702,12 @@ async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise
 
     // Step out one ring. The next look covers suburbs this one did not, and
     // once the list is full topUpShortMembers stops calling here at all, so
-    // the widening stops on its own.
+    // the widening stops on its own. When the search was skipped because the
+    // same patch was searched within the hour, the ring still moves on:
+    // whatever that search found is already filed for this member too.
     await db
       .update(profiles)
-      .set({ searchRing: profile.ring + 1 })
+      .set({ searchRing: ring + 1, lastSearch: now })
       .where(eq(profiles.userId, userId));
   }
   // Verification is not tied to searching. A member whose rings are used up
@@ -575,16 +716,8 @@ async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise
   // seven Cairns groups waiting behind that.
   if (held.filter(isNew).length < room) {
     try {
-      const mentionsTheirPatch = await patchMatcher(suburbs, profile.state);
-      const waiting = await db
-        .select({ slug: foundGroups.slug, name: foundGroups.name, suburb: foundGroups.suburb })
-        .from(foundGroups)
-        .where(and(eq(foundGroups.state, profile.state), eq(foundGroups.checked, 0)))
-        .limit(60);
-      const mine = waiting
-        .filter((g) => mentionsTheirPatch(`${g.suburb} ${g.name}`))
-        .map((g) => g.slug);
-      if (mine.length) await sizeUnknown(mine);
+      const waiting = await waitingFor(suburbs, profile.state, reach);
+      if (waiting.length) await sizeUnknown(waiting);
     } catch {
       // Verification is a nicety here. The top up carries on without it.
     }
@@ -630,10 +763,17 @@ async function topUpMemberUnlocked(userId: string, allowSearch = false): Promise
   return added;
 }
 
-/** How long before we look at the same member again. */
-const TOP_UP_GAP_MS = 6 * 60 * 60 * 1000;
+/**
+ * How long before we look at the same short member again.
+ *
+ * A top up from the catalogue is a handful of reads, so twenty minutes. It
+ * was six hours, and a member whose groups were verified two minutes after
+ * their top up waited the rest of the day for them. A full member is never
+ * looked at, so this only ever costs anything while somebody is short.
+ */
+const TOP_UP_GAP_MS = 20 * 60 * 1000;
 /** Members touched in one tick, so a big list never stalls the scanner. */
-const TOP_UP_PER_TICK = 5;
+const TOP_UP_PER_TICK = 10;
 
 /**
  * Find members whose watchlist is short and fill it.
@@ -650,26 +790,43 @@ export async function topUpShortMembers(): Promise<number> {
   // clever version compiled to SQL D1 rejected, and the whole call sits inside
   // a catch in the cron, so it failed every tick without saying a word.
   const rows = await db
-    .select({ userId: profiles.userId, plan: profiles.plan, lastTopUp: profiles.lastTopUp })
+    .select({
+      userId: profiles.userId,
+      plan: profiles.plan,
+      lastTopUp: profiles.lastTopUp,
+      ring: profiles.searchRing,
+      lastSearch: profiles.lastSearch,
+    })
     .from(profiles)
     .where(
       sql`${profiles.onboardedAt} IS NOT NULL
         AND ${profiles.subscriptionStatus} IN ('active','trialing')
         AND ${profiles.lastTopUp} < ${now - TOP_UP_GAP_MS}`
     )
-    .limit(TOP_UP_PER_TICK * 4);
+    .limit(500);
+  if (!rows.length) return 0;
 
-  // Who is short, and by how much.
-  const short: { userId: string; have: number; lastTopUp: number }[] = [];
-  for (const row of rows) {
-    const mine = await db
-      .select({ id: groups.id })
+  // Everybody's count in one query. Counting each member in turn read every
+  // member's groups every tick, and the first forty members it looked at
+  // were all full, so the short ones further down never got a turn.
+  const counts = new Map<string, number>();
+  for (const part of chunkList(rows.map((r) => r.userId), 80)) {
+    const counted = await db
+      .select({ userId: groups.userId, have: sql<number>`count(*)` })
       .from(groups)
-      .where(and(eq(groups.userId, row.userId), eq(groups.status, "watching")));
-    if (mine.length < groupLimit(row.plan)) {
-      short.push({ userId: row.userId, have: mine.length, lastTopUp: row.lastTopUp });
-    }
+      .where(and(inArray(groups.userId, part), eq(groups.status, "watching")))
+      .groupBy(groups.userId);
+    for (const c of counted) counts.set(c.userId, Number(c.have));
   }
+
+  // Who is short, and whether a search would do them any good.
+  const short = rows
+    .filter((row) => (counts.get(row.userId) ?? 0) < groupLimit(row.plan))
+    .map((row) => ({
+      userId: row.userId,
+      lastTopUp: row.lastTopUp,
+      canSearch: row.ring <= MAX_RING || now - row.lastSearch >= RING_RESET_MS,
+    }));
   // Longest waiting first, not emptiest first.
   //
   // Emptiest first starved everybody else. One member sat on zero groups
@@ -678,37 +835,19 @@ export async function topUpShortMembers(): Promise<number> {
   // at all. Whoever has gone longest without a look goes next.
   short.sort((a, b) => a.lastTopUp - b.lastTopUp);
 
-  let filled = 0;
-  // One a tick while the scanner is running, because a search is forty
-  // queries and the tick has posts to read. The backfill ran three at a time
-  // with the scan paused, because a single slot made members leapfrog each
-  // other: whoever added nothing had their clock set back, which made them the
-  // longest waiting, which won them the next slot, forever.
-  let searchLeft = 1;
-  for (const row of short.slice(0, TOP_UP_PER_TICK)) {
-    const searching = searchLeft > 0;
-    if (searching) searchLeft -= 1;
+  // One search a tick, because a search is forty queries and the tick has
+  // posts to read. It goes to the longest waiting member who still has a
+  // ring left to look at, not to whoever happens to be first in line.
+  const batch = short.slice(0, TOP_UP_PER_TICK);
+  const searcher = batch.find((row) => row.canSearch)?.userId;
 
+  let filled = 0;
+  for (const row of batch) {
     // Stamped before the work, not after. A member whose top up throws must
     // not be retried on every single tick.
     await db.update(profiles).set({ lastTopUp: now }).where(eq(profiles.userId, row.userId));
     try {
-      const added = await topUpMember(row.userId, searching);
-      filled += added;
-      // A search files groups but cannot hand them over in the same pass:
-      // Bright Data has to read each one first, which lands a minute or two
-      // later. Without this the member would sit on an empty watchlist for
-      // six hours waiting for a verdict that arrived almost immediately.
-      // Includes the member we could not search for this tick. Somebody on
-      // zero groups who got a catalogue-only pass learned nothing, and making
-      // them wait six hours for the search slot left two paying members
-      // watching nothing for a day.
-      if (!added) {
-        await db
-          .update(profiles)
-          .set({ lastTopUp: now - TOP_UP_GAP_MS + 60 * 1000 })
-          .where(eq(profiles.userId, row.userId));
-      }
+      filled += await topUpMember(row.userId, row.userId === searcher);
     } catch (err) {
       // One member's bad data must never stop the scanner, but it must not be
       // invisible either. A silent catch here hid a broken query for hours.
@@ -716,4 +855,10 @@ export async function topUpShortMembers(): Promise<number> {
     }
   }
   return filled;
+}
+
+function chunkList<T>(list: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
 }

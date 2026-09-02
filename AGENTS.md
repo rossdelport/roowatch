@@ -128,6 +128,10 @@ Current: `ADMIN_PASSWORD`, `ANTHROPIC_API_KEY`, `APIFY_TOKEN`, `BRIGHTDATA_API_K
 `CRON_SECRET`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`. `STRIPE_WEBHOOK_SECRET`
 is needed too, see the Stripe webhook section above.
 
+Optional: `LEAD_VERIFY_MODEL` overrides the model that double checks every
+lead before it is texted (default in `db/leadfilter.ts`). Set it only if that
+default model id stops working.
+
 You cannot read a secret's value back through `wrangler secret list`, it only
 shows names. A key typed into `.dev.vars` (gitignored, never committed) is
 different: whoever put it there can obviously still see it in that file, and

@@ -46,9 +46,11 @@ function startPixel() {
   fbq("track", "PageView");
 }
 
-export default function SignupApp({ start, plan }: {
+export default function SignupApp({ start, plan, trade }: {
   start: "signup" | "login";
   plan: PlanKey;
+  /** From the ad they clicked, or blank. Setup asks if we do not know. */
+  trade: string;
 }) {
   const [mode, setMode] = useState<"signup" | "login">(start);
   const [name, setName] = useState("");
@@ -111,6 +113,7 @@ export default function SignupApp({ start, plan }: {
               // Carried through so the checkout at the end of setup bills the
               // plan they actually picked on the ad page.
               plan,
+              trade,
             }
           : { email: email.trim(), password };
 

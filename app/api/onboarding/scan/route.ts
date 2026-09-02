@@ -243,6 +243,11 @@ export async function POST(request: Request) {
 
   // Both reads run at once. Neither one is allowed to hold up the other.
   const [site, google] = await Promise.all([readSite(website), readGoogle(gbpUrl)]);
+  // Every member needs a real website before setup goes on. Nothing answering
+  // at that address means a typo or a dead domain, so they fix it and retry.
+  if (!site.reached) {
+    return Response.json({ error: "unreachable" }, { status: 400 });
+  }
   const text = site.text;
   const ai = await readWithClaude(text);
 
