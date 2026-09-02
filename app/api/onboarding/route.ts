@@ -4,7 +4,8 @@ import { currentUser, sendEmail } from "../../../db/auth";
 import { groups, profiles, sources } from "../../../db/schema";
 import { groupSlug, parseGroupInput } from "../../../db/fbgroups";
 import { BRIEF_MAX, BRIEF_MIN } from "../../../db/brief";
-import { groupLimit } from "../../../db/plans";
+import { PLANS, groupLimit, type PlanKey } from "../../../db/plans";
+import { sendCapi } from "../../../db/capi";
 import { isKnownState } from "../../../db/trades";
 
 export async function POST(request: Request) {
@@ -21,6 +22,8 @@ export async function POST(request: Request) {
     suburbs?: string[];
     brief?: string;
     groups?: string[];
+    /** Shared with the browser pixel so Meta counts one registration, not two. */
+    eventId?: string;
   };
 
   const db = getDb();
@@ -191,6 +194,23 @@ export async function POST(request: Request) {
       "Open the master dashboard to check their watchlist.",
     ].join("\n")
   );
+
+  // Setup is finished: suburbs picked, brief written, groups watching. This is
+  // the real registration, and the browser copy of it has to survive the trip
+  // to Stripe to be counted. This one does not.
+  await sendCapi({
+    name: "CompleteRegistration",
+    eventId: String(body.eventId ?? "").slice(0, 64) || crypto.randomUUID(),
+    email: user.email,
+    phone: existing?.alertPhone || undefined,
+    fbc: existing?.fbc || undefined,
+    fbp: existing?.fbp || undefined,
+    sourceUrl: "https://roowatch.com.au/dashboard",
+    clientIp: request.headers.get("cf-connecting-ip") ?? undefined,
+    clientUserAgent: request.headers.get("user-agent") ?? undefined,
+    value: PLANS[(existing?.plan ?? "local") as PlanKey]?.priceAud,
+    contentName: "RooWatch setup finished",
+  });
 
   return Response.json({ ok: true, watching: watchingNow, skipped: skippedGroups });
 }

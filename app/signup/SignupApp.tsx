@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { type PlanKey } from "../../db/plans";
-
-const PIXEL_ID = "4105570149577363";
+import { PIXEL_ID } from "../../db/pixel";
 
 
 type Pixel = ((...args: unknown[]) => void) & {
@@ -17,6 +16,11 @@ type Pixel = ((...args: unknown[]) => void) & {
 /** The pixel, once the snippet above has run. */
 function pixel() {
   return (window as unknown as { fbq?: Pixel }).fbq;
+}
+
+/** Whatever the pixel, or our own fallback, has left in the cookie jar. */
+function cookie(name: string) {
+  return document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`))?.[1] ?? "";
 }
 
 /** The standard Meta snippet, written once when the page opens. */
@@ -88,6 +92,10 @@ export default function SignupApp({ start, plan }: {
     setError("");
     try {
       const path = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+      // One id for both copies of this conversion. The server always sends
+      // its copy, the browser only sometimes manages to, and Meta counts the
+      // pair as one.
+      const eventId = crypto.randomUUID();
       const payload =
         mode === "signup"
           ? {
@@ -95,6 +103,11 @@ export default function SignupApp({ start, plan }: {
               email: email.trim(),
               phone: phone.trim(),
               password,
+              // The ad click and browser ids, so the server can tell Meta
+              // which ad set this person came from.
+              fbc: cookie("_fbc"),
+              fbp: cookie("_fbp"),
+              eventId,
               // Carried through so the checkout at the end of setup bills the
               // plan they actually picked on the ad page.
               plan,
@@ -121,7 +134,12 @@ export default function SignupApp({ start, plan }: {
         // Lead, not a registration. No value attached on purpose: putting a
         // dollar figure on somebody who has done nothing but type their name
         // would teach Meta to chase form fillers.
-        pixel()?.("track", "Lead", { content_name: "RooWatch signup" });
+        //
+        // This call used to be the only one, and it almost never arrived: the
+        // navigation below happens in the same tick, and a queued event dies
+        // with the page. The signup route sends the same event with the same
+        // id, so losing this one no longer loses the conversion.
+        pixel()?.("track", "Lead", { content_name: "RooWatch signup" }, { eventID: eventId });
       }
 
       window.location.href = "/dashboard";

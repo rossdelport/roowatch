@@ -619,6 +619,23 @@
 
 
 <script>
+// The ad click id, written into the cookie the pixel would normally write.
+// fbevents.js does this itself, but it is exactly the script an ad blocker
+// removes, and on a blocked browser the click id was being lost at the door.
+// Signup reads this cookie and hands it to the Conversions API, which is what
+// lets Meta match a paying tradie back to the ad set that found them.
+(function(){
+  try{
+    var id=new URLSearchParams(location.search).get('fbclid');
+    if(!id)return;
+    if(document.cookie.indexOf('_fbc=')>-1)return;
+    var v='fb.1.'+Date.now()+'.'+id;
+    document.cookie='_fbc='+v+';path=/;max-age=7776000;domain=.roowatch.com.au;samesite=lax';
+  }catch(e){}
+})();
+</script>
+
+<script>
 var ROO_PIXEL_ID='4105570149577363';
 if(/^[0-9]{6,}$/.test(ROO_PIXEL_ID)){
 !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?

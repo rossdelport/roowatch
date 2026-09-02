@@ -36,6 +36,14 @@ export const profiles = sqliteTable("profiles", {
   location: text("location").notNull().default(""),
   brief: text("brief").notNull().default(""),
   alertPhone: text("alert_phone").notNull().default(""),
+  /**
+   * The Meta click and browser ids, captured at signup from the cookies the
+   * ad click leaves behind. Kept because CompleteRegistration and Purchase
+   * happen minutes or days later, server side, with no browser in the loop.
+   * Without them Meta cannot tell which ad set produced a paying member.
+   */
+  fbc: text("fbc").notNull().default(""),
+  fbp: text("fbp").notNull().default(""),
   postsUsed: integer("posts_used").notNull().default(0),
   usageMonth: text("usage_month").notNull().default(""),
   smsUsed: integer("sms_used").notNull().default(0),

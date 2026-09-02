@@ -9,8 +9,7 @@ import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
 import { PLAN_KEYS, PLANS, TRIAL_DAYS, type Plan, type PlanKey } from "../../db/plans";
 import { BRIEF_MAX, BRIEF_MIN } from "../../db/brief";
 import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
-
-const PIXEL_ID = "4105570149577363";
+import { PIXEL_ID } from "../../db/pixel";
 
 type Pixel = ((...args: unknown[]) => void) & {
   queue?: unknown[];
@@ -273,14 +272,23 @@ export default function DashboardApp() {
     // one currently has enough volume to learn from.
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") !== "success") return;
+    // Stripe hands the session id back in the return url. The webhook builds
+    // the same id from the same session, so this browser copy and that server
+    // copy are one sale in Meta.
+    const sessionId = params.get("session_id") ?? "";
     // The parameter is left in place until they close the celebration. It is
     // the only thing telling us they have just come back from Stripe.
     startPixel();
-    (window as unknown as { fbq?: Pixel }).fbq?.("track", "Purchase", {
-      content_name: "RooWatch subscription",
-      value: PLANS[(me?.profile?.plan ?? "local") as PlanKey]?.priceAud ?? 197,
-      currency: "AUD",
-    });
+    (window as unknown as { fbq?: Pixel }).fbq?.(
+      "track",
+      "Purchase",
+      {
+        content_name: "RooWatch subscription",
+        value: PLANS[(me?.profile?.plan ?? "local") as PlanKey]?.priceAud ?? 197,
+        currency: "AUD",
+      },
+      sessionId ? { eventID: `stripe-${sessionId}` } : undefined
+    );
   }, [me?.profile?.plan]);
 
   async function logout() {
@@ -1592,11 +1600,15 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
    */
   async function finish() {
     setBusy(true);
+    // One id for both copies of this registration. The route below sends its
+    // own copy to Meta, which is the one that always arrives.
+    const registrationId = crypto.randomUUID();
     try {
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          eventId: registrationId,
           businessName,
           website,
           gbpUrl,
@@ -1625,12 +1637,19 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
       // real registration: suburbs picked, brief written, groups pasted.
       // Fired before the checkout call rather than after it, so the beacon
       // has the whole round trip to leave before the page navigates away.
+      // It often does not make it anyway, which is why /api/onboarding sends
+      // the same event with the same id from the Worker.
       startPixel();
-      (window as unknown as { fbq?: Pixel }).fbq?.("track", "CompleteRegistration", {
-        content_name: "RooWatch setup finished",
-        value: me.plan?.priceAud ?? 197,
-        currency: "AUD",
-      });
+      (window as unknown as { fbq?: Pixel }).fbq?.(
+        "track",
+        "CompleteRegistration",
+        {
+          content_name: "RooWatch setup finished",
+          value: me.plan?.priceAud ?? 197,
+          currency: "AUD",
+        },
+        { eventID: registrationId }
+      );
 
       const checkout = await fetch("/api/checkout", {
         method: "POST",
@@ -5168,10 +5187,22 @@ const CSS = `
 .um-actions{align-items:center;display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;}
 .um-danger{background:#fffaf9;border-radius:14px;margin-top:8px;padding:18px;}
 .um-danger .um-label{color:var(--coral-deep);}
+.group-repair-modal{max-height:88vh;max-width:700px;overflow:hidden;padding:0;}
+.group-repair-modal .um-body{padding-bottom:20px;}
+.group-repair-list{border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+.group-repair-row{align-items:center;border-top:1px solid #f4efe7;display:flex;gap:14px;justify-content:space-between;padding:13px 14px;}
+.group-repair-row:first-child{border-top:0;}
+.group-repair-copy{min-width:0;}
+.group-repair-copy strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.group-repair-url{color:#8b93a7;max-width:480px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.group-repair-row .mini{flex:none;}
 @media(max-width:560px){
   .um-stats{grid-template-columns:1fr;}
   .um-body{padding:0 18px 18px;}
   .um-head{padding:16px 18px;}
+  .group-repair-modal{max-height:92vh;max-height:92dvh;}
+  .group-repair-row{align-items:flex-start;flex-direction:column;}
+  .group-repair-row .mini{align-self:flex-end;}
 }
 
 /* ---- setup wizard ---- */

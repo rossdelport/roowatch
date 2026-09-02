@@ -32,8 +32,11 @@ export async function POST(request: Request) {
     "metadata[plan]": planKey,
     "subscription_data[metadata][plan]": planKey,
     // The dashboard uses this to fire the Facebook pixel only once the card
-    // has actually gone through, not at the signup form.
-    success_url: "https://roowatch.com.au/dashboard?checkout=success",
+    // has actually gone through, not at the signup form. The session id rides
+    // along so the browser copy and the webhook copy of Purchase carry the
+    // same event id and Meta counts one sale.
+    success_url:
+      "https://roowatch.com.au/dashboard?checkout=success&session_id={CHECKOUT_SESSION_ID}",
     // Back to the dashboard, not the signup form. They already have an
     // account by this point, so sending them to a form that asks them to make
     // one again reads as broken. The dashboard shows them the card screen.

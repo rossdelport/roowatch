@@ -4,6 +4,7 @@ import { sendSms } from "../../../../db/sms";
 import { sendEmail } from "../../../../db/auth";
 import { PLAN_KEYS, PLANS, planForPrice, type PlanKey } from "../../../../db/plans";
 import { groups, profiles, sources, users } from "../../../../db/schema";
+import { sendCapi } from "../../../../db/capi";
 
 /**
  * Stripe tells us here when a trial converts, a card fails, or someone
@@ -132,6 +133,7 @@ async function reactivateMember(userId: string) {
 }
 
 type CheckoutSession = {
+  id?: string;
   mode?: string;
   customer?: string;
   subscription?: string;
@@ -202,7 +204,14 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
   // received, and the handler is safe to re-run, but a welcome text is not:
   // getting it twice reads as a broken product on day one.
   const [before] = await db
-    .select({ status: profiles.subscriptionStatus })
+    .select({
+      status: profiles.subscriptionStatus,
+      // Read here rather than after the write, because the write does not
+      // touch them and Meta needs them to match the sale to the ad click.
+      fbc: profiles.fbc,
+      fbp: profiles.fbp,
+      phone: profiles.alertPhone,
+    })
     .from(profiles)
     .where(eq(profiles.userId, user.id))
     .limit(1);
@@ -222,6 +231,24 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
 
   await tellRoss(user.id, email, plan);
   if (firstTime) await welcomeMember(user.id);
+
+  // The card has actually cleared, which is the only conversion worth
+  // optimising towards. The dashboard fires this too, but only for somebody
+  // who comes back from Stripe with the tab still open. This route hears about
+  // every one of them, including trials that convert days later.
+  if (firstTime) {
+    await sendCapi({
+      name: "Purchase",
+      eventId: `stripe-${session.id ?? customerId}`,
+      email,
+      phone: before?.phone || undefined,
+      fbc: before?.fbc || undefined,
+      fbp: before?.fbp || undefined,
+      sourceUrl: "https://roowatch.com.au/dashboard",
+      value: PLANS[(plan ?? "local") as PlanKey]?.priceAud,
+      contentName: "RooWatch subscription",
+    });
+  }
 }
 
 /**

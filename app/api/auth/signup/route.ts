@@ -5,6 +5,7 @@ import { hashPassword, passwordProblem } from "../../../../db/password";
 import { profiles, users } from "../../../../db/schema";
 import { PLAN_KEYS, type PlanKey } from "../../../../db/plans";
 import { toE164 } from "../../../../db/sms";
+import { attributionFromRequest, sendCapi } from "../../../../db/capi";
 
 const NOTIFY = ["ross@roowatch.com.au", "rossdelport1998@gmail.com"];
 
@@ -24,6 +25,14 @@ export async function POST(request: Request) {
   const state = clean(body.state, 60);
   const wanted = clean(body.plan, 20).toLowerCase();
   const plan = PLAN_KEYS.includes(wanted as PlanKey) ? wanted : "local";
+  // The form sends the ids it can read, and the cookie jar is the fallback for
+  // when the pixel script was blocked and never wrote them into the page.
+  const jar = attributionFromRequest(request);
+  const fbc = clean(body.fbc, 255) || jar.fbc;
+  const fbp = clean(body.fbp, 255) || jar.fbp;
+  // Made in the browser and sent here, so the pixel copy and this copy are one
+  // conversion in Meta rather than two.
+  const eventId = clean(body.eventId, 64) || crypto.randomUUID();
 
   if (!/.+@.+\..+/.test(email)) {
     return Response.json({ error: "bad_email" }, { status: 400 });
@@ -63,6 +72,8 @@ export async function POST(request: Request) {
     trade,
     state,
     alertPhone: phone,
+    fbc,
+    fbp,
     // They gave us a mobile at signup, so use it. Text alerts are the point of
     // the product for someone up a ladder. Settings has the off switch.
     smsEnabled: 1,
@@ -73,6 +84,22 @@ export async function POST(request: Request) {
   });
 
   const token = await createSession(id);
+
+  // The browser fires this too, but only if the pixel script loaded in time
+  // and the page survived long enough to send it. Neither is reliable, and
+  // this call is, so Meta finally has a Lead to learn from.
+  await sendCapi({
+    name: "Lead",
+    eventId,
+    email,
+    phone,
+    fbc,
+    fbp,
+    sourceUrl: request.headers.get("referer") ?? "https://roowatch.com.au/signup",
+    clientIp: request.headers.get("cf-connecting-ip") ?? undefined,
+    clientUserAgent: request.headers.get("user-agent") ?? undefined,
+    contentName: "RooWatch signup",
+  });
 
   await sendEmail(
     NOTIFY,
