@@ -13,7 +13,8 @@
  * network so they can be tested on their own.
  */
 
-export const GROUP_JUDGE_MODEL = "claude-haiku-4-5-20251001";
+// Plain alias, same reason as LEAD_FILTER_MODEL: the dated id was 400ing.
+export const GROUP_JUDGE_MODEL = "claude-haiku-4-5";
 export const GROUP_JUDGE_TIMEOUT_MS = 30_000;
 /** Names judged in one call. Plenty for a sizing snapshot, small enough to
  *  answer well inside the token budget. */
@@ -62,7 +63,6 @@ export function buildGroupJudgeRequest(prompt: { system: string; user: string })
   return {
     model: GROUP_JUDGE_MODEL,
     max_tokens: 4000,
-    temperature: 0,
     system: prompt.system,
     messages: [{ role: "user", content: prompt.user }],
     output_config: {
@@ -134,7 +134,12 @@ export async function judgeGroupNames(names: string[]): Promise<boolean[] | null
       return null;
     }
     if (!res.ok) {
-      console.error("group_judge_http_error", { status: res.status });
+      // The API says in the body what it did not like. Without it a 400 is
+      // a guessing game.
+      console.error("group_judge_http_error", {
+        status: res.status,
+        body: (await res.text().catch(() => "")).slice(0, 300),
+      });
       return null;
     }
     const data = (await res.json().catch(() => null)) as {

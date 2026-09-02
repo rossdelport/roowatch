@@ -60,7 +60,7 @@ brief. Matches become alerts.
 | Runtime | Cloudflare Workers via [vinext](https://github.com/cloudflare/vinext) | Next.js App Router in a Worker sandbox |
 | Database | Cloudflare D1 (`roowatch-db`) | SQLite at the edge, accessed with Drizzle |
 | Scraper | Apify (paused) → Bright Data | see [docs/scraper-decision.md](docs/scraper-decision.md) |
-| Matching | Claude Haiku 4.5 | `claude-haiku-4-5-20251001` |
+| Matching | Claude Haiku 4.5 | `claude-haiku-4-5` |
 | Email | Resend | sends from `notify@roowatch.com.au` |
 | Payments | Stripe | three live plans, see below |
 | Analytics | Meta Pixel `4105570149577363` | plus our own `events` table |

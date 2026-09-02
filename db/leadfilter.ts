@@ -11,8 +11,13 @@ export const LEAD_FILTER_VERSION = "v3";
 export const LEAD_CONFIDENCE_THRESHOLD = 0.9;
 export const LEAD_FILTER_REQUEST_TIMEOUT_MS = 30_000;
 export const LEAD_FILTER_MAX_TOKENS = 512;
-/** Reads every post. Cheap, because most posts are not leads. */
-export const LEAD_FILTER_MODEL = "claude-haiku-4-5-20251001";
+/**
+ * Reads every post. Cheap, because most posts are not leads.
+ *
+ * The plain alias, not the dated snapshot. Every call with the dated id
+ * came back 400 in production and no member was texted for a day.
+ */
+export const LEAD_FILTER_MODEL = "claude-haiku-4-5";
 /**
  * Reads only the posts the first model said yes to, and has the last word.
  *
@@ -109,7 +114,8 @@ export function buildLeadClassifierRequest(
   return {
     model,
     max_tokens: LEAD_FILTER_MAX_TOKENS,
-    temperature: 0,
+    // No temperature. Sonnet 5 rejects anything but the default with a 400,
+    // and a schema-enforced answer does not need it on Haiku either.
     system: prompt.system,
     messages: [{ role: "user", content: prompt.user }],
     output_config: {

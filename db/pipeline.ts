@@ -452,6 +452,8 @@ async function askLeadModel(
       model,
       status: res.status,
       requestId: res.headers.get("request-id") ?? res.headers.get("x-request-id") ?? "",
+      // The API's own words. A day of 400s went undiagnosed without them.
+      body: (await res.text().catch(() => "")).slice(0, 300),
     }));
     throw new LeadFilterError(`lead_filter_http_${res.status}_${pass}`);
   }

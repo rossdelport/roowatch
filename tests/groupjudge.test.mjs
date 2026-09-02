@@ -18,7 +18,7 @@ test("the judge asks for one structured verdict per name", () => {
   const request = buildGroupJudgeRequest(prompt);
   assert.equal(request.output_config.format.type, "json_schema");
   assert.equal(request.output_config.format.schema, GROUP_JUDGE_JSON_SCHEMA);
-  assert.equal(request.temperature, 0);
+  assert.equal(request.temperature, undefined);
 });
 
 test("silence is a rejection, and a broken answer is no answer", () => {
