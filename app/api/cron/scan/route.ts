@@ -94,6 +94,13 @@ const MAX_WINDOW_MINUTES = 360;
 /** Only one run at a time. */
 const SCAN_LEASE_ID = "scan_run_lease";
 /**
+ * One run per scan gap, however often the cron fires. Ticks land about half
+ * a minute past the minute, so the gap is a little under five minutes or the
+ * tick that should start the next run would find it still held.
+ */
+const SCAN_GAP_ID = "scan_gap";
+const SCAN_GAP_MS = SCAN_EVERY_MINUTES * 60 * 1000 - 30 * 1000;
+/**
  * Renewed on every poll, so this is how long a killed run keeps the scanner
  * off. Three minutes means at most one cron fires into a dead lease.
  */
@@ -404,6 +411,12 @@ export async function POST(request: Request) {
 
   let lease: number | null = null;
   try {
+    // The cron can fire faster than the schedule, for instance while
+    // Cloudflare is still swapping an old expression for a new one. Without
+    // this every tick would buy the same eight minute window again.
+    if (!(await claimLease(SCAN_GAP_ID, SCAN_GAP_MS))) {
+      return Response.json({ ok: true, skipped: "too_soon" });
+    }
     lease = await claimLease(SCAN_LEASE_ID, SCAN_LEASE_MS);
   } catch (error) {
     console.error("scanner_lease_failed", { error: errorMessage(error) });

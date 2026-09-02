@@ -200,10 +200,21 @@ test("scanner runs every five minutes and the watchdog on the hour", () => {
   assert.equal(routedHealth, configured?.[2]);
   assert.match(scanner, /SCAN_EVERY_MINUTES = 5/);
   assert.match(worker, /event\.cron === HEALTH_CRON/);
-  assert.match(worker, /event\.cron === SCAN_CRON/);
-  assert.match(worker, /unknown_cron_ignored/);
   assert.match(worker, /runHealth\(request\("\/api\/cron\/health"\)\)/);
   assert.match(worker, /runScan\(request\("\/api\/cron\/scan"\)\)/);
+  // Every tick that is not the watchdog scans. Cloudflare kept sending the
+  // old every minute expression after the deploy, and ignoring it left the
+  // scanner off for as long as that lasted.
+  assert.doesNotMatch(worker, /unknown_cron_ignored/);
+  assert.doesNotMatch(worker, /if \(event\.cron === SCAN_CRON\)/);
+  assert.match(worker, /unexpected_cron_treated_as_scan/);
+  // So the scan route paces itself: one run per gap, whatever the tick rate,
+  // claimed before the run lease.
+  assert.match(scanner, /const SCAN_GAP_MS = SCAN_EVERY_MINUTES \* 60 \* 1000 - 30 \* 1000;/);
+  const gap = scanner.indexOf("claimLease(SCAN_GAP_ID, SCAN_GAP_MS)");
+  const run = scanner.indexOf("claimLease(SCAN_LEASE_ID, SCAN_LEASE_MS)");
+  assert.ok(gap > 0 && gap < run);
+  assert.match(scanner, /skipped: "too_soon"/);
 });
 
 test("a ready snapshot is read whole, every group in it", () => {

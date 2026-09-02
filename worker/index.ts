@@ -73,12 +73,16 @@ const worker = {
 
     // Calling the route through Vinext made every tick initialise the full app
     // router before it reached the scanner, so cron calls the handler directly.
-    if (event.cron === SCAN_CRON) {
-      ctx.waitUntil(runScan(request("/api/cron/scan")));
-      return;
+    //
+    // Any other expression is a scan tick too. When the schedule moved from
+    // every minute to every five, Cloudflare kept firing the old expression
+    // at the new code for a good while, and a dispatcher that only answered
+    // to the exact string sat there ignoring every tick. The scan route
+    // paces itself, so a faster tick costs nothing.
+    if (event.cron !== SCAN_CRON) {
+      console.warn("unexpected_cron_treated_as_scan", { cron: event.cron });
     }
-
-    console.error("unknown_cron_ignored", { cron: event.cron });
+    ctx.waitUntil(runScan(request("/api/cron/scan")));
   },
 };
 
