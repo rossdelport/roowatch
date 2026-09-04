@@ -44,7 +44,8 @@ test("renders the public landing page", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   assert.match(html, /<title>RooWatch - Instant lead generation<\/title>/i);
   assert.match(html, /Facebook group leads for/);
-  assert.match(html, /Get local leads/);
+  assert.match(html, /Closed to new signups/);
+  assert.doesNotMatch(html, /href="\/signup\?plan=/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site|react-loading-skeleton/);
 });
 
@@ -52,15 +53,28 @@ test("renders generic and trade-specific reserve pages", async () => {
   const generic = await page("/reserve");
   assert.equal(generic.response.status, 200);
   assert.match(generic.html, /Start getting leads/);
-  // Pricing replaced the waitlist form, so the page must sell, not collect.
-  assert.match(generic.html, /href="\/signup\?plan=local"/);
+  assert.match(generic.html, /Closed to new signups/);
+  assert.doesNotMatch(generic.html, /href="\/signup\?plan=/);
   assert.doesNotMatch(generic.html, /api\/waitlist/);
 
   const trade = await page("/reserve/plumbers");
   assert.equal(trade.response.status, 200);
   assert.match(trade.html, /Your next customer is asking for a <span class="highlight">plumber<\/span>/);
-  // The ad already knows their trade, so signup must not ask again.
-  assert.match(trade.html, /href="\/signup\?plan=local&trade=plumber"/);
+  assert.match(trade.html, /Closed to new signups/);
+  assert.doesNotMatch(trade.html, /href="\/signup\?plan=/);
+});
+
+test("blocks new checkout sessions after shutdown", async () => {
+  const response = await fetch(`${baseUrl}/api/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan: "local" }),
+  });
+  assert.equal(response.status, 410);
+  assert.deepEqual(await response.json(), {
+    error: "service_closed",
+    message: "RooWatch is no longer accepting new subscriptions.",
+  });
 });
 
 test("keeps anonymous API access unauthenticated", async () => {
