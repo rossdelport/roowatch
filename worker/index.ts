@@ -3,6 +3,7 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { POST as runScan } from "../app/api/cron/scan/route";
 import { POST as runHealth } from "../app/api/cron/health/route";
+import { ROOWATCH_CLOSED } from "../db/closed";
 
 interface Env {
   ASSETS: Fetcher;
@@ -56,7 +57,7 @@ const worker = {
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (!env.CRON_SECRET) return;
+    if (ROOWATCH_CLOSED || !env.CRON_SECRET) return;
 
     const request = (path: string) =>
       new Request(`https://roowatch.com.au${path}`, {

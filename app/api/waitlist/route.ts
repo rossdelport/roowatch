@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { waitlist } from "../../../db/schema";
+import { ROOWATCH_CLOSED } from "../../../db/closed";
 
 function sendEmails(key: string, email: string, name: string, phone: string, trade: string) {
   const firstName = name.trim().split(/\s+/)[0] || "there";
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
   }
 
   const key = process.env.RESEND_API_KEY;
-  if (key && !alreadyComplete) {
+  if (key && !alreadyComplete && !ROOWATCH_CLOSED) {
     await sendEmails(key, email, name, phone, trade);
   }
 

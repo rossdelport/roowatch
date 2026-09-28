@@ -1,4 +1,7 @@
+import { ROOWATCH_CLOSED } from "../../../db/closed";
+
 export async function POST(request: Request) {
+  if (ROOWATCH_CLOSED) return new Response(null, { status: 204 });
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     return new Response("notification not configured", { status: 500 });

@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "./index";
+import { ROOWATCH_CLOSED } from "./closed";
 import { sessions, users } from "./schema";
 
 export const SESSION_COOKIE = "roo_session";
@@ -85,7 +86,7 @@ export async function sendEmail(
   text: string
 ) {
   const key = process.env.RESEND_API_KEY;
-  if (!key) return false;
+  if (ROOWATCH_CLOSED || !key) return false;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {

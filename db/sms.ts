@@ -3,6 +3,8 @@
  * Set TWILIO_* or CLICKSEND_* secrets and the right one is used.
  */
 
+import { ROOWATCH_CLOSED } from "./closed";
+
 /** Australian mobiles to E.164, e.g. 0406 688 617 -> +61406688617 */
 export function toE164(raw: string): string | null {
   const digits = String(raw ?? "").replace(/[^\d+]/g, "");
@@ -112,6 +114,7 @@ export function smsProvider(): "twilio" | "clicksend" | null {
 }
 
 export async function sendSms(rawTo: string, body: string): Promise<SmsResult> {
+  if (ROOWATCH_CLOSED) return { ok: false, provider: "none", error: "roowatch_closed" };
   const provider = smsProvider();
   if (!provider) return { ok: false, provider: "none", error: "sms_not_configured" };
 
