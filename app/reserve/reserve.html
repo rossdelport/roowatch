@@ -233,6 +233,8 @@
 
 .r-hero-cta { margin: 26px auto 30px; max-width: 340px; }
 .r-hero-cta .button { margin-top: 0; }
+.button-closed { cursor: default; opacity: .72; pointer-events: none; }
+.button-closed::after { display: none; }
 .r-hero-note { color: #98a0b3; font-size: 13px; margin: 12px 0 0; }
 .r-faq { margin: 56px auto 0; max-width: 560px; text-align: left; }
 .r-faq h2 { font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin: 0 0 18px; text-align: center; }
@@ -384,8 +386,6 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
             <span class="setup-label">Your alert channels</span>
             <div class="channel-row channel-on"><span>Email</span><span class="channel-tag">On</span></div>
             <div class="channel-row channel-on"><span>Text</span><span class="channel-tag">On</span></div>
-            <div class="channel-row"><span>Teams</span></div>
-            <div class="channel-row"><span>Custom</span></div>
           </div>
         </div>
         <svg class="step-link" viewBox="0 0 400 130" fill="none" aria-hidden="true"><defs><mask id="roo-draw-3"><path class="draw" d="M330 6 C330 80 70 50 70 124" pathLength="100" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="100" stroke-dashoffset="100"/></mask></defs><path d="M330 6 C330 80 70 50 70 124" fill="none" stroke="#b8b1a6" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" mask="url(#roo-draw-3)"/></svg>
@@ -402,7 +402,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
               <span class="setup-chip">Home Advice Sydney</span>
               <span class="setup-chip">Northern Beaches Community</span>
               <span class="setup-chip">Manly Locals</span>
-              <span class="setup-chip">+ 7 more</span>
+              <span class="setup-chip">+ 17 more</span>
             </div>
             <div class="watch-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> We never use your Facebook account.</div>
             <img class="watch-mascot" src="/roowatch-mascot-3d-binos.png" alt="RooWatch mascot watching through binoculars" width="400" height="400" loading="lazy" decoding="async">
@@ -413,7 +413,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
       <article class="step-row">
         <div class="step-copy">
           <span class="step-num">5</span>
-          <h3>Get the lead in under 60 seconds</h3>
+          <h3>Get the lead in minutes</h3>
         </div>
         <div class="step-visual">
           <div class="step-visual-card step-alert">
@@ -443,7 +443,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
 
       <ul class="r-points">
         <li><span>&#10003;</span> Free for 14 days, nothing charged until then</li>
-        <li><span>&#10003;</span> We text you the second a job comes up</li>
+        <li><span>&#10003;</span> We text you soon after a job comes up</li>
         <li><span>&#10003;</span> Cancel any time, no lock in</li>
       </ul>
     </div>
@@ -470,7 +470,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
 
       <details>
         <summary>How fast do I hear about a job?</summary>
-        <p>Under 60 seconds from the post going live. We send you a text and an
+        <p>In minutes. We check your groups all day. We send you a text and an
         email with a link straight to the post.</p>
       </details>
 
@@ -493,7 +493,7 @@ fbq('track','ViewContent',{content_name:'RooWatch pricing'});
       </details>
     </section>
 
-    <p class="r-trust">Alerts in under 60 seconds &middot; No Facebook login needed &middot; Made in Australia</p>
+    <p class="r-trust">Alerts in minutes &middot; No Facebook login needed &middot; Made in Australia</p>
     <img class="r-mascot-b" src="/roowatch-mascot-3d.png" alt="RooWatch kangaroo mascot waving" width="400" height="400" loading="lazy" decoding="async">
     <a class="r-back" href="/">See the full site</a>
   </div>

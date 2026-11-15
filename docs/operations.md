@@ -9,7 +9,10 @@ Worker name: `roowatch`. Database: `roowatch-db`
 
 ## The scanner
 
-**Live, running on Bright Data since 16 August 2026.** See
+**Stopped since September 2026.** RooWatch is closed: `ROOWATCH_CLOSED` in
+[db/closed.ts](../db/closed.ts) is `true` and the cron triggers in
+[vite.config.ts](../vite.config.ts) are empty. Before that it ran on Bright
+Data from 16 August 2026. By the end it scanned once every five minutes. See
 [scraper-decision.md](scraper-decision.md) for why we moved off Apify.
 
 It runs in two phases across cron ticks. To see what phase it is in:
@@ -27,7 +30,7 @@ The scanner starts live work before it handles group-finder jobs. Each snapshot
 contains one group and each tick claims no more than one finished snapshot. A
 separate hourly cron checks both recent progress and one-hour coverage. If the
 scanner is stalled, it removes only queue jobs that are already stale. The next
-minute tick then starts fresh work automatically. Recovery has its own hourly
+five minute tick then starts fresh work automatically. Recovery has its own hourly
 cooldown and email has a separate four-hour cooldown.
 
 ### Pausing it
@@ -200,11 +203,45 @@ via `planFor()` in [db/plans.ts](../db/plans.ts).
 Each plan carries a monthly post allowance, which is also the most that member
 can ever cost us:
 
-| Plan | Groups | Posts a month | Worst case cost AUD | Price AUD |
-|---|---|---|---|---|
-| Local | 10 | 10,000 | about $31 | $297 |
-| Growth | 25 | 25,000 | about $78 | $597 |
-| Scale | 100 | 100,000 | about $311 | $1,997 |
+| Plan | Groups | Posts a month | Price AUD a month |
+|---|---|---|---|
+| Local | 20 | 5,000 | $97 |
+| Growth | 50 | 12,500 | $197 |
+| Scale | 200 | 58,500 | $897 |
+
+The old worst case cost column is gone. It was worked out for the old
+allowances and has not been measured against the real bill for these ones. The
+cost per post is in the comments in [db/plans.ts](../db/plans.ts).
+
+### Who gets scanned
+
+Only members who are paying. The scanner and the lead emails both ask
+`isEntitled()` in [db/plans.ts](../db/plans.ts), which is true for a
+subscription status of `trialing`, `active` or `past_due`. An account that
+finished setup and never added a card is not scanned and is sent nothing.
+
+To look after somebody for free, give them the status `comp`. Without it they
+get no leads, because they have no Stripe subscription:
+
+```bash
+npx wrangler d1 execute roowatch-db --remote \
+  --command="UPDATE profiles SET subscription_status='comp' WHERE user_id='...';"
+```
+
+### Groups found before November 2026
+
+A found group is now only offered once it has handed over a real post. Rows
+marked checked before that rule may be private or dead. This sends the ones
+that never showed a member count back to be checked again:
+
+```bash
+npx wrangler d1 execute roowatch-db --remote \
+  --command="UPDATE found_groups SET checked=0 WHERE checked=1 AND members=0;"
+```
+
+`checked` values: 0 not checked, 1 proven and offered, 2 read but the wrong
+kind of group, 4 showed no post once and gets one more look, 3 showed no post
+twice and is written off.
 
 ---
 
@@ -233,19 +270,23 @@ npx wrangler d1 execute roowatch-db --remote --command="SELECT id, group_name, u
 
 ## Stripe
 
-Three live products with monthly AUD prices and payment links. Since 16 August
-2026 every link carries a **7 day free trial**, card required upfront
-(`payment_method_collection: always`), and redirects to `/dashboard` after
-checkout. Links and trial settings live in [db/plans.ts](../db/plans.ts).
+Three products with monthly AUD prices. Every plan carries a **14 day free
+trial** (`TRIAL_DAYS`). The trial is set by the checkout route,
+[app/api/checkout/route.ts](../app/api/checkout/route.ts), not by a payment
+link. That route has returned 410 since September 2026, because RooWatch is
+closed. Prices and the trial length live in [db/plans.ts](../db/plans.ts).
 
-| Plan | Price id | Payment link |
-|---|---|---|
-| Local $297 | `price_1U4sCe9HOJbWqVToqrNBDaIp` | `buy.stripe.com/3cI9AN2Df9vYgVyg6bgUM01` |
-| Growth $597 | `price_1U4sCg9HOJbWqVToRKrBxw6W` | `buy.stripe.com/00w5kx4LnbE6dJm6vBgUM02` |
-| Scale $1,997 | `price_1U4sCh9HOJbWqVToU4GpQFTO` | `buy.stripe.com/6oUfZb5PreQifRu4ntgUM03` |
+| Plan | Price id |
+|---|---|
+| Local $97 | `price_1U9J1r9HOJbWqVTomTe8d2Vp` |
+| Growth $197 | `price_1U9JSx9HOJbWqVToJKSr9IbN` |
+| Scale $897 | `price_1U9JSx9HOJbWqVTooh1nDP4d` |
 
-Signup already redirects a new member straight to the right link, tagged with
-`?plan=` from the marketing site. The account itself is created and fully
+The retired $297, $597 and $1,997 price ids are kept in `legacyPriceIds` so
+members on an old price still resolve to the right plan.
+
+The plan picked on the marketing site rides through signup as `?plan=`, and
+the checkout at the end of setup bills it. The account itself is created and fully
 active before the trial or the card ever comes into it, since signup has never
 been payment-gated. See [pipeline.ts](../db/pipeline.ts) and
 [SignupApp.tsx](../app/signup/SignupApp.tsx).
@@ -264,19 +305,9 @@ The Billing Portal configuration that link depends on
 (`billing_portal/configurations`) only allows updating the payment method and
 viewing invoices. Self serve cancel and plan switching are off on purpose.
 
-To change the trial length or any Payment Link setting from the CLI, put a
-live secret key in `.dev.vars` (gitignored, never committed) as
-`STRIPE_SECRET_KEY=sk_live_...`, then call the Payment Links API directly,
-for example:
-
-```bash
-export $(grep -v '^#' .dev.vars | xargs)
-curl "https://api.stripe.com/v1/payment_links/PLINK_ID" -u "$STRIPE_SECRET_KEY:" \
-  -d "subscription_data[trial_period_days]=7"
-```
-
-Updating `trial_period_days` on an existing link only affects checkouts
-created after the change. It does not touch anyone already mid-trial.
+To change the trial length, change `TRIAL_DAYS` in
+[db/plans.ts](../db/plans.ts) and deploy. It only affects checkouts created
+after the change. It does not touch anyone already mid-trial.
 
 ---
 
