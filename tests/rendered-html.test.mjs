@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { PLANS, TRIAL_DAYS } from "../db/plans.ts";
 
 const port = 3100 + (process.pid % 500);
 const baseUrl = `http://localhost:${port}`;
@@ -47,6 +48,26 @@ test("renders the public landing page", async () => {
   assert.match(html, /Closed to new signups/);
   assert.doesNotMatch(html, /href="\/signup\?plan=/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site|react-loading-skeleton/);
+});
+
+// The plan cards once said 10, 25 and 100 groups while db/plans.ts said 20, 50
+// and 200. The page is plain HTML, so nothing else ties the two together.
+test("landing page plan cards match db/plans.ts", async () => {
+  const { html } = await page("/");
+  const cards = html.match(/<article class="plan[ "][\s\S]*?<\/article>/g) ?? [];
+  for (const plan of Object.values(PLANS)) {
+    const card = cards.find((c) => c.includes(`<span class="plan-title">${plan.name}</span>`));
+    assert.ok(card, `no plan card for ${plan.name}`);
+    assert.ok(card.includes(`<strong>$${plan.priceAud}</strong>`), `${plan.name} price`);
+    assert.ok(
+      card.includes(`${TRIAL_DAYS} days free, then $${plan.priceAud} a month`),
+      `${plan.name} trial line`
+    );
+    // Every group count in the card: the headline one and the feature list one.
+    const counts = [...card.matchAll(/(\d+)(?:<\/b>)? groups watched/g)].map((m) => Number(m[1]));
+    assert.ok(counts.length > 0, `${plan.name} shows no group count`);
+    assert.deepEqual([...new Set(counts)], [plan.groups], `${plan.name} group count`);
+  }
 });
 
 test("renders generic and trade-specific reserve pages", async () => {

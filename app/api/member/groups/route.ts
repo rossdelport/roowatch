@@ -40,26 +40,37 @@ export async function POST(request: Request) {
     const limit = groupLimit(profile?.plan);
 
     const mine = await db.select().from(groups).where(eq(groups.userId, user.id));
-    if (mine.length >= limit) {
+    // A group we found to be private stays on their list so they can see
+    // why, but it watches nothing, so it does not use up a slot.
+    if (mine.filter((g) => g.status !== "private").length >= limit) {
       return Response.json({ error: "plan_limit", limit }, { status: 400 });
     }
 
     // Find or make the source, then point their row at it. Without this the
     // group is decoration: the scanner never picks it up.
-    const [existing] = await db
-      .select({ id: sources.id, active: sources.active })
-      .from(sources)
-      .where(eq(sources.url, parsed.url))
-      .limit(1);
+    //
+    // Matched by slug, the way the wizard does it, and oldest first. Matching
+    // the raw link missed a group that was already stored with different
+    // capitals, and made a second source that was scanned and paid for twice.
+    const known = (
+      await db
+        .select({ id: sources.id, url: sources.url, active: sources.active, lastError: sources.lastError })
+        .from(sources)
+        .orderBy(sources.id)
+    ).filter((s) => groupSlug(s.url) === groupSlug(parsed.url ?? ""));
 
     // Same rule as the wizard: a group we already know is private can never
     // send them a lead, so it is turned away rather than quietly added.
-    const known = await db
-      .select({ url: sources.url, lastError: sources.lastError })
-      .from(sources);
-    const match = known.find((s) => groupSlug(s.url) === groupSlug(parsed.url));
-    if (match && /private/i.test(match.lastError)) {
+    if (known.some((s) => /private/i.test(s.lastError))) {
       return Response.json({ error: "private" }, { status: 400 });
+    }
+    const existing = known[0];
+
+    // Checked before anything is switched back on. This used to run after the
+    // source was reactivated, so "already on your list" still restarted a
+    // scan nobody had asked for.
+    if (existing && mine.some((g) => g.sourceId === existing.id)) {
+      return Response.json({ error: "duplicate" }, { status: 400 });
     }
 
     let sourceId = existing?.id;
@@ -75,10 +86,6 @@ export async function POST(request: Request) {
         .values({ groupName: parsed.name, url: parsed.url, lastChecked: Date.now() - 60 * 60 * 1000 })
         .returning({ id: sources.id });
       sourceId = created?.id;
-    }
-
-    if (mine.some((g) => g.sourceId === sourceId)) {
-      return Response.json({ error: "duplicate" }, { status: 400 });
     }
 
     await db.insert(groups).values({

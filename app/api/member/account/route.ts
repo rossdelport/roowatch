@@ -4,6 +4,7 @@ import { clearedCookie, currentUser, sendEmail } from "../../../../db/auth";
 import { hashPassword, passwordProblem, verifyPassword } from "../../../../db/password";
 import { BRIEF_MAX } from "../../../../db/brief";
 import { toE164 } from "../../../../db/sms";
+import { cancelStripe } from "../../../../db/stripe";
 import {
   alerts,
   groups,
@@ -110,6 +111,20 @@ export async function DELETE(request: Request) {
   if (!user) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const db = getDb();
+
+  // Stripe first, while we still know who the customer is. Deleting the rows
+  // and leaving the subscription running charged people for an account that
+  // no longer existed.
+  const [profile] = await db
+    .select({ stripeCustomerId: profiles.stripeCustomerId })
+    .from(profiles)
+    .where(eq(profiles.userId, user.id))
+    .limit(1);
+  const stripeResult = await cancelStripe(profile?.stripeCustomerId ?? "");
+  // Logged as well as emailed, because the email can fail or be switched off
+  // and a subscription that was not cancelled must leave a trace somewhere.
+  console.warn("member_deleted_account", { userId: user.id, stripe: stripeResult });
+
   await db.delete(alerts).where(eq(alerts.userId, user.id));
   await db.delete(groups).where(eq(groups.userId, user.id));
   await db.delete(profiles).where(eq(profiles.userId, user.id));
@@ -120,7 +135,7 @@ export async function DELETE(request: Request) {
   await sendEmail(
     "ross@roowatch.com.au",
     `Member deleted their account: ${user.email}`,
-    `${user.email} deleted their RooWatch account. Their data is gone. Check Stripe if a refund is owed.`
+    `${user.email} deleted their RooWatch account. Their data is gone.\n\nStripe: ${stripeResult}.\n\nCheck Stripe if a refund is owed.`
   );
 
   return new Response(null, {

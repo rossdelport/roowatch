@@ -1,6 +1,7 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { sendEmail } from "../../../../db/auth";
+import { worthScanning } from "../../../../db/pipeline";
 import { claimLease } from "../../../../db/lease";
 import {
   evaluateScannerHealth,
@@ -94,34 +95,53 @@ export async function POST(request: Request) {
   const now = Date.now();
 
   await mark("scanner_watchdog_last_run", now);
-  const [snapshot] = await db
-    .select({
-      active: sql<number>`count(*)`,
-      recent: sql<number>`sum(case when ${sources.lastChecked} >= ${now - WATCHDOG_WINDOW_MS} then 1 else 0 end)`,
-      latestChecked: sql<number>`coalesce(max(${sources.lastChecked}), 0)`,
-    })
-    .from(sources)
-    .where(eq(sources.active, 1));
-  const decision = evaluateScannerHealth(
-    {
-      active: Number(snapshot?.active ?? 0),
-      recent: Number(snapshot?.recent ?? 0),
-      latestChecked: Number(snapshot?.latestChecked ?? 0),
-    },
-    now
-  );
+  // Only the groups the scanner is meant to be reading. A group nobody paying
+  // is watching is skipped on purpose, and counting it would raise the alarm
+  // over work we chose not to do.
+  const wanted = await worthScanning();
+  const watched = (
+    await db
+      .select({
+        id: sources.id,
+        groupName: sources.groupName,
+        lastChecked: sources.lastChecked,
+        lastError: sources.lastError,
+      })
+      .from(sources)
+      .where(eq(sources.active, 1))
+  ).filter(wanted);
+  const snapshot = {
+    active: watched.length,
+    recent: watched.filter((s) => s.lastChecked >= now - WATCHDOG_WINDOW_MS).length,
+    latestChecked: watched.reduce((latest, s) => Math.max(latest, s.lastChecked), 0),
+  };
+  const decision = evaluateScannerHealth(snapshot, now);
   const quietFor = Number.isFinite(decision.quietForMs)
     ? Math.floor(decision.quietForMs / 60000)
     : -1;
+
+  // Touching groups is not the same as doing the job. The lead check once
+  // failed on every post for a whole day and nobody was texted, while every
+  // group was still being visited on time and this watchdog saw nothing
+  // wrong. So a quarter of the groups failing their checks is an alarm too.
+  const failingWith = new Map<string, number>();
+  for (const s of watched) {
+    if (!/^(lead_filter|email_delivery|alert_not)/.test(s.lastError)) continue;
+    failingWith.set(s.lastError, (failingWith.get(s.lastError) ?? 0) + 1);
+  }
+  const failing = [...failingWith.values()].reduce((total, n) => total + n, 0);
+  const worstError = [...failingWith.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  const checksFailing = failing > 0 && failing * 4 >= watched.length;
 
   if (decision.skipped) {
     await mark("scanner_watchdog_last_healthy", now);
     return Response.json({ ok: true, skipped: "no_active_sources" });
   }
-  if (decision.healthy) {
+  if (decision.healthy && !checksFailing) {
     await mark("scanner_watchdog_last_healthy", now);
     return Response.json({ ok: true, healthy: true, quietFor, covered: decision.covered });
   }
+  const reason = decision.healthy ? "checks_failing" : decision.reason;
 
   let recoveredJobs = 0;
   let recoveryAttempted = false;
@@ -152,7 +172,7 @@ export async function POST(request: Request) {
     return Response.json({
       ok: true,
       healthy: false,
-      reason: decision.reason,
+      reason,
       quietFor,
       covered: decision.covered,
       recoveryAttempted,
@@ -172,16 +192,23 @@ export async function POST(request: Request) {
   const postAge = lastPost ? Math.round((now - Number(lastPost.seenAt)) / 60000) : -1;
 
   const body = [
-    "RooWatch has stopped scanning.",
+    ...(checksFailing
+      ? [
+          "RooWatch is reading posts but cannot check them for leads.",
+          "",
+          `${failing} of ${watched.length} groups failed their last check. The most common error is: ${worstError}`,
+          "Leads are not being sent while this is true.",
+        ]
+      : ["RooWatch has stopped scanning."]),
     "",
-    `Only ${decision.covered}% of active groups were checked in the last hour.`,
+    `${decision.covered}% of watched groups were checked in the last hour.`,
     quietFor >= 0
       ? `The most recently checked group was ${quietFor} minutes ago.`
       : "No active group has ever completed a check.",
     postAge >= 0
       ? `The last post was read ${postAge} minutes ago.`
       : "No posts have ever been read.",
-    `${Number(snapshot?.active ?? 0)} groups should be being watched right now.`,
+    `${watched.length} groups should be being watched right now.`,
     "",
     "Some groups may miss leads while this is true.",
     "",
@@ -194,7 +221,11 @@ export async function POST(request: Request) {
   ].join("\n");
 
   try {
-    await sendEmail(WATCHER, "RooWatch scanner has stopped", body);
+    await sendEmail(
+      WATCHER,
+      checksFailing ? "RooWatch lead checks are failing" : "RooWatch scanner has stopped",
+      body
+    );
     alerted = true;
   } catch (error) {
     alertError = error instanceof Error ? error.message : String(error);
@@ -205,7 +236,9 @@ export async function POST(request: Request) {
   try {
     await sendSms(
       ROSS_MOBILE,
-      `RooWatch scanning has stalled. Only ${decision.covered}% of groups checked in the last hour. Recovery has started.`
+      checksFailing
+        ? `RooWatch lead checks are failing on ${failing} of ${watched.length} groups. Leads are not being sent. Check your email.`
+        : `RooWatch scanning has stalled. Only ${decision.covered}% of groups checked in the last hour. Recovery has started.`
     );
   } catch {
     // The email is the alarm. A texting outage must not swallow it.
@@ -214,7 +247,7 @@ export async function POST(request: Request) {
   return Response.json({
     ok: true,
     healthy: false,
-    reason: decision.reason,
+    reason,
     alerted,
     alertError,
     quietFor,

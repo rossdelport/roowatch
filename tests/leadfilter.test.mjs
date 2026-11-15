@@ -243,3 +243,28 @@ test("the verify pass is a second, stricter read by a stronger model", () => {
   assert.match(classify, /return second;\s*\}/);
   assert.doesNotMatch(classify, /return first;\s*\}/);
 });
+
+test("a customer is not thrown out for sounding a bit like an ad", () => {
+  // Each of these was rejected by a word rule before a model ever read it.
+  // They are written as examples of how people ask, not copied from Facebook.
+  const real = [
+    "Looking for a cleaner who can take on new clients in Joondalup, fortnightly",
+    "Need a fencer ASAP, immediate start, about 20m of colorbond",
+    "Hot water system died. Any plumbers free today? Please message me to arrange a time",
+    "Can anyone recommend an electrician? Call me for the address",
+    "Anyone know a lawn mowing guy who is available for work this weekend?",
+  ];
+  for (const post of real) {
+    assert.equal(obviousNonLeadReason(post), "", post);
+  }
+
+  // The same phrases with nobody asking for anything are still an ad.
+  const ads = [
+    "Lawn mowing and gardening, free quotes. Message me for a price.",
+    "Painter available for work this month, all areas.",
+    "Labourers wanted on site in Wyong. Immediate start.",
+  ];
+  for (const post of ads) {
+    assert.notEqual(obviousNonLeadReason(post), "", post);
+  }
+});

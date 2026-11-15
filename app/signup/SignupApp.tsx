@@ -158,12 +158,18 @@ export default function SignupApp({ start, plan, trade }: {
     setBusy(true);
     setError("");
     try {
-      await fetch("/api/auth/request-link", {
+      const res = await fetch("/api/auth/request-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim() }),
       });
-      setLinkSent(true);
+      // The route says sent: true only when the email really left. An unknown
+      // address, a bad address and a mail failure all come back without it.
+      const data = (await res.json().catch(() => ({}))) as { sent?: boolean };
+      if (res.ok && data.sent === true) setLinkSent(true);
+      else setError(LINK_FAILED);
+    } catch {
+      setError(LINK_FAILED);
     } finally {
       setBusy(false);
     }
@@ -183,7 +189,7 @@ export default function SignupApp({ start, plan, trade }: {
             <h2>More local jobs, sent to your phone.</h2>
             <ul className="proof">
               <li>We watch your local Facebook groups all day and all night.</li>
-              <li>You get an alert in under 60 seconds.</li>
+              <li>You get an alert in minutes.</li>
               <li>You reply first, so you win the job.</li>
             </ul>
           </div>
@@ -366,8 +372,13 @@ function Field({
   );
 }
 
+const LINK_FAILED =
+  "We could not send the link. Log in with your password, or email ross@roowatch.com.au.";
+
 function messageFor(code?: string, message?: string) {
   switch (code) {
+    case "service_closed":
+      return "RooWatch is closed to new signups.";
     case "email_taken":
       return "That email already has an account. Try logging in instead.";
     case "weak_password":

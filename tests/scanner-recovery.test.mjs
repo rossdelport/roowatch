@@ -194,10 +194,18 @@ test("scanner runs every five minutes and the watchdog on the hour", () => {
   const configured = /crons: \["([^"]+)", "([^"]+)"\]/.exec(config);
   const routedScan = /const SCAN_CRON = "([^"]+)"/.exec(worker)?.[1];
   const routedHealth = /const HEALTH_CRON = "([^"]+)"/.exec(worker)?.[1];
-  assert.equal(configured?.[1], "*/5 * * * *");
-  assert.equal(configured?.[2], "0 * * * *");
-  assert.equal(routedScan, configured?.[1]);
-  assert.equal(routedHealth, configured?.[2]);
+  // While RooWatch is closed the schedule is emptied on purpose, see
+  // db/closed.ts. The Worker still has to route the two expressions that come
+  // back when it reopens.
+  const closed = /ROOWATCH_CLOSED = true/.test(readFileSync("db/closed.ts", "utf8"));
+  if (closed) {
+    assert.match(config, /crons: \[\]/);
+  } else {
+    assert.equal(configured?.[1], routedScan);
+    assert.equal(configured?.[2], routedHealth);
+  }
+  assert.equal(routedScan, "*/5 * * * *");
+  assert.equal(routedHealth, "0 * * * *");
   assert.match(scanner, /SCAN_EVERY_MINUTES = 5/);
   assert.match(worker, /event\.cron === HEALTH_CRON/);
   assert.match(worker, /runHealth\(request\("\/api\/cron\/health"\)\)/);
@@ -225,7 +233,7 @@ test("a ready snapshot is read whole, every group in it", () => {
   );
 
   assert.match(collect, /for \(const source of rows\)/);
-  assert.match(collect, /processSource\(source\.id, posts, \{ run, fact \}\)/);
+  assert.match(collect, /processSource\(source\.id, posts, \{ run, fact, checkedAt: job\.startedAt \}\)/);
   assert.doesNotMatch(collect, /sourceIds\.slice\(1\)/);
 });
 
@@ -239,4 +247,23 @@ test("watchdog recovery runs independently of its email cooldown", () => {
   assert.ok(recovery < alarm);
   assert.ok(alarm < alreadyWarned);
   assert.match(watchdog, /recoverStaleJobs\(now\)/);
+});
+
+test("a post that failed is asked for again, and a slow snapshot leaves no gap", () => {
+  const pipeline = readFileSync("db/pipeline.ts", "utf8");
+  // The group is stamped with when its snapshot was asked for, and a pass with
+  // an error keeps the window open rather than moving on without the post.
+  assert.match(pipeline, /const checkedAt = options\.checkedAt \?\? Date\.now\(\);/);
+  assert.match(
+    pipeline,
+    /const lastChecked = summary\.error\s*\? Math\.min\(checkedAt, Math\.max\(source\.lastChecked, checkedAt - RETRY_HOLD_MS\)\)\s*: checkedAt;/
+  );
+  assert.doesNotMatch(pipeline, /lastChecked: Date\.now\(\),\s*lastCount: summary\.posts/);
+});
+
+test("nobody is scanned or sent leads without paying", () => {
+  const pipeline = readFileSync("db/pipeline.ts", "utf8");
+  assert.match(pipeline, /if \(!isEntitled\(profile\.subscriptionStatus\) && !isAdminEmail\(user\.email\)\) continue;/);
+  assert.match(pipeline, /const wanted = await worthScanning\(\);/);
+  assert.match(pipeline, /if \(!wanted\(source\)\) continue;/);
 });

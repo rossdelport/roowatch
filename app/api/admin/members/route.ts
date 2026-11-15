@@ -4,6 +4,7 @@ import { requireAdmin } from "../../../../db/admin";
 import { sendEmail } from "../../../../db/auth";
 import { BRIEF_MAX } from "../../../../db/brief";
 import { PLANS, PLAN_KEYS, planFor, type PlanKey } from "../../../../db/plans";
+import { cancelStripe } from "../../../../db/stripe";
 import {
   alerts,
   groups,
@@ -18,38 +19,6 @@ import {
 const PAYING = new Set(["active"]);
 /** Not money yet, but it will be unless they cancel. */
 const TRIALING = new Set(["trialing"]);
-
-/**
- * Cancel whatever this customer is paying for, so deleting a member never
- * leaves a live subscription still billing them. Best effort on purpose: a
- * Stripe outage must not stop Ross removing someone's data.
- */
-async function cancelStripe(customerId: string): Promise<string> {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return "stripe not configured";
-  if (!customerId) return "no stripe customer";
-  try {
-    const list = await fetch(
-      `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=20`,
-      { headers: { Authorization: `Bearer ${key}` } }
-    );
-    if (!list.ok) return `stripe error ${list.status}`;
-
-    const data = (await list.json()) as { data?: { id: string; status: string }[] };
-    const live = (data.data ?? []).filter((s) => s.status !== "canceled");
-    if (!live.length) return "nothing to cancel";
-
-    for (const sub of live) {
-      await fetch(`https://api.stripe.com/v1/subscriptions/${sub.id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${key}` },
-      });
-    }
-    return `cancelled ${live.length} subscription${live.length > 1 ? "s" : ""}`;
-  } catch {
-    return "stripe unreachable";
-  }
-}
 
 type SwitchResult = { ok: boolean; detail: string; hadSubscription: boolean };
 

@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { currentUser } from "../../../../db/auth";
 import { sources } from "../../../../db/schema";
@@ -26,13 +25,13 @@ export async function POST(request: Request) {
   const slug = parsed?.url ? groupSlug(parsed.url) : "";
   if (!slug) return Response.json({ ok: true });
 
+  // Every source, switched on or not. A private group stays private after we
+  // stop scanning it, and only looking at live sources let it back in.
   const all = await getDb()
     .select({ url: sources.url, lastError: sources.lastError })
-    .from(sources)
-    .where(eq(sources.active, 1));
+    .from(sources);
 
-  const known = all.find((s) => groupSlug(s.url) === slug);
-  if (known && /private/i.test(known.lastError)) {
+  if (all.some((s) => groupSlug(s.url) === slug && /private/i.test(s.lastError))) {
     return Response.json({ error: "private" }, { status: 400 });
   }
   return Response.json({ ok: true });

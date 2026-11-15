@@ -1,7 +1,7 @@
 # RooWatch
 
-RooWatch watches public Facebook groups for Australian tradies and emails them
-the moment somebody asks for their service.
+RooWatch watches public Facebook groups for Australian tradies and emails and
+texts them within minutes of somebody asking for their service.
 
 A plumber posts nothing. A homeowner posts *"our hot water died, who is a good
 plumber near Dee Why?"*. RooWatch sees it within minutes and emails the plumber
@@ -31,7 +31,7 @@ order:
 Facebook groups
       |
       v
-  cron every minute  ..........  app/api/cron/scan/route.ts
+  cron every 5 minutes  .......  app/api/cron/scan/route.ts
       |
       v
   Bright Data scraper  ........  db/pipeline.ts
@@ -43,7 +43,7 @@ Facebook groups
   does this match the member?   Claude Haiku reads the member's own brief
       |
       v
-  email the lead  ............  Resend
+  email and text the lead  ...  Resend, db/sms.ts
       |
       v
   member dashboard  ..........  app/dashboard/
@@ -70,11 +70,16 @@ brief. Matches become alerts.
 Defined once in [db/plans.ts](db/plans.ts). Every group limit in the app reads
 from there.
 
-| Plan | Groups | Alert speed | Price AUD | Stripe price id |
-|---|---|---|---|---|
-| Local | 10 | 5 min | $297 | `price_1U4sCe9HOJbWqVToqrNBDaIp` |
-| Growth | 25 | 5 min | $597 | `price_1U4sCg9HOJbWqVToRKrBxw6W` |
-| Scale | 100 | 3 min | $1,997 | `price_1U4sCh9HOJbWqVToU4GpQFTO` |
+| Plan | Groups | Price AUD a month | Stripe price id |
+|---|---|---|---|
+| Local | 20 | $97 | `price_1U9J1r9HOJbWqVTomTe8d2Vp` |
+| Growth | 50 | $197 | `price_1U9JSx9HOJbWqVToJKSr9IbN` |
+| Scale | 200 | $897 | `price_1U9JSx9HOJbWqVTooh1nDP4d` |
+
+Every plan starts with a 14 day free trial (`TRIAL_DAYS`), set by the checkout
+route, [app/api/checkout/route.ts](app/api/checkout/route.ts). All plans share
+one scanner. It scans every five minutes, so no plan gets alerts faster than
+another.
 
 A member's plan lives in `profiles.plan` and defaults to `local`. Ross changes
 it from the Customers area of the admin command centre.
@@ -129,9 +134,14 @@ about 6 minutes. There is no GitHub Action in this repo.
 
 ## Current state, 16 August 2026
 
+- **RooWatch has been closed since September 2026.** `ROOWATCH_CLOSED` in
+  [db/closed.ts](db/closed.ts) is `true`: no new signups or subscriptions, no
+  scans, no emails, no texts. The notes below are from 16 August 2026.
 - The site, signup, dashboard and setup wizard are live and working.
-- **The scanner is paused.** All rows in `sources` have `active = 0`. This was
-  deliberate. See [docs/scraper-decision.md](docs/scraper-decision.md).
+- **The scanner is stopped.** It ran on Bright Data from 16 August 2026. By the
+  end it scanned once every five minutes. The cron triggers in `vite.config.ts`
+  are now empty. See
+  [docs/scraper-decision.md](docs/scraper-decision.md).
 - One paying customer: none yet. Ross runs his own business (Perth Solar Panel
   Cleaners) as customer zero.
 - 21 people on the waitlist from Facebook ads.

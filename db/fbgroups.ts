@@ -12,6 +12,8 @@ export function groupSlug(url: string): string {
 
 export type ParsedGroup = { name: string; url: string | null; slug: string | null };
 
+const NOT_A_GROUP = new Set(["feed", "discover", "joins", "create", "search", "notifications", "categories"]);
+
 
 /** Pretty label from a slug: "trustedtradiesperth" stays, "perth-solar" -> "Perth Solar" */
 function labelFromSlug(slug: string): string {
@@ -32,6 +34,9 @@ export function parseGroupInput(raw: string): ParsedGroup | null {
   if (match) {
     const slug = match[1].replace(/\/$/, "");
     if (!slug) return null;
+    // Facebook's own pages under /groups/, not a group. One of these used to
+    // get a green tick and become a source we scanned for nothing.
+    if (NOT_A_GROUP.has(slug.toLowerCase())) return null;
     return {
       slug,
       url: `https://www.facebook.com/groups/${slug}`,

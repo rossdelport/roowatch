@@ -463,7 +463,8 @@
   .plan-sub { color: var(--muted); font-size: 14.5px; line-height: 1.5; margin: 10px 0 0; }
   .plan-sub b { color: var(--coral); }
   .plan .button { justify-content: center; margin-top: 24px; width: 100%; }
-  .button-closed { cursor: default; opacity: .72; }
+  .button-closed { cursor: default; opacity: .72; pointer-events: none; }
+  .button-closed::after { display: none; }
   .plan-features { display: grid; gap: 12px; list-style: none; margin: 26px 0 0; padding: 0; }
   .plan-features li { align-items: center; color: #55607a; display: flex; font-size: 14.5px; gap: 10px; }
   .plans-guarantee { align-items: center; display: flex; gap: 20px; justify-content: center; margin: 40px auto 0; }
@@ -687,15 +688,6 @@ fbq('track','PageView');
     <div class="floaty floaty-d" aria-hidden="true"><img class="floaty-tool" src="/tools/painter.png" alt=""></div>
     <div class="floaty floaty-e" aria-hidden="true"><img class="floaty-tool" src="/tools/screwdriver.png" alt=""></div>
     <div class="floaty floaty-f" aria-hidden="true"><img class="floaty-tool" src="/tools/trolley.png" alt=""></div>
-  </header>
-
-  <section class="hero" aria-labelledby="hero-title">
-    <div class="floaty floaty-a floaty-spin" aria-hidden="true"><span class="floaty-chip chip-coral"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span></div>
-    <div class="floaty floaty-b" aria-hidden="true"><span class="floaty-chip chip-gold"><svg viewBox="0 0 24 24" fill="none" stroke="#8a5a00" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span></div>
-    <div class="floaty floaty-c floaty-spin" aria-hidden="true"><span class="floaty-chip chip-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span></div>
-    <div class="floaty floaty-d" aria-hidden="true"><span class="floaty-chip chip-lavender"><svg viewBox="0 0 24 24" fill="#5b3aa8" stroke="none"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span></div>
-    <div class="floaty floaty-e" aria-hidden="true"><span class="floaty-chip chip-blue"><svg viewBox="0 0 24 24" fill="none" stroke="#274f9e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span></div>
-    <div class="floaty floaty-f" aria-hidden="true"><span class="floaty-chip chip-mint"><svg viewBox="0 0 24 24" fill="none" stroke="#14724f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span></div>
 
     <div class="pill pill-hero"><span class="pill-icon"></span> We watch, you earn <img class="pill-roo" src="/roowatch-mascot-3d.png" alt="RooWatch mascot waving"></div>
     <h1 id="hero-title">Facebook group leads for<br>
@@ -712,9 +704,9 @@ fbq('track','PageView');
         <span class="ticker-word">air con installers</span>
       </span>
     </h1>
-    <p class="hero-lede">Ready-to-pay leads are asking for your services in Facebook groups right now. RooWatch alerts you within 60 seconds, so you get to them first.</p>
+    <p class="hero-lede">Ready-to-pay leads are asking for your services in Facebook groups right now. RooWatch alerts you in minutes, so you can get in early.</p>
     <ul class="hero-proof" aria-label="RooWatch highlights">
-      <li><span>✓</span> Alerts in under 60 seconds</li>
+      <li><span>✓</span> Alerts in minutes</li>
       <li><span>✓</span> No Facebook login needed</li>
       <li><span>✓</span> 14 day free trial</li>
     </ul>
@@ -813,13 +805,12 @@ fbq('track','PageView');
         <div class="fb-stats"><span class="fb-reacts"><span class="react-stack"><span class="react react-like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></span><span class="react react-love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21S4 15.7 4 10a4.6 4.6 0 0 1 8-3.1A4.6 4.6 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg></span></span><span class="fb-react-count" data-base="8">8</span></span><span>7 comments</span></div>
         <div class="fb-actions"><button type="button" class="fb-action" onclick="var c=this.closest('.wall-card'),n=c.querySelector('.fb-react-count'),b=parseInt(n.getAttribute('data-base'),10);if(this.classList.toggle('fb-liked')){n.textContent=b+1}else{n.textContent=b}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Like</button><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg> Comment</span><span class="fb-action"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg> Share</span></div>
       </article>
-    </div></article>
     </div>
   </section>
 
   <section class="oneclick" id="setup" aria-labelledby="oneclick-title">
     <div>
-      <h2 id="oneclick-title"><span>Hot leads, up for grabs.</span> You just need to know the second they post.</h2>
+      <h2 id="oneclick-title"><span>Hot leads, up for grabs.</span> You just need to know soon after they post.</h2>
       <p class="section-lede">People near you ask for help in Facebook groups every day. Real jobs. Real money. The first business to reply usually wins. RooWatch makes sure that's you.</p>
       <span class="button button-coral button-closed" aria-disabled="true">Closed to new signups</span>
     </div>
@@ -888,8 +879,6 @@ fbq('track','PageView');
             <span class="setup-label">Your alert channels</span>
             <div class="channel-row channel-on"><span>Email</span><span class="channel-tag">On</span></div>
             <div class="channel-row channel-on"><span>Text</span><span class="channel-tag">On</span></div>
-            <div class="channel-row"><span>Teams</span></div>
-            <div class="channel-row"><span>Custom</span></div>
           </div>
         </div>
         <svg class="step-link" viewBox="0 0 400 130" fill="none" aria-hidden="true"><defs><mask id="roo-draw-3"><path class="draw" d="M330 6 C330 80 70 50 70 124" pathLength="100" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="100" stroke-dashoffset="100"/></mask></defs><path d="M330 6 C330 80 70 50 70 124" fill="none" stroke="#b8b1a6" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" mask="url(#roo-draw-3)"/></svg>
@@ -906,10 +895,10 @@ fbq('track','PageView');
               <span class="setup-chip">Home Advice Sydney</span>
               <span class="setup-chip">Northern Beaches Community</span>
               <span class="setup-chip">Manly Locals</span>
-              <span class="setup-chip">+ 7 more</span>
+              <span class="setup-chip">+ 17 more</span>
             </div>
             <div class="watch-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> We never use your Facebook account.</div>
-            <img class="watch-mascot" src="/roowatch-mascot-3d-binos.png" alt="RooWatch mascot watching through binoculars">
+            <img class="watch-mascot" src="/roowatch-mascot-3d-binos.png" alt="RooWatch mascot watching through binoculars" loading="lazy" decoding="async">
           </div>
         </div>
         <svg class="step-link" viewBox="0 0 400 130" fill="none" aria-hidden="true"><defs><mask id="roo-draw-4"><path class="draw" d="M70 6 C70 80 330 50 330 124" pathLength="100" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="100" stroke-dashoffset="100"/></mask></defs><path d="M70 6 C70 80 330 50 330 124" fill="none" stroke="#b8b1a6" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 11" mask="url(#roo-draw-4)"/></svg>
@@ -917,7 +906,7 @@ fbq('track','PageView');
       <article class="step-row">
         <div class="step-copy">
           <span class="step-num">5</span>
-          <h3>Get the lead in under 60 seconds</h3>
+          <h3>Get the lead in minutes</h3>
         </div>
         <div class="step-visual">
           <div class="step-visual-card step-alert">
@@ -982,11 +971,11 @@ fbq('track','PageView');
         <div class="plan-head"><span class="plan-title">Local</span></div>
         <div class="plan-amount"><strong>$97</strong><span>/ month</span></div>
         <p class="plan-trial">14 days free, then $97 a month</p>
-        <p class="plan-sub"><b>10</b> groups watched for you. Leads sent to your phone.</p>
+        <p class="plan-sub"><b>20</b> groups watched for you. Leads sent to your phone.</p>
         <span class="button button-coral button-closed" aria-disabled="true">Closed to new signups</span>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> 20 groups watched for you</li>
-          <li><span class="pf-check">✓</span> Alerts in under 60 seconds</li>
+          <li><span class="pf-check">✓</span> Alerts in minutes</li>
           <li><span class="pf-check">✓</span> Email and text alerts</li>
           <li><span class="pf-check">✓</span> Tell us what you want in plain English</li>
           <li><span class="pf-check">✓</span> Cancel any time</li>
@@ -996,12 +985,12 @@ fbq('track','PageView');
         <div class="plan-head"><span class="plan-title">Growth</span></div>
         <div class="plan-amount"><strong>$197</strong><span>/ month</span></div>
         <p class="plan-trial">14 days free, then $197 a month</p>
-        <p class="plan-sub"><b>25</b> groups watched for you. Cover more suburbs.</p>
+        <p class="plan-sub"><b>50</b> groups watched for you. Cover more suburbs.</p>
         <span class="button button-coral button-closed" aria-disabled="true">Closed to new signups</span>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> Everything in Local</li>
           <li><span class="pf-check">✓</span> 50 groups watched for you</li>
-          <li><span class="pf-check">✓</span> Alerts in under 60 seconds</li>
+          <li><span class="pf-check">✓</span> Alerts in minutes</li>
           <li><span class="pf-check">✓</span> Priority support</li>
           <li><span class="pf-check">✓</span> Cancel any time</li>
         </ul>
@@ -1010,12 +999,12 @@ fbq('track','PageView');
         <div class="plan-head"><span class="plan-title">Scale</span></div>
         <div class="plan-amount"><strong>$897</strong><span>/ month</span></div>
         <p class="plan-trial">14 days free, then $897 a month</p>
-        <p class="plan-sub"><b>100</b> groups watched for you. Alerts in <b>60 seconds</b>.</p>
+        <p class="plan-sub"><b>200</b> groups watched for you. Alerts in minutes.</p>
         <span class="button button-dark button-closed" aria-disabled="true">Closed to new signups</span>
         <ul class="plan-features">
           <li><span class="pf-check">✓</span> Everything in Growth</li>
           <li><span class="pf-check">✓</span> 200 groups watched for you</li>
-          <li><span class="pf-check">✓</span> Alerts in under 60 seconds</li>
+          <li><span class="pf-check">✓</span> Alerts in minutes</li>
           <li><span class="pf-check">✓</span> We set it all up for you</li>
           <li><span class="pf-check">✓</span> Priority support</li>
         </ul>
@@ -1029,7 +1018,7 @@ fbq('track','PageView');
     <h2 id="faq-title">Questions? <span class="highlight highlight-blue">We have answers</span></h2>
     <div class="faq-list">
       <details class="faq-item" open><summary>Do I need to give you my Facebook login?<span class="faq-x">+</span></summary><p>No. Never. We watch public groups from our side. Your account stays yours.</p></details>
-      <details class="faq-item"><summary>How fast are the alerts?<span class="faq-x">+</span></summary><p>Under 60 seconds. When a matching post goes up, we send it to you fast, while the thread is still empty.</p></details>
+      <details class="faq-item"><summary>How fast are the alerts?<span class="faq-x">+</span></summary><p>In minutes. We check your groups all day. When a matching post goes up, we send it to you soon after.</p></details>
       <details class="faq-item"><summary>Which groups can you watch?<span class="faq-x">+</span></summary><p>Public Facebook groups across Australia. You pick them. You can change them any time.</p></details>
       <details class="faq-item"><summary>How do I tell you what leads I want?<span class="faq-x">+</span></summary><p>In plain English. Like this: “Tell me when someone in Sydney asks for a solar quote.” That is all we need.</p></details>
       <details class="faq-item"><summary>Where do the alerts go?<span class="faq-x">+</span></summary><p>Email and text right now. Teams and custom channels are coming soon.</p></details>
@@ -1044,7 +1033,7 @@ fbq('track','PageView');
     <h2 id="final-title">More local jobs, sent to <span class="highlight highlight-gold">your phone</span></h2>
     <p class="section-lede">Tell us your trade and your suburb. We send you leads.</p>
     <span class="button button-coral button-closed" aria-disabled="true">Closed to new signups</span>
-    <img class="final-mascot" src="/roowatch-mascot-newlead-belly.png" alt="RooWatch kangaroo mascot holding a phone that says New lead">
+    <img class="final-mascot" src="/roowatch-mascot-newlead-belly.png" alt="RooWatch kangaroo mascot holding a phone that says New lead" loading="lazy" decoding="async">
   </section>
 
   <footer class="footer-wrap">

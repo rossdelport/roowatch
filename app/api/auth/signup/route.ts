@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { createSession, sendEmail, sessionCookie } from "../../../../db/auth";
+import { ROOWATCH_CLOSED } from "../../../../db/closed";
 import { hashPassword, passwordProblem } from "../../../../db/password";
 import { profiles, users } from "../../../../db/schema";
 import { PLAN_KEYS, type PlanKey } from "../../../../db/plans";
@@ -15,6 +16,13 @@ function clean(value: unknown, max: number) {
 }
 
 export async function POST(request: Request) {
+  // The buttons say closed, so the door has to be closed too. While this was
+  // open a new account could still run the setup wizard, spend on lookups,
+  // and then hit a payment page that no longer exists.
+  if (ROOWATCH_CLOSED) {
+    return Response.json({ error: "service_closed" }, { status: 410 });
+  }
+
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
   const email = clean(body.email, 200).toLowerCase();
