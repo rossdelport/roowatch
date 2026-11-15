@@ -6,7 +6,7 @@ import Link from "next/link";
 import { groupSlug, parseGroupInput } from "../../db/fbgroups";
 import { suburbsFor } from "../../db/suburbs";
 import { OTHER_TRADE, STATES, TRADES } from "../../db/trades";
-import { PLAN_KEYS, PLANS, TRIAL_DAYS, type Plan, type PlanKey } from "../../db/plans";
+import { PLAN_KEYS, PLANS, TRIAL_DAYS, isEntitled, type Plan, type PlanKey } from "../../db/plans";
 import { BRIEF_MAX, BRIEF_MIN } from "../../db/brief";
 import { LEAD_STATUSES, leadStatus } from "../../db/leadstatus";
 import { PIXEL_ID } from "../../db/pixel";
@@ -79,7 +79,29 @@ type Group = {
   sourceId?: number | null;
   /** Why we cannot read it, in Facebook's words. Empty when all is well. */
   problem?: string;
+  /** Unix ms of the last real scan of this group. 0 when there has been none. */
+  checked?: number;
+  /** How big Facebook says it is. 0 until we have read a post from it. */
+  members?: number;
+  /** 0 when scanning of this group has been switched off. */
+  active?: number;
 };
+
+/**
+ * What is really happening with a group, in words a member can act on.
+ *
+ * The chip used to say "Watching" for anything with the right status, so a
+ * private group, a switched off group and a group that has never given us a
+ * post all looked the same as one that was working.
+ */
+function groupState(g: Group): { label: string; tone: "ok" | "pending" | "bad" } {
+  if (g.status === "private" || isPrivate(g)) return { label: "Private. We cannot read it", tone: "bad" };
+  if (g.status === "paused") return { label: "Paused", tone: "pending" };
+  if (g.status !== "watching") return { label: "Setting up", tone: "pending" };
+  if (g.url && !g.active) return { label: "Paused", tone: "pending" };
+  if (!g.members) return { label: "No posts seen yet", tone: "pending" };
+  return { label: "Watching", tone: "ok" };
+}
 
 /**
  * True while a group is still showing the number out of its own web address.
@@ -443,7 +465,9 @@ export default function DashboardApp() {
    * for days, and locking somebody out over a bank hiccup is how you lose a
    * customer who fully intended to pay.
    */
-  const paid = ["trialing", "active", "past_due"].includes(me.subscriptionStatus ?? "");
+  // The same question the scanner asks before it spends anything, see
+  // isEntitled in db/plans.ts.
+  const paid = isEntitled(me.subscriptionStatus);
   // Read fresh every render, so it survives hydration.
   const justBack =
     typeof window !== "undefined" &&
@@ -643,51 +667,18 @@ type FeedPost = {
 /**
  * The scan card.
  *
- * The scanner really does run every minute, so this is a picture of something
- * true rather than a decorative spinner: the bar fills across the gap between
- * runs, then the card works through what a pass actually does.
- *
- * It exists because the product is invisible. Between leads there is nothing
- * to look at, and nothing to look at reads as nothing happening.
+ * It shows when these groups were really last checked. It used to be a sixty
+ * second timer that walked through "Scanning all groups ... Done" whether or
+ * not anything was scanning, so it looked exactly the same with the scanner
+ * switched off. The product is invisible between leads, which is why this
+ * card exists, and that is also why it has to tell the truth.
  */
-const SCAN_SECONDS = 60;
-const SCAN_STEPS = [
-  "Scanning all groups",
-  "Reading posts",
-  "Updating database",
-  "Checking for new leads",
-  "Done",
-];
-const STEP_MS = 1000;
-
-function ScanCard({ watching }: { watching: number }) {
-  // step -1 is the wait between passes, 0 upwards walks what a pass does.
-  // prev and token live alongside it so the label swap is decided in the one
-  // place the step changes, rather than worked out again further down.
-  const [phase, setPhase] = useState({ step: -1, prev: "", token: 0 });
-  const label = phase.step < 0 ? "Waiting for next scan" : SCAN_STEPS[phase.step];
-
+function ScanCard({ watching, lastChecked }: { watching: number; lastChecked: number }) {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    // Nothing to scan, nothing to animate. A bar sweeping across every minute
-    // while we watch no groups at all is a lie told once a minute.
-    if (!watching) return;
-    const last = phase.step >= SCAN_STEPS.length - 1;
-    const delay = phase.step < 0 ? SCAN_SECONDS * 1000 : STEP_MS;
-
-    const timer = setTimeout(() => {
-      setPhase((p) => {
-        const was = p.step < 0 ? "Waiting for next scan" : SCAN_STEPS[p.step];
-        // Past the last step it goes back to waiting, and the new token
-        // remounts the bar, which is what replays it from empty.
-        const step = last ? -1 : p.step + 1;
-        return { step, prev: was, token: p.token + 1 };
-      });
-    }, delay);
-
-    return () => clearTimeout(timer);
-  }, [phase.step, phase.token, watching]);
-
-  const working = phase.step >= 0;
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   if (!watching) {
     return (
@@ -696,49 +687,29 @@ function ScanCard({ watching }: { watching: number }) {
           <span className="scan-face"><span className="scan-still" /></span>
           <span className="scan-idle-label">Nothing to scan yet</span>
         </div>
-        <p className="tiny scan-idle-note">Add a group and we start watching within a minute.</p>
+        <p className="tiny scan-idle-note">Add a group and we start watching it.</p>
       </div>
     );
   }
 
+  const mins = lastChecked ? Math.max(0, Math.round((now - lastChecked) / 60000)) : -1;
+  // Checks run every five minutes. Twenty with nothing is not normal.
+  const late = mins > 20;
+  const label =
+    mins < 0 ? "First check coming up" : mins < 1 ? "Checked just now" : `Checked ${mins} min ago`;
+
   return (
-    <div className={working ? "tile scan working" : "tile scan"}>
+    <div className="tile scan idle">
       <div className="scan-top">
         <span className="scan-face">
-          {working ? <span className="scan-spin" /> : <span className="scan-dot" />}
+          {late || mins < 0 ? <span className="scan-still" /> : <span className="scan-dot" />}
         </span>
-        <Roll text={label} prev={phase.prev} token={phase.token} />
+        <span className="scan-idle-label">{label}</span>
       </div>
-      <div className="scan-track">
-        {working ? (
-          <i className="scan-full" />
-        ) : (
-          <i
-            key={phase.token}
-            className="scan-fill"
-            style={{ animationDuration: `${SCAN_SECONDS}s` }}
-          />
-        )}
-      </div>
+      <p className="tiny scan-idle-note">
+        {late ? "That is longer than normal." : "We check your groups every 5 minutes."}
+      </p>
     </div>
-  );
-}
-
-/**
- * Swaps one line of text for another: the old one rolls down and out of the
- * way, the new one rolls up into its place.
- *
- * Both sit in the box together for the length of the swap. That is the only
- * way to get the old line leaving rather than simply blinking out.
- */
-function Roll({ text, prev, token }: { text: string; prev: string; token: number }) {
-  return (
-    <span className="roll">
-      {prev && prev !== text && (
-        <span className="roll-out" key={`out-${token}`}>{prev}</span>
-      )}
-      <span className="roll-in" key={`in-${token}`}>{text}</span>
-    </span>
   );
 }
 
@@ -953,7 +924,7 @@ function SetupScore({ me, groups, alerts, onGo }: {
 }) {
   const limit = me.plan?.groups ?? PLANS.local.groups;
   const watching = groups.filter((g) => g.status === "watching");
-  const privates = groups.filter(isPrivate);
+  const privates = groups.filter((g) => g.status === "private" || isPrivate(g));
   const brief = (me.profile?.brief ?? "").trim();
   const texts = me.profile?.smsEnabled === 1 && Boolean(me.profile?.alertPhone);
 
@@ -963,7 +934,7 @@ function SetupScore({ me, groups, alerts, onGo }: {
       done: privates.length === 0,
       // The one that costs them real leads, so it goes first when it applies.
       label: privates.length
-        ? `${privates.length} ${privates.length === 1 ? "group is not public yet" : "groups are not public yet"}`
+        ? `${privates.length} ${privates.length === 1 ? "group is private. Swap it" : "groups are private. Swap them"}`
         : "All groups public",
       go: () => onGo("groups"),
     },
@@ -1843,7 +1814,7 @@ function Onboarding({ me, onDone }: { me: Me; onDone: () => void }) {
                 ? "We picked these from your suburbs. Rename, delete or add your own, then carry on."
                 : groupList.length
                 ? `We are still finding groups for your area. We will keep scanning until all ${Math.min(planGroups, 20)} are added to your account, so there is nothing for you to do.`
-                : "Private group scanning is coming soon. Paste a public group link to get started."}
+                : "We can only read public groups. Paste a public group link to get started."}
             </p>
             <GroupTable rows={groupList} onChange={setGroupList} onSay={say} filling={finding} />
             <p className="tiny">
@@ -2200,7 +2171,7 @@ function GroupHelp({ onClose }: { onClose: () => void }) {
 
         <div className="help-warn">
           <p><span className="no-mark">&times;</span> The group name on its own will not work.</p>
-          <p><span className="no-mark">&times;</span> Private groups do not work yet.</p>
+          <p><span className="no-mark">&times;</span> Private groups do not work.</p>
           <p><span className="yes-mark">{I.tick}</span> Paste the whole link: https://facebook.com/groups/123456789/</p>
         </div>
 
@@ -2393,7 +2364,10 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
           <button className="tile tap" onClick={() => onGo("groups")}><span className="tile-num">{watchingGroupCount}/{plan.groups}</span><span className="tile-label">Groups watching</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "leads")}><span className="tile-num">{leadsThisMonth}</span><span className="tile-label">Leads this month</span></button>
           <button className="tile tap" onClick={() => onGo("alerts", "posts")}><span className="tile-num">{(me.postsUsed ?? 0).toLocaleString()}</span><span className="tile-label">Posts read this month</span></button>
-          <ScanCard watching={groups.filter((g) => g.status === "watching").length} />
+          <ScanCard
+            watching={watchingGroupCount}
+            lastChecked={Math.max(0, ...groups.filter((g) => g.status === "watching").map((g) => g.checked ?? 0))}
+          />
         </div>
 
         <div className="ov-split">
@@ -2441,7 +2415,7 @@ function MemberView({ me, tab, leadsView, setLeadsView, onGo, onLogout, onRefres
         <h3>Your plan</h3>
         <div className="kv"><span>Plan</span><strong>{plan.name}. ${plan.priceAud} a month.</strong></div>
         <div className="kv"><span>Groups watched</span><strong>{groups.length} of {plan.groups}</strong></div>
-        <div className="kv"><span>Alert speed</span><strong>Under 60 seconds</strong></div>
+        <div className="kv"><span>Alert speed</span><strong>Within minutes of the post</strong></div>
         <div className="kv"><span>Posts checked this month</span><strong>{(me.postsUsed ?? 0).toLocaleString()} of {plan.postsPerMonth.toLocaleString()}</strong></div>
         <div className="kv"><span>Guarantee</span><strong>A lead this month or we refund you</strong></div>
         <p className="tiny">Need to change anything? Email ross@roowatch.com.au and we sort it same day.</p>
@@ -2979,7 +2953,7 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
             : d.error === "duplicate"
             ? "That group is already on your list."
             : d.error === "private"
-            ? "Public groups only for now. Private group scanning is coming soon."
+            ? "That group is private, so we cannot read it. Paste a public group."
             : "Could not save that."
         );
         return;
@@ -3040,11 +3014,7 @@ function GroupsTab({ groups, limit, onRefresh }: { groups: Group[]; limit: numbe
                   </>
                 ) : (
                   <>
-                    {isPrivate(g) ? (
-                      <span className="chip-status pending" title={g.problem}>Access getting approved</span>
-                    ) : (
-                      <span className={g.status === "watching" ? "chip-status ok" : "chip-status pending"}>{g.status === "watching" ? "Watching" : g.status === "paused" ? "Paused" : "Setting up"}</span>
-                    )}
+                    <span className={`chip-status ${groupState(g).tone}`} title={g.problem}>{groupState(g).label}</span>
                     <GroupMenu
                       group={g}
                       busy={busy}
@@ -3076,9 +3046,10 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
   const [location, setLocation] = useState(me.profile?.location ?? "");
   const [phone, setPhone] = useState(me.profile?.alertPhone ?? "");
   const [brief, setBrief] = useState(me.profile?.brief ?? "");
-  const [status, setStatus] = useState<"clean" | "typing" | "saving" | "saved">("clean");
+  const [status, setStatus] = useState<"clean" | "typing" | "saving" | "saved" | "failed">("clean");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const first = useRef(true);
 
   // Auto save. A tradie should never lose a change because they missed a
@@ -3092,15 +3063,32 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
     const timer = setTimeout(async () => {
       setStatus("saving");
       try {
-        await fetch("/api/member/account", {
+        const res = await fetch("/api/member/account", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, businessName, website, services, location, brief, alertPhone: phone }),
         });
+        // The server turns the whole save down for a bad mobile or a brief
+        // that is too long. This used to say "Saved" anyway, so one half
+        // typed phone number quietly threw away every edit to the brief, and
+        // the brief is what decides every lead.
+        if (!res.ok) {
+          const d = (await res.json().catch(() => ({}))) as { error?: string };
+          setSaveError(
+            d.error === "bad_phone"
+              ? "Not saved. That mobile number does not look right."
+              : d.error === "long_brief"
+              ? "Not saved. Your brief is too long."
+              : "Not saved. Please try again."
+          );
+          setStatus("failed");
+          return;
+        }
         setStatus("saved");
         onRefresh();
       } catch {
-        setStatus("typing");
+        setSaveError("Not saved. Check your internet and try again.");
+        setStatus("failed");
       }
     }, 900);
     return () => clearTimeout(timer);
@@ -3145,7 +3133,7 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
     <div className="card">
       <div className="card-head">
         <h3>Your business</h3>
-        <SaveState status={status} />
+        <SaveState status={status} error={saveError} />
       </div>
       <label className="lbl">Your name</label>
       <input value={name} onChange={(e) => setName(e.target.value)} />
@@ -3178,8 +3166,12 @@ function ProfileForm({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
 }
 
 /** Quiet save state. It only speaks up while something is happening. */
-function SaveState({ status }: { status: "clean" | "typing" | "saving" | "saved" }) {
+function SaveState({ status, error }: {
+  status: "clean" | "typing" | "saving" | "saved" | "failed";
+  error?: string;
+}) {
   if (status === "clean") return null;
+  if (status === "failed") return <span className="save-state bad">{error || "Not saved."}</span>;
   if (status === "saved") return <span className="save-state ok">{I.tick} Saved</span>;
   return <span className="save-state">Saving</span>;
 }
@@ -3329,6 +3321,26 @@ function DayHeading({ label, count, noun }: { label: string; count: number; noun
 
 function AlertRow({ alert }: { alert: Alert }) {
   const when = new Date(alert.sentAt + "Z").toLocaleString("en-AU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  // "gone" hides the row straight away. The next refresh no longer has it.
+  const [wrong, setWrong] = useState<"" | "busy" | "gone" | "failed">("");
+
+  async function notALead() {
+    setWrong("busy");
+    try {
+      const res = await fetch("/api/member/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertId: alert.id }),
+      });
+      setWrong(res.ok ? "gone" : "failed");
+    } catch {
+      setWrong("failed");
+    }
+  }
+
+  if (wrong === "gone") {
+    return <div className="alert-item"><p className="tiny">Thanks. We took it off your list and told Ross.</p></div>;
+  }
   return (
     <div className="alert-item">
       <div className="alert-main">
@@ -3338,6 +3350,9 @@ function AlertRow({ alert }: { alert: Alert }) {
         </div>
         <p className="alert-text">{alert.postText}</p>
         {alert.reason && <p className="alert-reason">{alert.reason}</p>}
+        <button className="not-lead" disabled={wrong === "busy"} onClick={notALead}>
+          {wrong === "failed" ? "Could not send that. Try again" : "Not a lead"}
+        </button>
       </div>
       {alert.postUrl && (
         <a className="btn-go" href={alert.postUrl} target="_blank" rel="noreferrer">
@@ -4177,7 +4192,7 @@ function PipelineView({ sources, uncovered, keys, onAction, onScan }: {
           ))
         )}
       </div>
-      <p className="tiny">The pipeline runs itself every 10 minutes. Run now is for testing a single group.</p>
+      <p className="tiny">The pipeline runs itself every 5 minutes. Run now is for testing a single group.</p>
     </div>
   );
 }
@@ -4769,6 +4784,9 @@ const CSS = `
 .alert-text{color:#3c465e;font-size:14.5px;line-height:1.5;margin:6px 0 0;}
 .alert-reason{align-items:center;color:var(--mint);display:flex;font-size:13px;font-weight:700;gap:6px;margin:8px 0 0;}
 .alert-reason::before{content:"";background:var(--mint);border-radius:99px;flex:none;height:6px;width:6px;}
+/* Not a lead. Small and quiet, because the green button is the one we want pressed. */
+.not-lead{background:none;border:0;color:var(--muted);cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;margin:8px 0 0;padding:0;text-decoration:underline;}
+.not-lead:hover{color:var(--coral-deep);}
 .btn-go{align-items:center;background:var(--mint);border-radius:99px;box-shadow:0 4px 0 #1f7d5f,0 10px 20px rgba(46,170,129,.28);color:#fff;display:inline-flex;flex:none;font-size:14px;font-weight:800;gap:8px;padding:11px 20px;text-decoration:none;transition:transform .18s var(--ease),box-shadow .18s var(--ease),background .18s var(--ease);}
 .btn-go:hover{background:#279c76;box-shadow:0 6px 0 #1f7d5f,0 14px 24px rgba(46,170,129,.34);transform:translateY(-2px);}
 .btn-go:active{box-shadow:0 1px 0 #1f7d5f,0 6px 12px rgba(46,170,129,.25);transform:translateY(2px);}
@@ -4849,6 +4867,7 @@ const CSS = `
 
 .save-state{align-items:center;animation:dRise .25s var(--ease) both;color:var(--muted);display:inline-flex;font-size:12.5px;font-weight:700;gap:5px;}
 .save-state.ok{color:var(--mint);}
+.save-state.bad{color:var(--coral-deep);}
 
 .ai-btn{align-items:center;background:linear-gradient(103deg,#6d5bf6 0%,#a24cf0 45%,#f0518f 100%);border:0;border-radius:99px;box-shadow:0 4px 14px rgba(122,79,240,.34);color:#fff;display:inline-flex;flex:none;font-size:12.5px;font-weight:800;justify-content:center;min-width:104px;overflow:hidden;padding:9px 16px;position:relative;transition:transform .18s var(--ease),box-shadow .18s var(--ease),filter .18s;}
 .ai-btn:hover:not(:disabled){box-shadow:0 7px 20px rgba(122,79,240,.42);transform:translateY(-1px);}

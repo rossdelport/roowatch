@@ -109,14 +109,22 @@ const NOT_HERE = new RegExp(
 const AU_SIGNAL =
   /\b(nsw|vic|qld|wa|sa|tas|nt|act|australia|aussie|\d{4}|shire|council|hunter|gippsland|riverina|illawarra)\b/i;
 
-/** A group about something else entirely. Nobody there is after a tradie. */
+/**
+ * A group about something else entirely. Nobody there is after a tradie.
+ *
+ * "Events", "jobs", "history", "for sale" and "community support" used to be
+ * on this list. They also sit in the names of ordinary town groups, such as
+ * "Ellenbrook Community News & Events", and the list threw those away before
+ * anything smarter saw them. A name still needs a local signal to get past
+ * this file, and the model in groupjudge.ts has the last word on what is left.
+ */
 const NOT_FOR_US = new RegExp(
   "\\b(" +
     [
       // Hobbies, sport and social clubs.
       "football|footy|soccer|cricket|netball|basketball|dockers|eagles|gamer|gaming|guild",
       "musician|band|anime|crypto|forex|dating|singles|fishing|4wd|4x4|motorbike|caravan",
-      "knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\\brfc\\b|rugby|for sale",
+      "knitting|scrapbook|school|meetup|go kart|karting|automotive|swap meet|\\brfc\\b|rugby",
       "yoga|pilates|zumba|\\bgym\\b|fitness|crossfit|bootcamp|climb(ing|ers?)|hiking",
       "bushwalk|walking group|runners?|parkrun|cycl(ing|ists?)|\\bride\\b|\\bmtb\\b|\\bbmx\\b",
       "spiritual|meditation|mindfulness|psychic|tarot|astrology|reiki|wellness|social club",
@@ -131,17 +139,17 @@ const NOT_FOR_US = new RegExp(
       "\\bford\\b|\\bcars?\\b|\\btrucks?\\b|\\butes?\\b|\\b4wd\\b",
       // Food, events, fundraising and political activity.
       "food|takeaway|hotel|cafe|restaurant|coffee|bak(?:e|ing)|recipes?",
-      "events?|functions?|fundrais(?:er|ing)|things to do|social calendar",
+      "functions?|fundrais(?:er|ing)|things to do|social calendar",
       "politics|election|protest|petition|campaign|activis[mt]",
       // Property, jobs and education.
       "realtors?|realty|real estate|property management|tiny house|holiday|tourism",
-      "employment|\\bjobs?\\b|hiring|recruit\\w*|vacanc\\w*|careers?",
+      "employment|hiring|recruit\\w*|vacanc\\w*|careers?",
       "\\buni\\b|university|students?|student accommodation|backpacker|research",
       "academic|psychology|research participation|girl guiding|scouts?",
       // Faith, cultural and other non-service groups seen in the catalogue.
       "church|bible|mosque|temple|pinoy|filipino|south africans?|kiwis?|expats?",
-      "creative|artists?|craft|genealogy|history|heritage|vegan|cooking|weight loss",
-      "aged care|traffic|merch|support group|community support",
+      "creative|artists?|craft|genealogy|heritage|vegan|cooking|weight loss",
+      "aged care|traffic|merch|support group",
     ].join("|") +
     ")\\b",
   "i"
@@ -164,7 +172,7 @@ const NOT_A_NAME =
  * homeowners actually talk, and it has to survive NOT_FOR_US as well.
  */
 const GOOD =
-  /\b(community|noticeboard|notice board|neighbou?rhood|bss|locals?|residents?|tradie|trades|services?|recommend|help|info|news|marketplace|garage sale|local|business(?:es)?|classifieds?|area|hub|mums?|parents?)\b/i;
+  /\b(community|noticeboard|notice board|neighbou?rhood|bss|locals?|residents?|tradies?|trades|services?|recommend\w*|help|info|news|marketplace|garage sale|local|business(?:es)?|classifieds?|area|hub|mums?|parents?|chat|forum|grapevine|what'?s (?:on|happening))\b/i;
 
 /** Common buy/sell word orders, including "buy, swap or sell". */
 const BUY_SELL =
@@ -195,7 +203,9 @@ export function groupNameRejection(name: string): string {
   const clean = tidyName(name);
   if (!clean || clean.length < 3) return "empty_name";
   if (/^Group \d+$/i.test(clean)) return "numeric_placeholder";
-  if (/^\d+[a-z]?\s/i.test(clean)) return "post_or_address";
+  // A street address, not a group. A four digit start is a postcode, and
+  // "6027 Community Noticeboard" is exactly the kind of group we want.
+  if (/^\d+[a-z]?\s/i.test(clean) && !/^\d{4}\s/.test(clean)) return "post_or_address";
   if (NOT_A_NAME.test(clean)) return "post_title";
   if (NOT_FOR_US.test(clean)) return "non_tradie_topic";
   if (!hasGoodSignal(clean)) return "no_local_group_signal";
@@ -280,7 +290,10 @@ export async function searchText(
   }
 }
 
-async function braveSearch(query: string, key: string): Promise<FoundGroup[]> {
+/** Filled in by findGroups so the caller can raise the alarm when search is down. */
+export type SearchReport = { asked: number; failed: number; status: number };
+
+async function braveSearch(query: string, key: string, report?: SearchReport): Promise<FoundGroup[]> {
   const res = await fetch(
     `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=20&country=AU&search_lang=en&ui_lang=en-AU&safesearch=strict&spellcheck=false&result_filter=web&extra_snippets=true`,
     { headers: { Accept: "application/json", "X-Subscription-Token": key } }
@@ -290,6 +303,10 @@ async function braveSearch(query: string, key: string): Promise<FoundGroup[]> {
     // limit exceeded" and group discovery looked merely unlucky for hours,
     // while the real answer was that the month's search credit had run out.
     console.error("brave search", res.status, (await res.text().catch(() => "")).slice(0, 200));
+    if (report) {
+      report.failed += 1;
+      report.status = res.status;
+    }
     return [];
   }
   const data = (await res.json()) as { web?: { results?: { title?: string; url?: string }[] } };
@@ -363,7 +380,9 @@ export async function findGroups(
   /** Every postcode in their state, for spotting somebody else's patch. */
   statePostcodes: Set<string> = new Set(),
   /** Optional niche used to improve ranking, never to admit a bad group. */
-  trade = ""
+  trade = "",
+  /** Counts the searches that failed, so an empty answer is not mistaken for bad luck. */
+  report?: SearchReport
 ): Promise<FoundGroup[]> {
   const brave = process.env.BRAVE_SEARCH_KEY;
   const gKey = process.env.GOOGLE_SEARCH_KEY;
@@ -393,6 +412,7 @@ export async function findGroups(
     : ANGLES;
 
   const jobs: { place: string; query: string }[] = [];
+  if (report) report.asked = places.length * Math.min(angles.length, perPlace);
   for (const place of places) {
     for (const angle of angles.slice(0, perPlace)) {
       // The postcode goes in when we know it. It was the single strongest
@@ -408,9 +428,12 @@ export async function findGroups(
 
   const answered = await Promise.all(
     jobs.map((j) =>
-      (brave ? braveSearch(j.query, brave) : googleSearch(j.query, gKey!, gCx!))
+      (brave ? braveSearch(j.query, brave, report) : googleSearch(j.query, gKey!, gCx!))
         .then((rows) => ({ place: j.place, rows }))
-        .catch(() => ({ place: j.place, rows: [] as FoundGroup[] }))
+        .catch(() => {
+          if (report) report.failed += 1;
+          return { place: j.place, rows: [] as FoundGroup[] };
+        })
     )
   );
 

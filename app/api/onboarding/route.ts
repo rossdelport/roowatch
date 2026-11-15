@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { currentUser, sendEmail } from "../../../db/auth";
 import { groups, profiles, sources } from "../../../db/schema";
@@ -82,10 +82,12 @@ export async function POST(request: Request) {
 
   // A pasted link becomes a watched source straight away. A bare name waits
   // for Ross to find the group on the welcome call.
+  // A group we found to be private is still listed so they can see why, but
+  // it watches nothing and must not use up one of their slots.
   const existingGroups = await db
     .select({ id: groups.id, name: groups.name })
     .from(groups)
-    .where(eq(groups.userId, user.id));
+    .where(and(eq(groups.userId, user.id), ne(groups.status, "private")));
 
   const requested = (body.groups ?? [])
     .map((g) => parseGroupInput(g))
@@ -117,9 +119,20 @@ export async function POST(request: Request) {
   // what is already stored by a trailing slash or similar and still be the
   // exact same group. Matching on the raw string missed that and created a
   // second source scanning the same group twice.
-  const allSources = await db.select({ id: sources.id, url: sources.url, active: sources.active }).from(sources);
+  const allSources = await db
+    .select({ id: sources.id, url: sources.url, active: sources.active, lastError: sources.lastError })
+    .from(sources);
 
   for (const g of parsed) {
+    // A group we already know is private can never send them a lead. The
+    // wizard turns these away before they get here; this stops an old tab or
+    // a hand made request adding one anyway.
+    if (
+      g.url &&
+      allSources.some((s) => groupSlug(s.url) === groupSlug(g.url!) && /private/i.test(s.lastError))
+    ) {
+      continue;
+    }
     wanted.push(g.url ? `${g.name} (${g.url})` : g.name);
 
     const existingGroup = existingGroups.find(
@@ -159,7 +172,7 @@ export async function POST(request: Request) {
       sourceId = created?.id;
       // So a second group later in this same request that resolves to the
       // same slug reuses it too, instead of racing another insert.
-      if (sourceId) allSources.push({ id: sourceId, url: g.url ?? "", active: 1 });
+      if (sourceId) allSources.push({ id: sourceId, url: g.url ?? "", active: 1, lastError: "" });
     }
 
     if (existingGroup) {

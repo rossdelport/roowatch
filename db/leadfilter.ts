@@ -174,7 +174,15 @@ export function obviousNonLeadReason(postText: string): string {
   if (/\b(?:book|pay|order)\s+(?:online|now)\b/.test(hay)) {
     return "This post is an advertisement with a booking or purchase call to action.";
   }
-  if (/\b(?:dm|message|call|text)\s+(?:me|us)\s+(?:for|to)\b/.test(hay)) {
+  // Some phrases are an ad in one mouth and a customer in another. "Message
+  // me to arrange a time" ends plenty of real requests, and "who can take on
+  // new clients" is how people ask for a cleaner. When the post is plainly
+  // asking for somebody, these are left for the model to read in context.
+  const asking =
+    /\?|\b(?:anyone|recommend\w*|looking for (?:a|an|some(?:one|body))|need(?:ing)? (?:a|an|some(?:one|body))|after (?:a|an|some(?:one|body)))\b/.test(
+      hay
+    );
+  if (!asking && /\b(?:dm|message|call|text)\s+(?:me|us)\s+(?:for|to)\b/.test(hay)) {
     return "This post is directing people to a provider, not seeking one.";
   }
   // Things members were actually texted about. Each is worded so a real
@@ -189,16 +197,19 @@ export function obviousNonLeadReason(postText: string): string {
     return "This post is selling something, not asking for a service.";
   }
   if (
-    /\b(?:looking|searching|hunting) for (?:any |some |more |casual |part[- ]time |full[- ]time |labouring |extra )?(?:work|a job|jobs)\b|\bavailable for (?:work|hire|jobs)\b|\bany work (?:going|available|around)\b|\btake on (?:more |new |extra )?(?:work|jobs|clients)\b/.test(
+    /\b(?:looking|searching|hunting) for (?:any |some |more |casual |part[- ]time |full[- ]time |labouring |extra )?(?:work|a job|jobs)\b|\bany work (?:going|available|around)\b/.test(
       hay
-    )
+    ) ||
+    (!asking &&
+      /\bavailable for (?:work|hire|jobs)\b|\btake on (?:more |new |extra )?(?:work|jobs|clients)\b/.test(hay))
   ) {
     return "This post is someone looking for work, not a customer.";
   }
   if (
-    /\b(?:we are|we're|now|currently) hiring\b|\bposition(?:s)? (?:available|vacant)\b|\bjob vacanc(?:y|ies)\b|\bapply (?:now|within|today|via)\b|\bimmediate start\b/.test(
+    /\b(?:we are|we're|now|currently) hiring\b|\bposition(?:s)? (?:available|vacant)\b|\bjob vacanc(?:y|ies)\b|\bapply (?:now|within|today|via)\b/.test(
       hay
-    )
+    ) ||
+    (!asking && /\bimmediate start\b/.test(hay))
   ) {
     return "This post is a job advertisement, not a customer.";
   }

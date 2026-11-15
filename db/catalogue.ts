@@ -6,8 +6,11 @@ import {
   isAcceptableGroupName,
   looksAustralian,
   nameMentionsPlace,
+  searchConfigured,
+  type SearchReport,
 } from "./groupsearch";
-import { MAX_RING, nearbySuburbs, postcodesFor, postcodesInState } from "./gazetteer";
+import { MAX_RING, metroCityFor, nearbySuburbs, postcodesFor, postcodesInState } from "./gazetteer";
+import { sendEmail } from "./auth";
 import { bdCollect, bdProgress, bdTrigger } from "./pipeline";
 import { groupSlug } from "./fbgroups";
 import { judgeGroupNames } from "./groupjudge";
@@ -106,6 +109,9 @@ async function patchMatcher(
 ): Promise<(name: string) => boolean> {
   const near = new Set(suburbs.map((s) => s.trim().toLowerCase()).filter(Boolean));
   try {
+    // A group named for their capital is theirs too, see metroCityFor.
+    const city = await metroCityFor(suburbs, state);
+    if (city) near.add(city.toLowerCase());
     for (const n of await nearbySuburbs(suburbs, state, 12, 0)) near.add(n.toLowerCase());
     for (let r = 1; r <= Math.min(ring, MAX_RING); r += 1) {
       for (const n of await nearbySuburbs(suburbs, state, SEARCH_PLACES, r)) {
@@ -248,6 +254,7 @@ export async function candidatesFor(
   }
 
   let found: Awaited<ReturnType<typeof findGroups>> = [];
+  const report: SearchReport = { asked: 0, failed: 0, status: 0 };
   try {
     // A short list gets padded with the suburbs next door. One suburb does not
     // have twenty Facebook groups in it, and a tradie in Templestowe works in
@@ -256,16 +263,23 @@ export async function candidatesFor(
     // and ranking still uses only what they actually gave us.
     // Ring 0 only pads a thin list. Every ring after it is a deliberate look
     // further out for somebody we still cannot fill, so it always pads.
-    const padWith = ring === 0 ? Math.max(0, SEARCH_PLACES - suburbs.length) : SEARCH_PLACES;
+    // Their capital counts as one of their own places, so "Perth Tradies &
+    // Recommendations" is found for somebody who only typed Joondalup.
+    const city = ring === 0 ? await metroCityFor(suburbs, state) : "";
+    const own = city ? [...suburbs, city] : suburbs;
+    const padWith = ring === 0 ? Math.max(0, SEARCH_PLACES - own.length) : SEARCH_PLACES;
     const wide = padWith
-      ? [...suburbs, ...(await nearbySuburbs(suburbs, state, padWith, ring))]
-      : suburbs;
+      ? [...own, ...(await nearbySuburbs(suburbs, state, padWith, ring))]
+      : own;
 
     const [postcodeOf, statePostcodes] = await Promise.all([
       postcodesFor(wide, state),
       postcodesInState(state),
     ]);
-    found = await findGroups(wide, state, 30, postcodeOf, statePostcodes, trade);
+    // The city is searched by state, not by the postcode of its own centre,
+    // or "Perth" would only ever find groups for the CBD.
+    if (city) postcodeOf.delete(city.toUpperCase());
+    found = await findGroups(wide, state, 30, postcodeOf, statePostcodes, trade, report);
 
     // A padded suburb is a guess, and some of them are shared with the other
     // side of the world. Padding with Doncaster brought back Doncaster in
@@ -276,13 +290,13 @@ export async function candidatesFor(
     // So anything found through a suburb they did not give us has to earn its
     // place: it must either name one of their real suburbs, or prove it is
     // Australian on its own. Their own suburbs are trusted as before.
-    if (wide.length > suburbs.length) {
-      const own = suburbs.map((s) => s.trim().toLowerCase()).filter(Boolean);
-      const added = wide.slice(suburbs.length).map((s) => s.trim().toLowerCase());
+    if (wide.length > own.length) {
+      const mine = own.map((s) => s.trim().toLowerCase()).filter(Boolean);
+      const added = wide.slice(own.length).map((s) => s.trim().toLowerCase());
       found = found.filter((g) => {
         const name = g.name.toLowerCase();
         // Their own suburbs are trusted, as they always were.
-        if (own.some((p) => nameMentionsPlace(name, p))) return true;
+        if (mine.some((p) => nameMentionsPlace(name, p))) return true;
         // Proof on its own face is enough too: a postcode, a state, "council".
         if (looksAustralian(g.name)) return true;
         // Otherwise it has to actually be about the suburb we guessed and
@@ -298,6 +312,7 @@ export async function candidatesFor(
     // here once cost hours of guessing at an empty result.
     console.error("group search failed", state, err);
   }
+  await searchAlarm(report);
 
   if (found.length) {
     const db = getDb();
@@ -348,18 +363,56 @@ export async function waitingFor(suburbs: string[], state: string, ring = 0): Pr
   const waiting = await db
     .select({ slug: foundGroups.slug, name: foundGroups.name, suburb: foundGroups.suburb })
     .from(foundGroups)
-    .where(and(eq(foundGroups.state, state), eq(foundGroups.checked, 0)))
+    .where(and(eq(foundGroups.state, state), inArray(foundGroups.checked, [0, MISSED_ONCE])))
     .orderBy(desc(foundGroups.foundAt))
     .limit(WAITING_PER_TOP_UP);
   return waiting.filter((g) => mentionsTheirPatch(`${g.suburb} ${g.name}`)).map((g) => g.slug);
 }
 
 /**
- * Open Bright Data snapshots to size up groups we have never read.
+ * How a found group proves it can be read: one real post from the last week.
  *
- * A two hour window, because a group has to produce at least one post for
- * Facebook to tell us how many members it has. Empty answers cost nothing, so
- * the quiet ones are free and the busy ones cost a fraction of a cent each.
+ * One post is all the proof needs, and it is all we buy. A week, because a
+ * two hour look could not tell a quiet public group from a private one.
+ */
+const PROOF_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const PROOF_POSTS = 1;
+/**
+ * found_groups.checked beyond 0, 1 and 2. A group that shows no post gets one
+ * more look before it is written off, because a single scraper hiccup must
+ * not bury a good group for good.
+ */
+const MISSED_ONCE = 4;
+const UNPROVEN = 3;
+
+/** Tell Ross when group search itself is broken, at most every six hours. */
+async function searchAlarm(report: SearchReport) {
+  const reason = !searchConfigured()
+    ? "No search key is set, so no groups can be found. Set BRAVE_SEARCH_KEY."
+    : report.failed
+      ? `${report.failed} of ${report.asked} group searches failed. The search service answered ${report.status || "with an error"}. A 402 or 429 means the search credit has run out.`
+      : "";
+  if (!reason) return;
+  console.error("group_search_alarm", { ...report, configured: searchConfigured() });
+  try {
+    if (!(await claimLease("group_search_alarm", 6 * 60 * 60 * 1000))) return;
+    await sendEmail(
+      "ross@roowatch.com.au",
+      "RooWatch cannot search for groups",
+      ["Group search is not working.", "", reason, "", "New members will get no groups found for them until this is fixed."].join("\n")
+    );
+  } catch (error) {
+    console.error("group_search_alarm_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Open Bright Data snapshots to prove groups we have never read.
+ *
+ * A group has to produce a post for Facebook to tell us anything about it.
+ * Empty answers cost nothing, and a group with a post costs one record.
  *
  * Up to SIZING_PER_CALL groups a call, SIZING_PER_SNAPSHOT to a snapshot. It
  * used to take twenty and open one snapshot, and a search that found forty
@@ -389,13 +442,15 @@ export async function sizeUnknown(slugs: string[]): Promise<void> {
     // Unchecked, not unsized. A quiet public group is verified but will never
     // report members, and filtering on members alone would re-snapshot it on
     // every single setup, forever.
-    const need = rows.filter((r) => !r.checked && !queued.has(r.slug));
+    const need = rows.filter(
+      (r) => (r.checked === 0 || r.checked === MISSED_ONCE) && !queued.has(r.slug)
+    );
     if (!need.length) return;
 
-    const since = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const since = new Date(Date.now() - PROOF_WINDOW_MS);
     for (let i = 0; i < need.length; i += SIZING_PER_SNAPSHOT) {
       const part = need.slice(i, i + SIZING_PER_SNAPSHOT);
-      const snapshotId = await bdTrigger(part.map((r) => r.url), since);
+      const snapshotId = await bdTrigger(part.map((r) => r.url), since, PROOF_POSTS);
       await db.insert(catalogueJobs).values({
         snapshotId,
         slugs: JSON.stringify(part.map((r) => r.slug)),
@@ -477,7 +532,12 @@ export async function collectCatalogue(): Promise<number> {
 
       const rows = slugs.length
         ? await db
-            .select({ slug: foundGroups.slug, url: foundGroups.url, name: foundGroups.name })
+            .select({
+              slug: foundGroups.slug,
+              url: foundGroups.url,
+              name: foundGroups.name,
+              checked: foundGroups.checked,
+            })
             .from(foundGroups)
             .where(inArray(foundGroups.slug, slugs))
         : [];
@@ -497,6 +557,17 @@ export async function collectCatalogue(): Promise<number> {
             await db.delete(foundGroups).where(eq(foundGroups.slug, row.slug));
             continue;
           }
+          // No post, no proof. "Bright Data did not say private" used to be
+          // enough, and a private or dead group that only answered "nothing
+          // found" was marked safe and handed to members. A group with no
+          // post in a week would not have sent them a lead anyway.
+          if (!fact.posts) {
+            await db
+              .update(foundGroups)
+              .set({ checked: row.checked === MISSED_ONCE ? UNPROVEN : MISSED_ONCE })
+              .where(eq(foundGroups.slug, row.slug));
+            continue;
+          }
           const name = fact.name || row.name;
           // A readable page can still be the wrong kind of group. Do not mark
           // a stale or newly renamed hobby group as safe merely because Bright
@@ -512,9 +583,8 @@ export async function collectCatalogue(): Promise<number> {
           readable.push({ slug: row.slug, name, patch });
         }
 
-        // The snapshot was ready and these were not flagged private, so
-        // Bright Data got in. That is the same standard the live scanner
-        // uses. The last test is whether a person would call it a community
+        // Each of these handed over a real post, so we know it can be read.
+        // The last test is whether a person would call it a community
         // group, and a word list cannot answer that. If the model cannot be
         // asked right now the rows stay unchecked and the snapshot stays
         // queued, so the next pass asks again without buying another read.

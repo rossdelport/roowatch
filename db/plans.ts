@@ -106,6 +106,25 @@ export function smsLimit(value: string | null | undefined): number {
   return planFor(value).smsPerMonth;
 }
 
+/**
+ * Subscription states that are owed a working product.
+ *
+ * The dashboard has always put up a card wall for anybody else, but the
+ * scanner never looked: an account that finished setup and walked away from
+ * Stripe was still scraped and still sent leads, for nothing, for ever. Both
+ * now ask this one question.
+ *
+ * past_due is in on purpose. Stripe retries a failed card for days, and
+ * cutting somebody off over a bank hiccup loses a customer who meant to pay.
+ * "comp" is for a member Ross is looking after for free: set
+ * profiles.subscription_status to it by hand, see docs/operations.md.
+ */
+const ENTITLED = new Set(["trialing", "active", "past_due", "comp"]);
+
+export function isEntitled(status: string | null | undefined): boolean {
+  return ENTITLED.has(String(status ?? ""));
+}
+
 export const PLAN_KEYS = Object.keys(PLANS) as PlanKey[];
 
 /**

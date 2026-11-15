@@ -27,6 +27,12 @@ export async function GET(request: Request) {
       // Facebook's own words when a group cannot be read, so a member is told
       // their group is private rather than left wondering why it is quiet.
       problem: sql<string>`coalesce(${sources.lastError}, '')`,
+      // The real state of the scan, so the dashboard can say what is true
+      // instead of "Watching" for anything with the right status. members is
+      // 0 until the group has handed us its first post.
+      checked: sql<number>`coalesce(${sources.lastChecked}, 0)`,
+      members: sql<number>`coalesce(${sources.members}, 0)`,
+      active: sql<number>`coalesce(${sources.active}, 0)`,
     })
     .from(groups)
     .leftJoin(

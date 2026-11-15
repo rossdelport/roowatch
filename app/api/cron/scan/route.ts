@@ -163,7 +163,7 @@ async function collectJob(job: Job, claimMarker: string, run: ScanRun): Promise<
       const slug = groupSlug(source.url);
       const posts = byGroup.get(slug) ?? [];
       const fact = facts.get(slug);
-      await processSource(source.id, posts, { run, fact });
+      await processSource(source.id, posts, { run, fact, checkedAt: job.startedAt });
       await learnAbout(source, fact);
       collected += 1;
     }
@@ -187,6 +187,14 @@ async function collectJob(job: Job, claimMarker: string, run: ScanRun): Promise<
  *
  * Whether the group can be read at all is recorded by processSource, in the
  * same write as the rest of the pass.
+ *
+ * A group Facebook says is private, and that has never once given us a post,
+ * is taken off every watchlist here. It used to sit there holding one of the
+ * member's slots and being asked about every five minutes for ever. Marked
+ * "private" rather than deleted, so the member can see what happened to it,
+ * and once nobody is watching it the scanner stops asking on its own. A group
+ * we have read before is left alone: one odd answer must not cost a member a
+ * group that was working yesterday.
  */
 async function learnAbout(
   source: { id: number; groupName: string; url: string; members: number },
@@ -194,6 +202,18 @@ async function learnAbout(
 ) {
   if (!fact) return;
   const db = getDb();
+
+  if (fact.private && !fact.posts && !source.members) {
+    const retired = await db
+      .update(groups)
+      .set({ status: "private" })
+      .where(and(eq(groups.sourceId, source.id), eq(groups.status, "watching")))
+      .returning({ id: groups.id });
+    if (retired.length) {
+      console.warn("private_group_retired", { sourceId: source.id, url: source.url, members: retired.length });
+    }
+    return;
+  }
 
   // Kept fresh on every pass. A group's size drifts, and a stale number is
   // worse than none when somebody is choosing between groups.

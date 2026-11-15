@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import { getDb } from "./index";
 import {
   buildLeadClassifierPrompt,
@@ -16,9 +16,9 @@ import {
   type LeadMemberProfile,
   type LeadPass,
 } from "./leadfilter";
-import { sendEmail } from "./auth";
+import { ADMIN_EMAIL_LIST, isAdminEmail, sendEmail } from "./auth";
 import { groupSlug, postPermalink } from "./fbgroups";
-import { postLimit, smsLimit } from "./plans";
+import { isEntitled, postLimit, smsLimit } from "./plans";
 import { newShortCode, sendSms, smsBody, smsProvider } from "./sms";
 import { alerts, groups, profiles, seenPosts, sources, users } from "./schema";
 
@@ -70,7 +70,12 @@ export type BdInput = string | { url: string; since: Date };
  * a wider window without dragging every other group in the snapshot back
  * with it, which is what happened when one date covered the whole batch.
  */
-export async function bdTrigger(inputs: BdInput[], since?: Date): Promise<string> {
+export async function bdTrigger(
+  inputs: BdInput[],
+  since?: Date,
+  /** Most posts to buy for one group. The catalogue only needs one as proof. */
+  perGroup = POSTS_PER_GROUP_CAP
+): Promise<string> {
   const stamp = (date: Date) => date.toISOString().replace(/\.\d+Z$/, ".000Z");
   const body = inputs.map((input) => {
     const url = typeof input === "string" ? input : input.url;
@@ -85,7 +90,7 @@ export async function bdTrigger(inputs: BdInput[], since?: Date): Promise<string
   });
 
   const res = await fetch(
-    `${BD_API}/trigger?dataset_id=${BD_DATASET}&include_errors=true&limit_per_input=${POSTS_PER_GROUP_CAP}`,
+    `${BD_API}/trigger?dataset_id=${BD_DATASET}&include_errors=true&limit_per_input=${perGroup}`,
     {
       method: "POST",
       headers: bdHeaders(),
@@ -125,6 +130,12 @@ export type GroupFacts = {
   error: string;
   /** True when Facebook says only members may read it. It will never work. */
   private: boolean;
+  /**
+   * Real posts this snapshot held for the group. The only proof a group can
+   * be read: a private or dead group that simply answers "nothing found"
+   * looks exactly like a quiet public one in every other field.
+   */
+  posts: number;
 };
 
 /**
@@ -200,7 +211,7 @@ function readFacts(
 ): Map<string, GroupFacts> {
   const facts = new Map<string, GroupFacts>();
   for (const url of sourceUrls) {
-    facts.set(groupSlug(url), { name: "", members: 0, error: "", private: false });
+    facts.set(groupSlug(url), { name: "", members: 0, error: "", private: false, posts: 0 });
   }
 
   for (const row of rows) {
@@ -208,6 +219,8 @@ function readFacts(
     const from = String(input?.url ?? row.group_url ?? row.url ?? "");
     const fact = facts.get(groupSlug(from));
     if (!fact) continue;
+
+    if (String(row.post_id ?? "").trim()) fact.posts += 1;
 
     const name = String(row.group_name ?? "").trim();
     if (name) fact.name = name;
@@ -331,6 +344,31 @@ export async function fetchPosts(sourceUrl: string): Promise<FetchedPost[]> {
 }
 
 /**
+ * How old a post may be and still be worth a text.
+ *
+ * A normal scan finds a post within about ten minutes. Anything older came
+ * from a catch up: the first look at a new group reaches back an hour, and
+ * the look after an outage reaches back up to six.
+ */
+const TEXT_MAX_AGE_MINUTES = 30;
+
+/** Minutes since Facebook says it was posted, or null when it did not say. */
+export function postAgeMinutes(postedAt: string, now = Date.now()): number | null {
+  const at = Date.parse(postedAt);
+  if (!postedAt || !Number.isFinite(at)) return null;
+  return Math.max(0, Math.round((now - at) / 60000));
+}
+
+/** "12 minutes ago". Empty when the age is unknown, so nothing is made up. */
+export function agoText(minutes: number | null): string {
+  if (minutes === null) return "";
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+}
+
+/**
  * Text the member, if they want texts and have not used up their allowance.
  *
  * Email is the record and always goes out. A text is only the nudge that gets
@@ -344,6 +382,10 @@ async function maybeText(
   groupName: string
 ) {
   if (alert.smsSent === 1) return;
+  // A text says "drop what you are doing". An old post has usually been
+  // answered already, so it goes by email and the dashboard only.
+  const age = postAgeMinutes(post.postedAt);
+  if (age !== null && age > TEXT_MAX_AGE_MINUTES) return;
   if (!profile.smsEnabled || !profile.alertPhone) return;
   if (!smsProvider()) return;
 
@@ -521,7 +563,7 @@ export type ScanRun = {
   users: Map<string, UserRow>;
   profiles: Map<string, ProfileRow>;
   /** Groups that had nothing new and no change to record, written in one go. */
-  quiet: number[];
+  quiet: { id: number; at: number }[];
 };
 
 export async function startScanRun(sourceIds: number[]): Promise<ScanRun> {
@@ -573,12 +615,17 @@ export async function startScanRun(sourceIds: number[]): Promise<ScanRun> {
 export async function finishScanRun(run: ScanRun) {
   if (!run.quiet.length) return;
   const db = getDb();
-  const now = Date.now();
-  for (const part of chunkList(run.quiet, 80)) {
-    await db
-      .update(sources)
-      .set({ lastChecked: now, lastCount: 0, lastMatches: 0 })
-      .where(inArray(sources.id, part));
+  // One write per snapshot rather than one per group. Each group is stamped
+  // with the moment its own snapshot was asked for, see ProcessOptions.
+  const byTime = new Map<number, number[]>();
+  for (const { id, at } of run.quiet) byTime.set(at, [...(byTime.get(at) ?? []), id]);
+  for (const [at, ids] of byTime) {
+    for (const part of chunkList(ids, 80)) {
+      await db
+        .update(sources)
+        .set({ lastChecked: at, lastCount: 0, lastMatches: 0 })
+        .where(inArray(sources.id, part));
+    }
   }
   run.quiet = [];
 }
@@ -612,7 +659,25 @@ export type ProcessOptions = {
   run?: ScanRun;
   /** What the snapshot said about the group beyond its posts. */
   fact?: GroupFacts;
+  /**
+   * When the snapshot was asked for. The group is only known to be read up to
+   * that moment, not up to whenever we got round to opening the answer. It
+   * used to be stamped with the later time, and when a snapshot was slow the
+   * minutes in between were never asked for again.
+   */
+  checkedAt?: number;
 };
+
+/**
+ * How long a post that failed keeps being asked for again.
+ *
+ * A failed check used to move lastChecked on regardless, so the post fell out
+ * of the next window after about one more try and was gone, with nothing to
+ * show for it. Now a group with a failure keeps its window open this far back
+ * so the post is fetched and tried again each run. Capped, because we pay for
+ * every post in the window on every run: half an hour is about six tries.
+ */
+const RETRY_HOLD_MS = 30 * 60 * 1000;
 
 /** Run one source end to end: fetch, dedup, match per member, alert. */
 export async function processSource(
@@ -622,6 +687,7 @@ export async function processSource(
 ) {
   const db = getDb();
   const { run, fact } = options;
+  const checkedAt = options.checkedAt ?? Date.now();
   const source =
     run?.sources.get(sourceId) ??
     (await db.select().from(sources).where(eq(sources.id, sourceId)).limit(1))[0];
@@ -683,6 +749,9 @@ export async function processSource(
         watcherIds = [...new Set(watchers.map((w) => w.userId))];
       }
 
+      // A group that failed last time is being tried again, see RETRY_HOLD_MS.
+      const retrying = Boolean(source.lastError);
+
       for (const post of fresh) {
         const postKey = `${source.id}:${post.id}`.slice(0, 190);
         let postOk = true;
@@ -696,6 +765,11 @@ export async function processSource(
             (await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1))[0];
           if (!user || !profile) continue;
 
+          // Nobody is sent leads they are not paying for. The dashboard has
+          // always walled an unpaid account off; this is the same question
+          // asked where the money is actually spent.
+          if (!isEntitled(profile.subscriptionStatus) && !isAdminEmail(user.email)) continue;
+
           // Fair use. A successful classifier call costs money, so a member who
           // is far past their monthly allowance stops being charged for until
           // next month. The allowance comes from their plan, so this doubles as
@@ -705,38 +779,68 @@ export async function processSource(
           if (used >= postLimit(profile.plan)) continue;
 
           try {
-            const verdict = await classifyPost(post, {
-              trade: profile.trade,
-              services: profile.services,
-              location: profile.location,
-              brief: profile.brief,
-            }, { groupName: source.groupName });
-            await db
-              .update(profiles)
-              .set({ postsUsed: used + 1, usageMonth: month })
-              .where(eq(profiles.userId, userId));
-            // The cached copy has to keep count too, or the cap would only
-            // be checked against what it was when the run began.
-            profile.postsUsed = used + 1;
-            profile.usageMonth = month;
-            if (!verdict.match) continue;
+            const findAlert = () =>
+              db
+                .select({
+                  id: alerts.id,
+                  emailSent: alerts.emailSent,
+                  smsSent: alerts.smsSent,
+                  shortCode: alerts.shortCode,
+                  reason: alerts.reason,
+                })
+                .from(alerts)
+                .where(and(eq(alerts.userId, userId), eq(alerts.postKey, postKey)))
+                .limit(1);
 
-            summary.matches += 1;
+            // The alert row is an idempotent outbox record. When this group
+            // failed last time, the post may already have been judged a lead
+            // and only the email fell over, so look before paying two models
+            // to read it again.
+            let alert = retrying ? (await findAlert())[0] : undefined;
 
-            // Keep the alert row as an idempotent outbox record. If delivery
-            // fails, the next scan retries the email without creating another
-            // alert in the member's dashboard.
-            let [alert] = await db
-              .select({
-                id: alerts.id,
-                emailSent: alerts.emailSent,
-                smsSent: alerts.smsSent,
-                shortCode: alerts.shortCode,
-              })
-              .from(alerts)
-              .where(and(eq(alerts.userId, userId), eq(alerts.postKey, postKey)))
-              .limit(1);
             if (!alert) {
+              const verdict = await classifyPost(post, {
+                trade: profile.trade,
+                services: profile.services,
+                location: profile.location,
+                brief: profile.brief,
+              }, { groupName: source.groupName });
+              await db
+                .update(profiles)
+                .set({ postsUsed: used + 1, usageMonth: month })
+                .where(eq(profiles.userId, userId));
+              // The cached copy has to keep count too, or the cap would only
+              // be checked against what it was when the run began.
+              profile.postsUsed = used + 1;
+              profile.usageMonth = month;
+              if (!verdict.match) continue;
+
+              // People paste the same request into every group in town. One
+              // job is one lead, however many groups it turns up in.
+              const [twin] = await db
+                .select({ id: alerts.id })
+                .from(alerts)
+                .where(
+                  and(
+                    eq(alerts.userId, userId),
+                    eq(alerts.postText, post.text.slice(0, 1000)),
+                    ne(alerts.postKey, postKey),
+                    sql`${alerts.sentAt} >= datetime('now', '-2 days')`
+                  )
+                )
+                .limit(1);
+              if (twin) {
+                console.log(JSON.stringify({
+                  event: "lead_cross_post_skipped",
+                  sourceId: source.id,
+                  postId: post.id,
+                  alertId: twin.id,
+                }));
+                continue;
+              }
+
+              summary.matches += 1;
+
               await db
                 .insert(alerts)
                 .values({
@@ -749,32 +853,28 @@ export async function processSource(
                   shortCode: newShortCode(),
                 })
                 .onConflictDoNothing();
-              [alert] = await db
-                .select({
-                  id: alerts.id,
-                  emailSent: alerts.emailSent,
-                  smsSent: alerts.smsSent,
-                  shortCode: alerts.shortCode,
-                })
-                .from(alerts)
-                .where(and(eq(alerts.userId, userId), eq(alerts.postKey, postKey)))
-                .limit(1);
+              alert = (await findAlert())[0];
             }
             if (!alert) throw new Error("alert_not_persisted");
             await maybeText(alert, profile, post, source.groupName);
             if (alert.emailSent === 1) continue;
 
+            // Say how old the post is. "Just posted" on something two hours
+            // old sends a tradie racing to a job that has already gone.
+            const ago = agoText(postAgeMinutes(post.postedAt));
             const emailed = await sendEmail(
               user.email,
               `New lead in ${source.groupName}`,
               [
                 "G'day,",
                 "",
-                `Someone just posted in ${source.groupName}:`,
+                ago
+                  ? `Someone posted in ${source.groupName} ${ago}:`
+                  : `Someone posted in ${source.groupName}:`,
                 "",
                 `"${post.text.slice(0, 600)}"`,
                 "",
-                verdict.reason ? `Why we sent this: ${verdict.reason}` : "",
+                alert.reason ? `Why we sent this: ${alert.reason}` : "",
                 post.url ? `Open the post: ${post.url}` : "",
                 "",
                 "Reply fast. The first business to answer usually wins the job.",
@@ -832,19 +932,27 @@ export async function processSource(
 
   // What Facebook said about the group outranks our own summary when we
   // failed, and a snapshot that says nothing is not evidence that a private
-  // group became readable, so the old reason is carried forward.
-  const lastError =
-    summary.error || fact?.error || (summary.posts > 0 ? "" : source.lastError);
+  // group became readable, so that reason is carried forward. Only that one:
+  // a failed check that has since aged out must not sit on a quiet group
+  // looking like a live fault.
+  const carried = /private/i.test(source.lastError) ? source.lastError : "";
+  const lastError = summary.error || fact?.error || (summary.posts > 0 ? "" : carried);
+
+  // After a failure the window stays open so the next run fetches the post
+  // again, but never further back than RETRY_HOLD_MS.
+  const lastChecked = summary.error
+    ? Math.min(checkedAt, Math.max(source.lastChecked, checkedAt - RETRY_HOLD_MS))
+    : checkedAt;
 
   const nothingToRecord =
     run && summary.posts === 0 && summary.matches === 0 && lastError === source.lastError;
   if (nothingToRecord) {
-    run.quiet.push(source.id);
+    run.quiet.push({ id: source.id, at: lastChecked });
   } else {
     await db
       .update(sources)
       .set({
-        lastChecked: Date.now(),
+        lastChecked,
         lastCount: summary.posts,
         lastMatches: summary.matches,
         lastError,
@@ -859,51 +967,71 @@ export async function processSource(
   return summary;
 }
 
+/**
+ * Is this group worth paying to read right now?
+ *
+ * Yes when somebody who is paying, and has posts left this month, is watching
+ * it. That one test covers three leaks at once: accounts that finished setup
+ * and never added a card, groups left behind when a member deleted their
+ * account or removed the group, and members who have used their allowance.
+ *
+ * The scanner and the watchdog both ask this, so a group we chose not to read
+ * is never mistaken for a group the scanner failed to reach.
+ *
+ * Two small plain queries, on purpose. An earlier version did this as one
+ * join on every tick and blew the Worker's CPU budget.
+ */
+export async function worthScanning(): Promise<(source: { id: number; groupName: string }) => boolean> {
+  const db = getDb();
+  const month = new Date().toISOString().slice(0, 7);
+  const everyone = await db
+    .select({
+      userId: profiles.userId,
+      plan: profiles.plan,
+      used: profiles.postsUsed,
+      when: profiles.usageMonth,
+      status: profiles.subscriptionStatus,
+    })
+    .from(profiles);
+  const admins = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(inArray(users.email, ADMIN_EMAIL_LIST));
+  const adminIds = new Set(admins.map((a) => a.id));
+
+  const paying = new Set<string>();
+  for (const p of everyone) {
+    if (!isEntitled(p.status) && !adminIds.has(p.userId)) continue;
+    if ((p.when === month ? p.used : 0) >= postLimit(p.plan)) continue;
+    paying.add(p.userId);
+  }
+
+  const watched = await db
+    .select({ sourceId: groups.sourceId, userId: groups.userId, name: groups.name })
+    .from(groups)
+    .where(eq(groups.status, "watching"));
+  const ids = new Set<number>();
+  // A group added by name alone has no source id, see watchersOf.
+  const names = new Set<string>();
+  for (const row of watched) {
+    if (!paying.has(row.userId)) continue;
+    if (row.sourceId == null) names.add(row.name.toLowerCase());
+    else ids.add(row.sourceId);
+  }
+  return (source) => ids.has(source.id) || names.has(source.groupName.toLowerCase());
+}
+
 /** Pick the most overdue active sources for a cron tick. */
 export async function dueSources(limit: number) {
   const db = getDb();
   const all = await db.select().from(sources).where(eq(sources.active, 1));
-
-  // A source nobody has budget left for is a source we must stop buying.
-  //
-  // The post cap used to be checked only when handing a post to a member,
-  // which saved the Claude call and nothing else: Bright Data had already
-  // delivered and been paid for the record.
-  //
-  // Profiles first, and usually that is the whole job. The table is small and
-  // almost nobody is ever over their cap, so the expensive join across every
-  // group only runs on the rare tick where somebody actually is. The first
-  // version ran that join every minute and blew the worker's CPU budget, which
-  // killed the scan itself.
-  const month = new Date().toISOString().slice(0, 7);
-  const everyone = await db
-    .select({ userId: profiles.userId, plan: profiles.plan, used: profiles.postsUsed, when: profiles.usageMonth })
-    .from(profiles);
-  const capped = everyone
-    .filter((p) => (p.when === month ? p.used : 0) >= postLimit(p.plan))
-    .map((p) => p.userId);
-
-  let broke = new Set<number>();
-  if (capped.length) {
-    const watched = await db
-      .select({ sourceId: groups.sourceId, userId: groups.userId })
-      .from(groups)
-      .where(eq(groups.status, "watching"));
-    const withBudget = new Set<number>();
-    const all = new Set<number>();
-    for (const row of watched) {
-      if (row.sourceId == null) continue;
-      all.add(row.sourceId);
-      if (!capped.includes(row.userId)) withBudget.add(row.sourceId);
-    }
-    broke = new Set([...all].filter((id) => !withBudget.has(id)));
-  }
+  const wanted = await worthScanning();
 
   const selected = [];
   const urls = new Set<string>();
   for (const source of all.sort((a, b) => a.lastChecked - b.lastChecked)) {
     if (urls.has(source.url)) continue;
-    if (broke.has(source.id)) continue;
+    if (!wanted(source)) continue;
     urls.add(source.url);
     selected.push(source);
     if (selected.length >= limit) break;

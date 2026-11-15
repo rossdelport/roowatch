@@ -204,6 +204,40 @@ const SHARED_NAMES = new Set(
   ].map((n) => n.toLowerCase())
 );
 
+/**
+ * The inner postcode band of each capital city.
+ *
+ * Plenty of the best groups are named for the city, not the suburb: "Perth
+ * Tradies & Recommendations" never says Joondalup. A member whose suburbs sit
+ * inside one of these bands is also offered groups named for that city.
+ *
+ * The bands are kept tight on purpose. They are the well known metro ranges,
+ * not a survey, and a tradie in Gosford or Mandurah should not be handed a
+ * Sydney or Perth group because of a generous guess.
+ */
+const METRO: Record<string, { city: string; bands: [number, number][] }> = {
+  "New South Wales": { city: "Sydney", bands: [[2000, 2234]] },
+  Victoria: { city: "Melbourne", bands: [[3000, 3207]] },
+  Queensland: { city: "Brisbane", bands: [[4000, 4179]] },
+  "Western Australia": { city: "Perth", bands: [[6000, 6199]] },
+  "South Australia": { city: "Adelaide", bands: [[5000, 5199]] },
+  Tasmania: { city: "Hobart", bands: [[7000, 7099]] },
+  "Northern Territory": { city: "Darwin", bands: [[800, 839]] },
+  "Australian Capital Territory": { city: "Canberra", bands: [[2600, 2618], [2900, 2914]] },
+};
+
+/** The capital a member works in, or "" when their suburbs are outside one. */
+export async function metroCityFor(suburbs: string[], state: string): Promise<string> {
+  const metro = METRO[state];
+  if (!metro) return "";
+  const known = await postcodesFor(suburbs, state);
+  const inside = [...known.values()].some((pc) => {
+    const n = Number(pc);
+    return metro.bands.some(([low, high]) => n >= low && n <= high);
+  });
+  return inside ? metro.city : "";
+}
+
 const RING_EDGES = [0, 3, 9, 18, 30, 42];
 
 /** The last ring there is. Beyond this we stop looking and say so. */

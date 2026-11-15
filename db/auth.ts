@@ -76,6 +76,9 @@ export async function endSession(request: Request) {
 /** Only Ross's RooWatch account can open the admin command centre. */
 const ADMIN_EMAILS = new Set(["ross@roowatch.com.au"]);
 
+/** For queries that need to find the admin rows rather than test one email. */
+export const ADMIN_EMAIL_LIST = [...ADMIN_EMAILS];
+
 export function isAdminEmail(email: string) {
   return ADMIN_EMAILS.has(email.trim().toLowerCase());
 }

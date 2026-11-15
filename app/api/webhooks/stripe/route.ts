@@ -219,6 +219,12 @@ async function handleCheckoutCompleted(session: CheckoutSession) {
 
   const { plan, trialEndsAt } = await planFromSession(session);
 
+  // Somebody who lapsed and has now paid again had every group paused when
+  // they lapsed. Nothing switched them back on here, so they paid, saw an
+  // unlocked dashboard, and got no leads. Before the status write, like every
+  // other side effect in this file, so a retried event runs it again.
+  await reactivateMember(user.id);
+
   await db
     .update(profiles)
     .set({
